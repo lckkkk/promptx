@@ -258,9 +258,6 @@ export function updateDocument(slug, input = {}) {
   if (!existing) {
     return { error: 'not_found' }
   }
-  if (existing.edit_token !== input.editToken) {
-    return { error: 'forbidden' }
-  }
 
   const title = clampText(input.title || '', 140)
   const visibility = normalizeVisibility(input.visibility)
@@ -321,13 +318,10 @@ export function updateDocument(slug, input = {}) {
   return getDocumentBySlug(slug)
 }
 
-export function deleteDocument(slug, editToken) {
+export function deleteDocument(slug) {
   const row = get('SELECT id, edit_token FROM documents WHERE slug = ?', [slug])
   if (!row) {
     return { error: 'not_found' }
-  }
-  if (row.edit_token !== editToken) {
-    return { error: 'forbidden' }
   }
 
   const blocks = loadBlocks(row.id)
@@ -375,9 +369,6 @@ export function buildDocumentExports(document) {
   }
 }
 
-export function canEditDocument(slug, editToken) {
-  if (!editToken) {
-    return false
-  }
-  return Boolean(get('SELECT 1 FROM documents WHERE slug = ? AND edit_token = ?', [slug, editToken]))
+export function canEditDocument(slug) {
+  return Boolean(get('SELECT 1 FROM documents WHERE slug = ?', [slug]))
 }

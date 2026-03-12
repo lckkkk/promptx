@@ -97,6 +97,9 @@ function setBlocks(nextBlocks) {
 
 function setTextRef(element, index) {
   if (element) {
+    if (textareas.value[index] === element) {
+      return
+    }
     textareas.value[index] = element
     resizeTextarea(element)
     return
@@ -108,8 +111,22 @@ function resizeTextarea(element) {
   if (!element) {
     return
   }
-  element.style.height = '0px'
+
+  const scrollX = window.scrollX
+  const scrollY = window.scrollY
+  const selectionStart = element.selectionStart
+  const selectionEnd = element.selectionEnd
+  const isActive = document.activeElement === element
+
+  element.style.height = 'auto'
   element.style.height = `${Math.max(element.scrollHeight, 40)}px`
+
+  if (isActive && selectionStart !== null && selectionEnd !== null) {
+    element.setSelectionRange(selectionStart, selectionEnd)
+  }
+  if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+    window.scrollTo(scrollX, scrollY)
+  }
 }
 
 function placeCursor(index, position = null) {
@@ -520,14 +537,20 @@ function handleTextKeydown(index, event) {
   }
 }
 
+const blockLayoutSignature = computed(() =>
+  blocks.value
+    .map((block, index) => `${index}:${block.type}:${block.meta?.collapsed ? '1' : '0'}`)
+    .join('|')
+)
+
 watch(
-  blocks,
+  blockLayoutSignature,
   () => {
     nextTick(() => {
       textareas.value.forEach((element) => resizeTextarea(element))
     })
   },
-  { deep: true, immediate: true }
+  { immediate: true }
 )
 
 watch(

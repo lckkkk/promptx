@@ -12,7 +12,6 @@ import { useRoute } from 'vue-router'
 import TopToast from '../components/TopToast.vue'
 import { useToast } from '../composables/useToast.js'
 import { getApiBase, getDocument, resolveAssetUrl } from '../lib/api.js'
-import { getEditToken } from '../lib/tokens.js'
 
 const route = useRoute()
 const slug = computed(() => route.params.slug)
@@ -20,7 +19,6 @@ const document = ref(null)
 const error = ref('')
 const loading = ref(true)
 const rawUrl = computed(() => `${getApiBase()}/p/${slug.value}/raw`)
-const canEdit = computed(() => Boolean(getEditToken(slug.value)))
 const collapsedMap = ref({})
 const { toastMessage, flashToast } = useToast()
 let loadRequestId = 0
@@ -103,7 +101,7 @@ watch(slug, () => {
           <span>返回首页</span>
         </RouterLink>
         <div class="flex flex-wrap gap-2">
-          <RouterLink v-if="canEdit" :to="`/edit/${slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
+          <RouterLink :to="`/edit/${slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
             <SquarePen class="h-4 w-4" />
             <span>编辑</span>
           </RouterLink>

@@ -7,10 +7,11 @@ import {
   Plus,
   RefreshCw,
   SquarePen,
+  Trash2,
 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
-import { createDocument, listDocuments } from '../lib/api.js'
-import { getEditToken, setEditToken } from '../lib/tokens.js'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { createDocument, deleteDocument, listDocuments } from '../lib/api.js'
 
 const router = useRouter()
 const form = ref({
@@ -18,6 +19,8 @@ const form = ref({
 })
 const items = ref([])
 const busy = ref(false)
+const deletingSlug = ref('')
+const deleteTarget = ref(null)
 const loading = ref(false)
 const error = ref('')
 
@@ -45,7 +48,6 @@ async function handleCreate() {
       expiry: '24h',
       visibility: 'listed',
     })
-    setEditToken(document.slug, document.editToken)
     router.push(`/edit/${document.slug}`)
   } catch (err) {
     error.value = err.message
@@ -54,11 +56,52 @@ async function handleCreate() {
   }
 }
 
+function openDeleteDialog(item) {
+  deleteTarget.value = item
+}
+
+function closeDeleteDialog() {
+  if (deletingSlug.value) {
+    return
+  }
+  deleteTarget.value = null
+}
+
+async function handleDelete() {
+  if (!deleteTarget.value) {
+    return
+  }
+
+  deletingSlug.value = deleteTarget.value.slug
+  error.value = ''
+  try {
+    await deleteDocument(deleteTarget.value.slug)
+    items.value = items.value.filter((entry) => entry.slug !== deleteTarget.value.slug)
+    deleteTarget.value = null
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    deletingSlug.value = ''
+  }
+}
+
 onMounted(loadDocuments)
 </script>
 
 <template>
   <div class="flex flex-col gap-5">
+    <ConfirmDialog
+      :open="Boolean(deleteTarget)"
+      title="确认删除文档？"
+      :description="`将删除「${deleteTarget?.title || '未命名文档'}」，删除后无法恢复。`"
+      confirm-text="确认删除"
+      cancel-text="先保留"
+      :loading="Boolean(deletingSlug)"
+      danger
+      @cancel="closeDeleteDialog"
+      @confirm="handleDelete"
+    />
+
     <section class="panel flex flex-col gap-4 p-5">
       <div>
         <div class="inline-flex items-center gap-2 rounded-sm border border-dashed border-stone-300 px-3 py-2 text-xs text-stone-600 dark:border-stone-700 dark:text-stone-400">
@@ -113,15 +156,21 @@ onMounted(loadDocuments)
             <p class="mt-1 truncate text-xs text-stone-500 dark:text-stone-400">{{ item.preview || `/${item.slug}` }}</p>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2 text-xs text-stone-500 dark:text-stone-400 sm:justify-end">
+          <div class="flex flex-col items-start gap-2 text-xs text-stone-500 dark:text-stone-400 sm:items-end">
             <span class="inline-flex items-center gap-1">
               <Clock3 class="h-3.5 w-3.5" />
               <span>{{ new Date(item.updatedAt).toLocaleString('zh-CN') }}</span>
             </span>
-            <RouterLink v-if="Boolean(getEditToken(item.slug))" :to="`/edit/${item.slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
-              <SquarePen class="h-4 w-4" />
-              <span>编辑</span>
-            </RouterLink>
+            <div class="flex flex-wrap items-center gap-2">
+              <RouterLink :to="`/edit/${item.slug}`" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs">
+                <SquarePen class="h-4 w-4" />
+                <span>编辑</span>
+              </RouterLink>
+              <button type="button" class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-red-200" :disabled="deletingSlug === item.slug" @click="openDeleteDialog(item)">
+                <Trash2 class="h-4 w-4" />
+                <span>{{ deletingSlug === item.slug ? '删除中...' : '删除' }}</span>
+              </button>
+            </div>
           </div>
         </article>
       </div>

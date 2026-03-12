@@ -66,7 +66,7 @@ function purgeExpiredContent(force = false) {
 await app.register(cors, {
   origin: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-edit-token'],
+  allowedHeaders: ['Content-Type'],
 })
 
 await app.register(multipart, {
@@ -113,7 +113,7 @@ app.get('/api/documents/:slug', async (request, reply) => {
 
   return {
     ...document,
-    canEdit: canEditDocument(request.params.slug, request.headers['x-edit-token']),
+    canEdit: canEditDocument(request.params.slug),
   }
 })
 
@@ -123,20 +123,14 @@ app.put('/api/documents/:slug', async (request, reply) => {
   if (result.error === 'not_found') {
     return reply.code(404).send({ message: '文档不存在。' })
   }
-  if (result.error === 'forbidden') {
-    return reply.code(403).send({ message: '编辑凭证无效。' })
-  }
   return result
 })
 
 app.delete('/api/documents/:slug', async (request, reply) => {
   purgeExpiredContent()
-  const result = deleteDocument(request.params.slug, request.body?.editToken)
+  const result = deleteDocument(request.params.slug)
   if (result.error === 'not_found') {
     return reply.code(404).send({ message: '文档不存在。' })
-  }
-  if (result.error === 'forbidden') {
-    return reply.code(403).send({ message: '编辑凭证无效。' })
   }
   removeAssetFiles(result.removedAssets)
   return reply.code(204).send()

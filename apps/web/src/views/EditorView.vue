@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  ArrowLeft,
   CircleAlert,
   Copy,
   Eye,
@@ -13,6 +14,7 @@ import {
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { deriveTitleFromBlocks } from '@tmpprompt/shared'
 import BlockEditor from '../components/BlockEditor.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TopToast from '../components/TopToast.vue'
 import { useToast } from '../composables/useToast.js'
 import {
@@ -23,7 +25,6 @@ import {
   updateDocument,
   uploadImage,
 } from '../lib/api.js'
-import { getEditToken, removeEditToken } from '../lib/tokens.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,16 +34,21 @@ const draft = ref({
   blocks: [],
 })
 const loading = ref(true)
+const removing = ref(false)
 const saving = ref(false)
 const uploading = ref(false)
 const error = ref('')
-const editToken = ref('')
 const hasUnsavedChanges = ref(false)
+const showClearDialog = ref(false)
+const showDeleteDialog = ref(false)
+const showLeaveDialog = ref(false)
 const lastSavedSnapshot = ref('')
 const editorRef = ref(null)
 const { toastMessage, flashToast, clearToast } = useToast()
 let autoSaveTimer = null
 let loadRequestId = 0
+let pendingLeaveResolver = null
+let bypassLeaveConfirm = false
 
 const apiBase = getApiBase()
 const publicUrl = computed(() => `${window.location.origin}/p/${slug.value}`)
@@ -91,7 +97,7 @@ function clearAutoSaveTimer() {
 
 function scheduleAutoSave() {
   clearAutoSaveTimer()
-  if (!editToken.value || loading.value) {
+  if (loading.value) {
     return
   }
   autoSaveTimer = window.setTimeout(() => {
@@ -104,10 +110,9 @@ async function loadDocument() {
   loading.value = true
   error.value = ''
   clearToast()
-  editToken.value = getEditToken(slug.value)
 
   try {
-    const document = await getDocument(slug.value, editToken.value)
+    const document = await getDocument(slug.value)
     if (requestId !== loadRequestId) {
       return
     }
@@ -120,9 +125,6 @@ async function loadDocument() {
     }
     lastSavedSnapshot.value = createSnapshot()
     hasUnsavedChanges.value = false
-    if (!document.canEdit) {
-      error.value = '当前浏览器里没有这个文档的编辑凭证，只能查看，不能保存。'
-    }
   } catch (err) {
     if (requestId !== loadRequestId) {
       return
@@ -136,11 +138,6 @@ async function loadDocument() {
 }
 
 async function saveDocument(options = { auto: false }) {
-  if (!editToken.value) {
-    error.value = '本地没有找到编辑凭证，无法保存。'
-    return
-  }
-
   const snapshot = createSnapshot()
   if (options.auto && snapshot === lastSavedSnapshot.value) {
     return
@@ -155,7 +152,6 @@ async function saveDocument(options = { auto: false }) {
       title: draft.value.title,
       expiry: '24h',
       visibility: 'listed',
-      editToken: editToken.value,
       blocks: normalizeBlocksForSave(draft.value.blocks),
     })
     lastSavedSnapshot.value = snapshot
@@ -239,36 +235,85 @@ async function copyCodexPrompt() {
   flashToast('已复制给 Codex')
 }
 
+function openDeleteDialog() {
+  showDeleteDialog.value = true
+}
+
+function closeDeleteDialog() {
+  if (removing.value) {
+    return
+  }
+  showDeleteDialog.value = false
+}
+
 async function removeDocument() {
-  if (!editToken.value) {
-    return
-  }
-  const confirmed = window.confirm('确认删除这个文档吗？删除后无法恢复。')
-  if (!confirmed) {
-    return
-  }
+  removing.value = true
   try {
-    await deleteDocument(slug.value, editToken.value)
-    removeEditToken(slug.value)
+    await deleteDocument(slug.value)
+    showDeleteDialog.value = false
+    bypassLeaveConfirm = true
     router.push('/')
   } catch (err) {
     error.value = err.message
+  } finally {
+    removing.value = false
   }
 }
 
+function openClearDialog() {
+  showClearDialog.value = true
+}
+
+function closeClearDialog() {
+  showClearDialog.value = false
+}
+
 function clearAllContent() {
-  const confirmed = window.confirm('确认清空正文内容吗？标题会保留。')
-  if (!confirmed) {
+  showClearDialog.value = false
+  if (!editorRef.value) {
     return
   }
   editorRef.value?.clearDocument()
   flashToast('已清空正文内容，稍后会自动保存')
 }
 
+function requestLeaveConfirmation() {
+  if (bypassLeaveConfirm) {
+    bypassLeaveConfirm = false
+    return true
+  }
+
+  if (!hasUnsavedChanges.value) {
+    return true
+  }
+
+  if (pendingLeaveResolver) {
+    return false
+  }
+
+  showLeaveDialog.value = true
+  return new Promise((resolve) => {
+    pendingLeaveResolver = resolve
+  })
+}
+
+function resolveLeaveConfirmation(confirmed) {
+  showLeaveDialog.value = false
+  if (!pendingLeaveResolver) {
+    return
+  }
+  const resolve = pendingLeaveResolver
+  pendingLeaveResolver = null
+  if (confirmed) {
+    bypassLeaveConfirm = true
+  }
+  resolve(confirmed)
+}
+
 watch(
   draft,
   () => {
-    if (loading.value || !editToken.value) {
+    if (loading.value) {
       return
     }
     hasUnsavedChanges.value = createSnapshot() !== lastSavedSnapshot.value
@@ -300,23 +345,13 @@ function handleWindowKeydown(event) {
 
   if (event.shiftKey && event.key === 'Backspace') {
     event.preventDefault()
-    clearAllContent()
+    openClearDialog()
   }
 }
 
-onBeforeRouteLeave(() => {
-  if (!hasUnsavedChanges.value) {
-    return true
-  }
-  return window.confirm('还有未保存内容，确定现在离开吗？')
-})
+onBeforeRouteLeave(() => requestLeaveConfirmation())
 
-onBeforeRouteUpdate(() => {
-  if (!hasUnsavedChanges.value) {
-    return true
-  }
-  return window.confirm('还有未保存内容，确定现在离开吗？')
-})
+onBeforeRouteUpdate(() => requestLeaveConfirmation())
 
 onMounted(() => {
   loadDocument()
@@ -330,6 +365,10 @@ watch(slug, () => {
 })
 
 onBeforeUnmount(() => {
+  if (pendingLeaveResolver) {
+    pendingLeaveResolver(false)
+    pendingLeaveResolver = null
+  }
   clearAutoSaveTimer()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleWindowKeydown)
@@ -339,6 +378,36 @@ onBeforeUnmount(() => {
 <template>
   <div class="flex flex-col gap-4">
     <TopToast :message="toastMessage" />
+    <ConfirmDialog
+      :open="showClearDialog"
+      title="确认清空正文？"
+      description="将清空正文内容，但会保留标题。"
+      confirm-text="确认清空"
+      cancel-text="先保留"
+      @cancel="closeClearDialog"
+      @confirm="clearAllContent"
+    />
+    <ConfirmDialog
+      :open="showDeleteDialog"
+      title="确认删除文档？"
+      :description="`将删除「${displayTitle}」，删除后无法恢复。`"
+      confirm-text="确认删除"
+      cancel-text="先保留"
+      :loading="removing"
+      danger
+      @cancel="closeDeleteDialog"
+      @confirm="removeDocument"
+    />
+    <ConfirmDialog
+      :open="showLeaveDialog"
+      title="还有未保存内容"
+      description="现在离开将丢失尚未同步的修改。"
+      confirm-text="仍然离开"
+      cancel-text="继续编辑"
+      danger
+      @cancel="resolveLeaveConfirmation(false)"
+      @confirm="resolveLeaveConfirmation(true)"
+    />
 
     <section v-if="loading" class="panel p-5 text-sm text-stone-600 dark:text-stone-400">正在加载文档...</section>
 
@@ -346,14 +415,12 @@ onBeforeUnmount(() => {
       <section class="panel flex flex-col gap-4 p-4">
         <div class="flex flex-col gap-3">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
-              <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
-                <SquarePen class="h-4 w-4" />
-              </span>
-              <input v-model="draft.title" class="min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600" :placeholder="displayTitle" />
-            </div>
+            <RouterLink to="/" class="inline-flex items-center gap-2 text-sm text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100">
+              <ArrowLeft class="h-4 w-4" />
+              <span>返回首页</span>
+            </RouterLink>
             <div class="flex flex-wrap gap-2">
-              <button type="button" class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs" :disabled="saving || !editToken" @click="saveDocument()">
+              <button type="button" class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs" :disabled="saving" @click="saveDocument()">
                 <Save class="h-4 w-4" />
                 <span>{{ saving ? '保存中...' : '保存' }}</span>
               </button>
@@ -366,6 +433,13 @@ onBeforeUnmount(() => {
                 <span>复制给 Codex</span>
               </button>
             </div>
+          </div>
+
+          <div class="flex min-w-0 flex-1 items-center gap-3">
+            <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200">
+              <SquarePen class="h-4 w-4" />
+            </span>
+            <input v-model="draft.title" class="min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold text-stone-900 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-600" :placeholder="displayTitle" />
           </div>
 
           <div class="flex flex-wrap items-center gap-3 text-sm text-stone-500 dark:text-stone-400">
@@ -381,11 +455,11 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="flex flex-wrap items-center gap-3 text-xs text-stone-500 dark:text-stone-400">
-            <button type="button" class="inline-flex items-center gap-2 text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-stone-900 dark:text-stone-400 dark:decoration-stone-700 dark:hover:text-stone-100" @click="clearAllContent">
+            <button type="button" class="inline-flex items-center gap-2 text-stone-500 underline decoration-stone-300 underline-offset-4 hover:text-stone-900 dark:text-stone-400 dark:decoration-stone-700 dark:hover:text-stone-100" @click="openClearDialog">
               <WandSparkles class="h-4 w-4" />
               <span>清空正文</span>
             </button>
-            <button type="button" class="inline-flex items-center gap-2 text-red-700 underline decoration-stone-300 underline-offset-4 hover:text-red-900 disabled:text-stone-400 dark:text-red-300 dark:decoration-stone-700 dark:hover:text-red-200" :disabled="!editToken" @click="removeDocument">
+            <button type="button" class="inline-flex items-center gap-2 text-red-700 underline decoration-stone-300 underline-offset-4 hover:text-red-900 dark:text-red-300 dark:decoration-stone-700 dark:hover:text-red-200" @click="openDeleteDialog">
               <Trash2 class="h-4 w-4" />
               <span>删除文档</span>
             </button>
@@ -399,7 +473,7 @@ onBeforeUnmount(() => {
         :uploading="uploading"
         @upload-files="handleUpload"
         @import-text-files="handleImportTextFiles"
-        @clear-request="clearAllContent"
+        @clear-request="openClearDialog"
       />
     </template>
   </div>

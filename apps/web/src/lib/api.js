@@ -1,9 +1,10 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/$/, '')
 
 async function request(path, options = {}) {
+  const hasJsonBody = typeof options.body !== 'undefined' && !(options.body instanceof FormData)
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -47,10 +48,8 @@ export function createDocument(payload) {
   })
 }
 
-export function getDocument(slug, editToken) {
-  return request(`/api/documents/${slug}`, {
-    headers: editToken ? { 'x-edit-token': editToken } : {},
-  })
+export function getDocument(slug) {
+  return request(`/api/documents/${slug}`)
 }
 
 export function updateDocument(slug, payload) {
@@ -60,10 +59,9 @@ export function updateDocument(slug, payload) {
   })
 }
 
-export function deleteDocument(slug, editToken) {
+export function deleteDocument(slug) {
   return request(`/api/documents/${slug}`, {
     method: 'DELETE',
-    body: JSON.stringify({ editToken }),
   })
 }
 
