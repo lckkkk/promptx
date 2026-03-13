@@ -7,7 +7,7 @@
     "dev": "node --watch src/index.js",
     "build": "node -e \"console.log('server: nothing to build')\"",
     "lint": "node -e \"console.log('server: nothing to lint')\"",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

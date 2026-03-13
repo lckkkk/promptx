@@ -2,7 +2,10 @@ import path from 'node:path'
 import { nanoid } from 'nanoid'
 
 export function normalizeUploadFileName(fileName = '', fallback = 'file') {
-  const normalized = path.basename(String(fileName || '').trim())
+  const normalized = String(fileName || '')
+    .trim()
+    .split(/[\\/]/)
+    .pop()
   return normalized || fallback
 }
 
