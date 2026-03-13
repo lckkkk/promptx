@@ -14,6 +14,7 @@ import {
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { deriveTitleFromBlocks } from '@promptx/shared'
 import BlockEditor from '../components/BlockEditor.vue'
+import CodexSessionPanel from '../components/CodexSessionPanel.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TopToast from '../components/TopToast.vue'
 import { useToast } from '../composables/useToast.js'
@@ -26,6 +27,7 @@ import {
   updateDocument,
   uploadImage,
 } from '../lib/api.js'
+import { buildCodexPrompt } from '../lib/codex.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -52,7 +54,6 @@ let pendingLeaveResolver = null
 let bypassLeaveConfirm = false
 
 const apiBase = getApiBase()
-const publicUrl = computed(() => `${window.location.origin}/p/${slug.value}`)
 const rawUrl = computed(() => `${apiBase}/p/${slug.value}/raw`)
 const displayTitle = computed(() => draft.value.title || deriveTitleFromBlocks(draft.value.blocks) || '未命名文档')
 const syncMessage = computed(() => {
@@ -140,8 +141,8 @@ async function loadDocument() {
 
 async function saveDocument(options = { auto: false }) {
   const snapshot = createSnapshot()
-  if (options.auto && snapshot === lastSavedSnapshot.value) {
-    return
+  if (snapshot === lastSavedSnapshot.value) {
+    return true
   }
 
   clearAutoSaveTimer()
@@ -160,8 +161,10 @@ async function saveDocument(options = { auto: false }) {
     if (!options.auto) {
       flashToast('已保存')
     }
+    return true
   } catch (err) {
     error.value = err.message
+    return false
   } finally {
     saving.value = false
     if (createSnapshot() !== lastSavedSnapshot.value) {
@@ -268,9 +271,38 @@ async function handleImportPdfFiles(files) {
 }
 
 async function copyCodexPrompt() {
-  const prompt = `请先阅读这个需求文档，再继续开发：\n${rawUrl.value}`
-  await navigator.clipboard.writeText(prompt)
+  await navigator.clipboard.writeText(buildCurrentCodexPrompt())
   flashToast('已复制给 Codex')
+}
+
+function buildCurrentCodexPrompt() {
+  return buildCodexPrompt({
+    title: draft.value.title,
+    blocks: normalizeBlocksForSave(draft.value.blocks),
+  }, rawUrl.value)
+}
+
+async function ensureCodexPromptReady() {
+  if (uploading.value) {
+    error.value = '文件仍在处理中，请稍后再发送给 Codex。'
+    return false
+  }
+  if (saving.value) {
+    error.value = '文档正在保存中，请稍后再发送给 Codex。'
+    return false
+  }
+  if (!hasUnsavedChanges.value) {
+    return true
+  }
+  return saveDocument({ auto: false })
+}
+
+async function prepareCodexPrompt() {
+  const ready = await ensureCodexPromptReady()
+  if (!ready) {
+    return ''
+  }
+  return buildCurrentCodexPrompt()
 }
 
 function openDeleteDialog() {
@@ -504,6 +536,11 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
+
+      <CodexSessionPanel
+        :build-prompt="prepareCodexPrompt"
+        storage-key="promptx:codex-session-id"
+      />
 
       <BlockEditor
         ref="editorRef"

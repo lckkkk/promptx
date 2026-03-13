@@ -18,6 +18,12 @@ import {
   purgeExpiredDocuments,
   updateDocument,
 } from './repository.js'
+import {
+  getCodexSessionById,
+  listCodexSessions,
+  sendPromptToCodexSession,
+  streamPromptToCodexSession,
+} from './codex.js'
 import { importPdfDocument } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 
@@ -217,6 +223,88 @@ app.post('/api/imports/pdf', async (request, reply) => {
     throw error
   } finally {
     fs.rmSync(tempPath, { force: true })
+  }
+})
+
+app.get('/api/codex/sessions', async () => {
+  return {
+    items: listCodexSessions(),
+  }
+})
+
+app.post('/api/codex/sessions/:sessionId/send', async (request, reply) => {
+  const session = getCodexSessionById(request.params.sessionId)
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 Codex session。' })
+  }
+
+  const prompt = String(request.body?.prompt || '').trim()
+  if (!prompt) {
+    return reply.code(400).send({ message: '没有收到可发送的提示词。' })
+  }
+
+  const result = await sendPromptToCodexSession(session.id, prompt)
+  return {
+    session,
+    message: result.message,
+    rawStdout: result.rawStdout,
+  }
+})
+
+app.post('/api/codex/sessions/:sessionId/send-stream', async (request, reply) => {
+  const session = getCodexSessionById(request.params.sessionId)
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 Codex session。' })
+  }
+
+  const prompt = String(request.body?.prompt || '').trim()
+  if (!prompt) {
+    return reply.code(400).send({ message: '没有收到可发送的提示词。' })
+  }
+
+  reply.hijack()
+  const requestOrigin = request.headers.origin
+  reply.raw.writeHead(200, {
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    ...(requestOrigin ? {
+      'Access-Control-Allow-Origin': requestOrigin,
+      Vary: 'Origin',
+    } : {}),
+  })
+
+  const writeEvent = (payload) => {
+    reply.raw.write(`${JSON.stringify(payload)}\n`)
+  }
+
+  writeEvent({
+    type: 'session',
+    session,
+  })
+
+  const stream = streamPromptToCodexSession(session.id, prompt, {
+    onEvent(event) {
+      writeEvent(event)
+    },
+  })
+
+  const handleAbort = () => {
+    stream.cancel()
+  }
+
+  reply.raw.on('close', handleAbort)
+
+  try {
+    await stream.result
+  } catch (error) {
+    writeEvent({
+      type: 'error',
+      message: error.message || 'Codex 执行失败。',
+    })
+  } finally {
+    reply.raw.off('close', handleAbort)
+    reply.raw.end()
   }
 })
 

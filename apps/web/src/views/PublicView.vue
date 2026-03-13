@@ -12,6 +12,7 @@ import { useRoute } from 'vue-router'
 import TopToast from '../components/TopToast.vue'
 import { useToast } from '../composables/useToast.js'
 import { getApiBase, getDocument, resolveAssetUrl } from '../lib/api.js'
+import { buildCodexPrompt } from '../lib/codex.js'
 
 const route = useRoute()
 const slug = computed(() => route.params.slug)
@@ -75,9 +76,15 @@ function getImportedStats(content = '') {
 }
 
 async function copyCodexPrompt() {
-  const prompt = `请先阅读这个需求文档，再继续开发：\n${rawUrl.value}`
-  await navigator.clipboard.writeText(prompt)
+  await navigator.clipboard.writeText(buildCurrentCodexPrompt())
   flashToast('已复制给 Codex')
+}
+
+function buildCurrentCodexPrompt() {
+  if (!document.value) {
+    return ''
+  }
+  return buildCodexPrompt(document.value, rawUrl.value)
 }
 
 onMounted(loadDocument)
@@ -122,12 +129,12 @@ watch(slug, () => {
             <h1 class="text-2xl font-semibold">{{ document.displayTitle || document.title || '未命名文档' }}</h1>
           </div>
         </div>
-        <div class="text-xs text-stone-500 dark:text-stone-400">
+        <div class="flex flex-wrap items-center gap-1 text-xs text-stone-500 dark:text-stone-400">
           <span class="inline-flex items-center gap-1">
             <Clock3 class="h-3.5 w-3.5" />
             <span>{{ new Date(document.updatedAt).toLocaleString('zh-CN') }}</span>
           </span>
-          <span v-if="document.expiresAt"> · {{ new Date(document.expiresAt).toLocaleString('zh-CN') }} 过期</span>
+          <span v-if="document.expiresAt" class="inline-flex items-center"> · {{ new Date(document.expiresAt).toLocaleString('zh-CN') }} 过期</span>
         </div>
 
         <section v-if="!document.blocks.length" class="mt-6 text-sm text-stone-600 dark:text-stone-400">
