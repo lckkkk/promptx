@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
@@ -20,11 +21,17 @@ import {
   updateDocument,
 } from './repository.js'
 import {
-  getCodexSessionById,
-  listCodexSessions,
+  listKnownCodexWorkspaces,
   sendPromptToCodexSession,
   streamPromptToCodexSession,
 } from './codex.js'
+import {
+  createPromptxCodexSession,
+  deletePromptxCodexSession,
+  getPromptxCodexSessionById,
+  listPromptxCodexSessions,
+  updatePromptxCodexSession,
+} from './codexSessions.js'
 import { importPdfDocument } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 
@@ -33,6 +40,9 @@ const port = Number(process.env.PORT || 3000)
 const host = process.env.HOST || '0.0.0.0'
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
 const tmpDir = path.resolve(process.cwd(), 'tmp')
+const serverRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const workspaceRootDir = path.resolve(serverRootDir, '..', '..')
+const workspaceParentDir = path.dirname(workspaceRootDir)
 
 fs.mkdirSync(uploadsDir, { recursive: true })
 fs.mkdirSync(tmpDir, { recursive: true })
@@ -116,9 +126,50 @@ function purgeExpiredContent(force = false) {
   }
 }
 
+function listSiblingWorkspaceDirs(baseDir) {
+  if (!baseDir || !fs.existsSync(baseDir)) {
+    return []
+  }
+
+  return fs.readdirSync(baseDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => path.join(baseDir, entry.name))
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
+function listWorkspaceSuggestions(limit = 24) {
+  const seen = new Set()
+  const suggestions = []
+
+  const addPath = (targetPath) => {
+    const value = String(targetPath || '').trim()
+    if (!value || seen.has(value) || !fs.existsSync(value)) {
+      return
+    }
+
+    try {
+      if (!fs.statSync(value).isDirectory()) {
+        return
+      }
+    } catch {
+      return
+    }
+
+    seen.add(value)
+    suggestions.push(value)
+  }
+
+  addPath(workspaceRootDir)
+  listSiblingWorkspaceDirs(workspaceParentDir).forEach(addPath)
+  listPromptxCodexSessions(limit).forEach((session) => addPath(session.cwd))
+  listKnownCodexWorkspaces(limit * 2).forEach(addPath)
+
+  return suggestions.slice(0, Math.max(1, Number(limit) || 24))
+}
+
 await app.register(cors, {
   origin: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
 })
 
@@ -271,16 +322,41 @@ app.post('/api/imports/pdf', async (request, reply) => {
   }
 })
 
-app.get('/api/codex/sessions', async () => {
-  return {
-    items: listCodexSessions(),
+app.get('/api/codex/sessions', async () => ({
+  items: listPromptxCodexSessions(),
+}))
+
+app.get('/api/codex/workspaces', async () => ({
+  items: listWorkspaceSuggestions(),
+}))
+
+app.post('/api/codex/sessions', async (request, reply) => {
+  const session = createPromptxCodexSession(request.body || {})
+  return reply.code(201).send(session)
+})
+
+app.patch('/api/codex/sessions/:sessionId', async (request, reply) => {
+  const session = updatePromptxCodexSession(request.params.sessionId, request.body || {})
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
   }
+
+  return session
+})
+
+app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
+  const session = deletePromptxCodexSession(request.params.sessionId)
+  if (!session) {
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+  }
+
+  return reply.code(204).send()
 })
 
 app.post('/api/codex/sessions/:sessionId/send', async (request, reply) => {
-  const session = getCodexSessionById(request.params.sessionId)
+  const session = getPromptxCodexSessionById(request.params.sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 Codex session。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
   }
 
   const prompt = String(request.body?.prompt || '').trim()
@@ -288,18 +364,22 @@ app.post('/api/codex/sessions/:sessionId/send', async (request, reply) => {
     return reply.code(400).send({ message: '没有收到可发送的提示词。' })
   }
 
-  const result = await sendPromptToCodexSession(session.id, prompt)
+  const result = await sendPromptToCodexSession(session, prompt)
+  const nextSession = updatePromptxCodexSession(session.id, {
+    codexThreadId: result.threadId || session.codexThreadId,
+  }) || session
+
   return {
-    session,
+    session: nextSession,
     message: result.message,
     rawStdout: result.rawStdout,
   }
 })
 
 app.post('/api/codex/sessions/:sessionId/send-stream', async (request, reply) => {
-  const session = getCodexSessionById(request.params.sessionId)
+  const session = getPromptxCodexSessionById(request.params.sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 Codex session。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
   }
 
   const prompt = String(request.body?.prompt || '').trim()
@@ -331,9 +411,20 @@ app.post('/api/codex/sessions/:sessionId/send-stream', async (request, reply) =>
     session,
   })
 
-  const stream = streamPromptToCodexSession(session.id, prompt, {
+  const stream = streamPromptToCodexSession(session, prompt, {
     onEvent(event) {
       writeEvent(event)
+    },
+    onThreadStarted(threadId) {
+      const updated = updatePromptxCodexSession(session.id, {
+        codexThreadId: threadId,
+      })
+      if (updated) {
+        writeEvent({
+          type: 'session.updated',
+          session: updated,
+        })
+      }
     },
   })
 
@@ -381,3 +472,4 @@ app.listen({ port, host }).then(() => {
     app.log.info(message)
   })
 })
+

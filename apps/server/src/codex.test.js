@@ -1,8 +1,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import initSqlJs from 'sql.js'
+
+const require = createRequire(import.meta.url)
+const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
+const SQL = await initSqlJs({
+  locateFile: () => wasmPath,
+})
 
 function withEnv(overrides, fn) {
   const previous = new Map()
@@ -42,7 +50,8 @@ const args = process.argv.slice(2)
 const outputIndex = args.indexOf('--output-last-message')
 const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : ''
 const resumeIndex = args.indexOf('resume')
-const sessionId = resumeIndex >= 0 ? args[resumeIndex + 1] || '' : ''
+const resumeTarget = resumeIndex >= 0 ? args[resumeIndex + 1] || '' : ''
+const threadId = resumeTarget || 'thread-new-123'
 
 let prompt = ''
 process.stdin.setEncoding('utf8')
@@ -56,8 +65,9 @@ process.stdin.on('end', () => {
     return
   }
 
+  process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: threadId }) + '\\n')
+
   if (prompt.includes('stream-tail-case')) {
-    process.stdout.write(JSON.stringify({ type: 'thread.started' }) + '\\n')
     process.stdout.write(JSON.stringify({
       type: 'item.completed',
       item: {
@@ -69,10 +79,16 @@ process.stdin.on('end', () => {
   }
 
   if (outputFile) {
-    fs.writeFileSync(outputFile, \`session:\${sessionId}\\nprompt:\${prompt.trim()}\\n\`)
+    fs.writeFileSync(outputFile, \`thread:\${threadId}\\nprompt:\${prompt.trim()}\\ncwd:\${process.cwd()}\\n\`)
   }
 
-  process.stdout.write(JSON.stringify({ ok: true, sessionId }) + '\\n')
+  process.stdout.write(JSON.stringify({
+    type: 'item.completed',
+    item: {
+      type: 'agent_message',
+      text: 'ok',
+    },
+  }) + '\\n')
 })
 `
 
@@ -91,24 +107,20 @@ function createWindowsCodexCommand(tempDir) {
   const scriptPath = path.join(tempDir, 'fake-codex.js')
   const cmdPath = path.join(tempDir, 'codex.cmd')
   const script = `const fs = require('node:fs')
-
 const args = process.argv.slice(2)
 const outputIndex = args.indexOf('--output-last-message')
 const outputFile = outputIndex >= 0 ? args[outputIndex + 1] : ''
-const resumeIndex = args.indexOf('resume')
-const sessionId = resumeIndex >= 0 ? args[resumeIndex + 1] || '' : ''
-
 let prompt = ''
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
   prompt += chunk
 })
 process.stdin.on('end', () => {
+  process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: 'thread-win' }) + '\\n')
   if (outputFile) {
-    fs.writeFileSync(outputFile, \`session:\${sessionId}\\nprompt:\${prompt.trim()}\\n\`)
+    fs.writeFileSync(outputFile, \`prompt:\${prompt.trim()}\\n\`)
   }
-
-  process.stdout.write(JSON.stringify({ ok: true, sessionId }) + '\\n')
+  process.stdout.write(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'ok' } }) + '\\n')
 })
 `
 
@@ -117,32 +129,48 @@ process.stdin.on('end', () => {
   return cmdPath
 }
 
-test('listCodexSessions 按更新时间倒序返回并去重', async () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-home-'))
-  const sessionIndexPath = path.join(tempHome, 'session_index.jsonl')
+function writeThreadsDb(tempHome, rows = []) {
+  const dbPath = path.join(tempHome, 'state_5.sqlite')
+  const db = new SQL.Database()
 
-  fs.writeFileSync(
-    sessionIndexPath,
-    [
-      JSON.stringify({
-        id: 'session-1',
-        thread_name: 'Alpha',
-        updated_at: '2026-03-13T01:00:00.000Z',
-      }),
-      JSON.stringify({
-        id: 'session-2',
-        thread_name: '',
-        updated_at: '2026-03-13T02:00:00.000Z',
-      }),
-      JSON.stringify({
-        id: 'session-1',
-        thread_name: 'Alpha older duplicate',
-        updated_at: '2026-03-13T00:00:00.000Z',
-      }),
-      'not-json',
-      '',
-    ].join('\n')
-  )
+  try {
+    db.run(`
+      CREATE TABLE threads (
+        id TEXT NOT NULL,
+        cwd TEXT,
+        title TEXT,
+        updated_at INTEGER
+      );
+    `)
+
+    const statement = db.prepare('INSERT INTO threads (id, cwd, title, updated_at) VALUES (?, ?, ?, ?)')
+
+    try {
+      for (const row of rows) {
+        statement.run([
+          row.id,
+          row.cwd || '',
+          row.title || '',
+          Number(row.updated_at || 0),
+        ])
+      }
+    } finally {
+      statement.free()
+    }
+
+    fs.writeFileSync(dbPath, Buffer.from(db.export()))
+  } finally {
+    db.close()
+  }
+}
+
+test('listKnownCodexWorkspaces dedupes cwd values', async () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-home-'))
+  writeThreadsDb(tempHome, [
+    { id: 'thread-1', cwd: 'D:\\code\\yuyang-web', title: 'A', updated_at: 10 },
+    { id: 'thread-2', cwd: 'D:\\code\\promptx', title: 'B', updated_at: 9 },
+    { id: 'thread-3', cwd: 'D:\\code\\yuyang-web', title: 'C', updated_at: 8 },
+  ])
 
   await withEnv(
     {
@@ -150,21 +178,13 @@ test('listCodexSessions 按更新时间倒序返回并去重', async () => {
       CODEX_BIN: undefined,
     },
     async () => {
-      const { getCodexSessionById, listCodexSessions } = await importFreshCodexModule()
-      const sessions = listCodexSessions()
-
-      assert.equal(sessions.length, 2)
-      assert.equal(sessions[0].id, 'session-2')
-      assert.equal(sessions[0].displayName, 'Session session-')
-      assert.equal(sessions[1].id, 'session-1')
-      assert.equal(sessions[1].displayName, 'Alpha')
-      assert.deepEqual(getCodexSessionById('session-1'), sessions[1])
-      assert.equal(getCodexSessionById('missing'), null)
+      const { listKnownCodexWorkspaces } = await importFreshCodexModule()
+      assert.deepEqual(listKnownCodexWorkspaces(), ['D:\\code\\yuyang-web', 'D:\\code\\promptx'])
     }
   )
 })
 
-test('sendPromptToCodexSession 调用 codex CLI 并返回最后一条消息', async () => {
+test('sendPromptToCodexSession creates a new thread on first send', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-send-'))
   const fakeBin = createFakeCodexBinary(tempHome)
 
@@ -175,17 +195,43 @@ test('sendPromptToCodexSession 调用 codex CLI 并返回最后一条消息', as
     },
     async () => {
       const { sendPromptToCodexSession } = await importFreshCodexModule()
-      const result = await sendPromptToCodexSession('session-xyz', 'hello from promptx')
+      const result = await sendPromptToCodexSession(
+        { id: 'session-xyz', cwd: 'D:\\code\\promptx', codexThreadId: '' },
+        'hello from promptx'
+      )
 
       assert.equal(result.sessionId, 'session-xyz')
-      assert.match(result.message, /session:session-xyz/)
-      assert.match(result.message, /prompt:hello from promptx/)
-      assert.match(result.rawStdout, /"ok":true/)
+      assert.equal(result.threadId, 'thread-new-123')
+      assert.match(result.message, /thread:thread-new-123/)
+      assert.match(result.message, /cwd:D:\\code\\promptx/)
     }
   )
 })
 
-test('sendPromptToCodexSession 在 codex CLI 失败时抛出 stderr 最后一行', async () => {
+test('sendPromptToCodexSession resumes an existing thread when provided', async () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-resume-'))
+  const fakeBin = createFakeCodexBinary(tempHome)
+
+  await withEnv(
+    {
+      CODEX_HOME: tempHome,
+      CODEX_BIN: fakeBin,
+    },
+    async () => {
+      const { sendPromptToCodexSession } = await importFreshCodexModule()
+      const result = await sendPromptToCodexSession(
+        { id: 'session-xyz', cwd: 'D:\\code\\yuyang-web', codexThreadId: 'thread-old-456' },
+        'hello again'
+      )
+
+      assert.equal(result.threadId, 'thread-old-456')
+      assert.match(result.message, /thread:thread-old-456/)
+      assert.match(result.message, /cwd:D:\\code\\yuyang-web/)
+    }
+  )
+})
+
+test('sendPromptToCodexSession surfaces stderr failures', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-fail-'))
   const fakeBin = createFakeCodexBinary(tempHome)
 
@@ -198,50 +244,14 @@ test('sendPromptToCodexSession 在 codex CLI 失败时抛出 stderr 最后一行
       const { sendPromptToCodexSession } = await importFreshCodexModule()
 
       await assert.rejects(
-        () => sendPromptToCodexSession('session-xyz', 'fail-case'),
+        () => sendPromptToCodexSession({ id: 'session-xyz', cwd: 'D:\\code\\promptx' }, 'fail-case'),
         /mocked codex failure/
       )
     }
   )
 })
 
-test('listCodexSessions 对重复 session 保留较新的记录', async () => {
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-home-latest-'))
-  const sessionIndexPath = path.join(tempHome, 'session_index.jsonl')
-
-  fs.writeFileSync(
-    sessionIndexPath,
-    [
-      JSON.stringify({
-        id: 'session-1',
-        thread_name: 'Older',
-        updated_at: '2026-03-13T01:00:00.000Z',
-      }),
-      JSON.stringify({
-        id: 'session-1',
-        thread_name: 'Newer',
-        updated_at: '2026-03-13T02:00:00.000Z',
-      }),
-    ].join('\n')
-  )
-
-  await withEnv(
-    {
-      CODEX_HOME: tempHome,
-      CODEX_BIN: undefined,
-    },
-    async () => {
-      const { listCodexSessions } = await importFreshCodexModule()
-      const sessions = listCodexSessions()
-
-      assert.equal(sessions.length, 1)
-      assert.equal(sessions[0].threadName, 'Newer')
-      assert.equal(sessions[0].updatedAt, '2026-03-13T02:00:00.000Z')
-    }
-  )
-})
-
-test('streamPromptToCodexSession 能处理没有换行结尾的最后事件', async () => {
+test('streamPromptToCodexSession handles a tail event without newline', async () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-stream-'))
   const fakeBin = createFakeCodexBinary(tempHome)
 
@@ -253,16 +263,26 @@ test('streamPromptToCodexSession 能处理没有换行结尾的最后事件', as
     async () => {
       const { streamPromptToCodexSession } = await importFreshCodexModule()
       const events = []
-      const stream = streamPromptToCodexSession('session-xyz', 'stream-tail-case', {
-        onEvent(event) {
-          events.push(event)
-        },
-      })
+      const seenThreadIds = []
+      const stream = streamPromptToCodexSession(
+        { id: 'session-xyz', cwd: 'D:\\code\\promptx' },
+        'stream-tail-case',
+        {
+          onEvent(event) {
+            events.push(event)
+          },
+          onThreadStarted(threadId) {
+            seenThreadIds.push(threadId)
+          },
+        }
+      )
 
       const result = await stream.result
 
       assert.equal(result.sessionId, 'session-xyz')
       assert.equal(result.message, '')
+      assert.equal(result.threadId, 'thread-new-123')
+      assert.deepEqual(seenThreadIds, ['thread-new-123'])
       assert.deepEqual(
         events.filter((event) => event.type === 'codex').map((event) => event.event.type),
         ['thread.started', 'item.completed']
@@ -276,9 +296,9 @@ test('streamPromptToCodexSession 能处理没有换行结尾的最后事件', as
   )
 })
 
-test('Windows 下默认 codex 命令可解析到 codex.cmd', async (t) => {
+test('Windows resolves codex.cmd when CODEX_BIN is omitted', async (t) => {
   if (process.platform !== 'win32') {
-    t.skip('仅在 Windows 上验证 codex.cmd 解析')
+    t.skip('Windows-only validation')
     return
   }
 
@@ -293,12 +313,14 @@ test('Windows 下默认 codex 命令可解析到 codex.cmd', async (t) => {
     },
     async () => {
       const { sendPromptToCodexSession } = await importFreshCodexModule()
-      const result = await sendPromptToCodexSession('session-win', 'hello from windows')
+      const result = await sendPromptToCodexSession(
+        { id: 'session-win', cwd: 'D:\\code\\promptx' },
+        'hello from windows'
+      )
 
       assert.equal(result.sessionId, 'session-win')
-      assert.match(result.message, /session:session-win/)
+      assert.equal(result.threadId, 'thread-win')
       assert.match(result.message, /prompt:hello from windows/)
-      assert.match(result.rawStdout, /"ok":true/)
     }
   )
 })

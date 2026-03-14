@@ -44,6 +44,17 @@ db.run(`
   CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_documents_visibility ON documents(visibility, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_blocks_document_sort ON blocks(document_id, sort_order ASC);
+
+  CREATE TABLE IF NOT EXISTS codex_sessions (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    codex_thread_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_codex_sessions_updated_at ON codex_sessions(updated_at DESC);
 `)
 
 // Clean up leftovers created before foreign keys were enforced.

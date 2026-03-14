@@ -22,7 +22,7 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || 'Request failed.')
+    throw new Error(payload.message || '请求失败。')
   }
 
   if (response.status === 204) {
@@ -86,7 +86,7 @@ export async function uploadImage(file) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || 'Upload failed.')
+    throw new Error(payload.message || '上传失败。')
   }
 
   return response.json()
@@ -103,7 +103,7 @@ export async function importPdf(file) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || 'PDF import failed.')
+    throw new Error(payload.message || 'PDF 导入失败。')
   }
 
   return response.json()
@@ -115,6 +115,30 @@ export function fetchRawDocument(slug) {
 
 export function listCodexSessions() {
   return request('/api/codex/sessions')
+}
+
+export function listCodexWorkspaces() {
+  return request('/api/codex/workspaces')
+}
+
+export function createCodexSession(payload) {
+  return request('/api/codex/sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateCodexSession(sessionId, payload) {
+  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteCodexSession(sessionId) {
+  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  })
 }
 
 export function sendPromptToCodexSession(sessionId, payload) {
@@ -136,7 +160,7 @@ export async function streamPromptToCodexSession(sessionId, payload, options = {
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}))
-    throw new Error(errorPayload.message || 'Request failed.')
+    throw new Error(errorPayload.message || '请求失败。')
   }
 
   if (!response.body) {

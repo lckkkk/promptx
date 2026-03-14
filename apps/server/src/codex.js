@@ -1,16 +1,21 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { execFileSync, spawn } from 'node:child_process'
+import initSqlJs from 'sql.js'
 
 const CODEX_BIN = process.env.CODEX_BIN || 'codex'
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
-const SESSION_INDEX_PATH = path.join(CODEX_HOME, 'session_index.jsonl')
 const STATE_DB_PATH = path.join(CODEX_HOME, 'state_5.sqlite')
 const TMP_DIR = path.join(CODEX_HOME, 'tmp')
-const MAX_SESSION_COUNT = 30
-const THREAD_MATCH_WINDOW_SECONDS = 5 * 60
+const MAX_THREAD_COUNT = 120
 const RESOLVED_CODEX_BIN = resolveCodexBinary()
+const require = createRequire(import.meta.url)
+const sqlWasmPath = require.resolve('sql.js/dist/sql-wasm.wasm')
+const SQL = await initSqlJs({
+  locateFile: () => sqlWasmPath,
+})
 
 function ensureCodexHome() {
   fs.mkdirSync(TMP_DIR, { recursive: true })
@@ -61,11 +66,15 @@ function resolveCodexBinary() {
   }
 }
 
-function createCodexSpawn(commandArgs = [], session = {}) {
+function createCodexSpawn(commandArgs = [], cwd = '') {
   const options = {
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
-    cwd: session.cwd || process.cwd(),
+  }
+  const normalizedCwd = String(cwd || '').trim()
+
+  if (normalizedCwd) {
+    options.cwd = normalizedCwd
   }
 
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(RESOLVED_CODEX_BIN)) {
@@ -132,147 +141,33 @@ function flushBufferedText(buffer = '') {
   return tail ? [...lines, tail] : lines
 }
 
-function getSessionDisplayName(session) {
-  if (session.threadName) {
-    return session.threadName
-  }
-  return `Session ${session.shortId}`
-}
-
-function toUnixTimestamp(value = '') {
-  const timestamp = Date.parse(String(value || ''))
-  if (Number.isNaN(timestamp)) {
-    return 0
-  }
-  return Math.floor(timestamp / 1000)
-}
-
-function loadCodexThreads(limit = MAX_SESSION_COUNT * 8) {
-  if (!fs.existsSync(STATE_DB_PATH)) {
-    return []
-  }
-
-  try {
-    const sql = `select id, cwd, title, updated_at from threads order by updated_at desc limit ${Math.max(1, Number(limit) || MAX_SESSION_COUNT * 8)};`
-    const output = execFileSync('sqlite3', ['-json', STATE_DB_PATH, sql], {
-      encoding: 'utf8',
-    }).trim()
-
-    if (!output) {
-      return []
-    }
-
-    const rows = JSON.parse(output)
-    return Array.isArray(rows) ? rows : []
-  } catch {
-    return []
-  }
-}
-
-function resolveThreadMetadata(session, threads = []) {
-  if (!session) {
+function normalizeManagedSession(sessionInput) {
+  if (!sessionInput || typeof sessionInput !== 'object') {
     return null
   }
 
-  const exactMatch = threads.find((thread) => thread.id === session.id)
-  if (exactMatch) {
-    return exactMatch
-  }
-
-  const sessionUpdatedAt = toUnixTimestamp(session.updatedAt)
-  if (!sessionUpdatedAt) {
+  const id = String(sessionInput.id || '').trim()
+  const cwd = String(sessionInput.cwd || '').trim()
+  if (!id || !cwd) {
     return null
   }
-
-  let bestMatch = null
-  let bestDiff = Number.POSITIVE_INFINITY
-
-  for (const thread of threads) {
-    const threadUpdatedAt = Number(thread.updated_at || 0)
-    if (!threadUpdatedAt) {
-      continue
-    }
-
-    const diff = Math.abs(threadUpdatedAt - sessionUpdatedAt)
-    if (diff > THREAD_MATCH_WINDOW_SECONDS || diff >= bestDiff) {
-      continue
-    }
-
-    bestMatch = thread
-    bestDiff = diff
-  }
-
-  return bestMatch
-}
-
-function normalizeSession(record = {}) {
-  if (!record || typeof record !== 'object') {
-    return null
-  }
-
-  const id = String(record.id || '').trim()
-  if (!id) {
-    return null
-  }
-
-  const updatedAt = String(record.updated_at || '')
-  const threadName = String(record.thread_name || '').trim()
 
   return {
     id,
-    shortId: id.slice(0, 8),
-    threadName,
-    updatedAt,
-    displayName: getSessionDisplayName({
-      threadName,
-      shortId: id.slice(0, 8),
-    }),
+    title: String(sessionInput.title || '').trim(),
+    cwd,
+    codexThreadId: String(sessionInput.codexThreadId || '').trim(),
   }
 }
 
-export function listCodexSessions(limit = MAX_SESSION_COUNT) {
-  if (!fs.existsSync(SESSION_INDEX_PATH)) {
-    return []
+function createExecArgs(session) {
+  const baseArgs = [...(session.cwd ? ['-C', session.cwd] : []), 'exec']
+
+  if (session.codexThreadId) {
+    return [...baseArgs, 'resume', session.codexThreadId, '-', '--json']
   }
 
-  const content = fs.readFileSync(SESSION_INDEX_PATH, 'utf8')
-  const sessionsById = new Map()
-
-  for (const line of content.split('\n')) {
-    const record = normalizeSession(parseJsonLine(line))
-    if (!record) {
-      continue
-    }
-
-    const previous = sessionsById.get(record.id)
-    if (!previous || String(record.updatedAt).localeCompare(String(previous.updatedAt)) > 0) {
-      sessionsById.set(record.id, record)
-    }
-  }
-
-  const threads = loadCodexThreads()
-
-  return Array.from(sessionsById.values())
-    .map((session) => {
-      const thread = resolveThreadMetadata(session, threads)
-      return {
-        ...session,
-        cwd: thread?.cwd || '',
-        sourceThreadId: thread?.id || session.id,
-        resumeTarget: session.threadName || thread?.id || session.id,
-      }
-    })
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
-    .slice(0, Math.max(1, Number(limit) || MAX_SESSION_COUNT))
-}
-
-export function getCodexSessionById(sessionId) {
-  const targetId = String(sessionId || '').trim()
-  if (!targetId) {
-    return null
-  }
-
-  return listCodexSessions(MAX_SESSION_COUNT * 4).find((session) => session.id === targetId) || null
+  return [...baseArgs, '-', '--json']
 }
 
 function extractCodexError(stderr = '', stdout = '') {
@@ -291,52 +186,81 @@ function extractCodexError(stderr = '', stdout = '') {
   return lines[lines.length - 1] || stdoutText
 }
 
-function normalizeSessionInput(sessionInput) {
-  if (!sessionInput) {
-    return null
-  }
-
-  if (typeof sessionInput === 'string') {
-    const session = getCodexSessionById(sessionInput)
-    return session
-      ? session
-      : {
-          id: sessionInput,
-          resumeTarget: sessionInput,
-          cwd: process.cwd(),
-        }
-  }
-
-  const id = String(sessionInput.id || '').trim()
-  if (!id) {
-    return null
-  }
-
-  return {
-    ...sessionInput,
-    id,
-    resumeTarget: String(sessionInput.resumeTarget || sessionInput.threadName || id).trim(),
-    cwd: String(sessionInput.cwd || process.cwd()).trim() || process.cwd(),
+function trackThreadId(event, setThreadId) {
+  if (event?.type === 'thread.started' && event.thread_id) {
+    setThreadId(String(event.thread_id))
   }
 }
 
-function createResumeArgs(session) {
-  return [
-    ...(session.cwd ? ['-C', session.cwd] : []),
-    'exec',
-    'resume',
-    session.resumeTarget || session.id,
-    '-',
-    '--json',
-  ]
+function parseThreadIdFromStdout(stdout = '') {
+  const lines = String(stdout || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  for (const line of lines) {
+    const event = parseJsonLine(line)
+    if (event?.type === 'thread.started' && event.thread_id) {
+      return String(event.thread_id)
+    }
+  }
+
+  return ''
+}
+
+function loadCodexThreads(limit = MAX_THREAD_COUNT) {
+  if (!fs.existsSync(STATE_DB_PATH)) {
+    return []
+  }
+
+  try {
+    const sql = `select id, cwd, title, updated_at from threads order by updated_at desc limit ${Math.max(1, Number(limit) || MAX_THREAD_COUNT)};`
+    const db = new SQL.Database(new Uint8Array(fs.readFileSync(STATE_DB_PATH)))
+
+    try {
+      const statement = db.prepare(sql)
+      const rows = []
+
+      try {
+        while (statement.step()) {
+          rows.push(statement.getAsObject())
+        }
+      } finally {
+        statement.free()
+      }
+
+      return rows
+    } finally {
+      db.close()
+    }
+  } catch {
+    return []
+  }
+}
+
+export function listKnownCodexWorkspaces(limit = MAX_THREAD_COUNT) {
+  const seen = new Set()
+  const items = []
+
+  loadCodexThreads(limit).forEach((thread) => {
+    const cwd = String(thread.cwd || '').trim()
+    if (!cwd || seen.has(cwd)) {
+      return
+    }
+    seen.add(cwd)
+    items.push(cwd)
+  })
+
+  return items
 }
 
 export async function sendPromptToCodexSession(sessionInput, prompt) {
-  const session = normalizeSessionInput(sessionInput)
+  const session = normalizeManagedSession(sessionInput)
   const normalizedPrompt = String(prompt || '').trim()
 
   if (!session) {
-    throw new Error('缺少 Codex session。')
+    throw new Error('缺少 PromptX 会话。')
   }
   if (!normalizedPrompt) {
     throw new Error('没有可发送的提示词。')
@@ -350,11 +274,11 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
     const result = await new Promise((resolve, reject) => {
       const child = createCodexSpawn(
         [
-          ...createResumeArgs(session),
+          ...createExecArgs(session),
           '--output-last-message',
           outputFile,
         ],
-        session
+        session.cwd
       )
 
       let stdout = ''
@@ -386,6 +310,7 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
           message,
           stdout: trimOutput(stdout),
           stderr: trimOutput(stderr),
+          threadId: parseThreadIdFromStdout(stdout),
         })
       })
 
@@ -397,6 +322,7 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
       sessionId: session.id,
       message: result.message,
       rawStdout: result.stdout,
+      threadId: result.threadId,
     }
   } finally {
     fs.rmSync(outputFile, { force: true })
@@ -404,11 +330,11 @@ export async function sendPromptToCodexSession(sessionInput, prompt) {
 }
 
 export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {}) {
-  const session = normalizeSessionInput(sessionInput)
+  const session = normalizeManagedSession(sessionInput)
   const normalizedPrompt = String(prompt || '').trim()
 
   if (!session) {
-    throw new Error('缺少 Codex session。')
+    throw new Error('缺少 PromptX 会话。')
   }
   if (!normalizedPrompt) {
     throw new Error('没有可发送的提示词。')
@@ -418,14 +344,15 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
 
   const outputFile = path.join(TMP_DIR, `promptx-codex-${Date.now()}-${process.pid}.txt`)
   const onEvent = typeof callbacks.onEvent === 'function' ? callbacks.onEvent : () => {}
+  const onThreadStarted = typeof callbacks.onThreadStarted === 'function' ? callbacks.onThreadStarted : () => {}
 
   const child = createCodexSpawn(
     [
-      ...createResumeArgs(session),
+      ...createExecArgs(session),
       '--output-last-message',
       outputFile,
     ],
-    session
+    session.cwd
   )
 
   let stdoutBuffer = ''
@@ -433,6 +360,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
   let stdoutRaw = ''
   let stderrRaw = ''
   let finalMessage = ''
+  let finalThreadId = session.codexThreadId || ''
 
   const emit = (event) => {
     try {
@@ -442,10 +370,25 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     }
   }
 
+  const rememberThreadId = (threadId) => {
+    const value = String(threadId || '').trim()
+    if (!value || value === finalThreadId) {
+      return
+    }
+    finalThreadId = value
+    try {
+      onThreadStarted(value)
+    } catch {
+      // Ignore observer failures to avoid breaking the process lifecycle.
+    }
+  }
+
   emit({
     type: 'status',
-    stage: 'starting',
-    message: '已连接 Codex，正在启动本轮执行。',
+    stage: session.codexThreadId ? 'resuming' : 'starting',
+    message: session.codexThreadId
+      ? '已连接 PromptX 会话，正在继续这轮执行。'
+      : '已创建 PromptX 会话，正在启动第一轮执行。',
   })
 
   child.stdout.on('data', (chunk) => {
@@ -458,6 +401,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     for (const line of lines) {
       const event = parseJsonLine(line)
       if (event) {
+        trackThreadId(event, rememberThreadId)
         emit({
           type: 'codex',
           event,
@@ -502,6 +446,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
       stdoutTail.forEach((line) => {
         const event = parseJsonLine(line)
         if (event) {
+          trackThreadId(event, rememberThreadId)
           emit({
             type: 'codex',
             event,
@@ -525,6 +470,10 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
         finalMessage = fs.readFileSync(outputFile, 'utf8').trim()
       }
 
+      if (!finalThreadId) {
+        finalThreadId = parseThreadIdFromStdout(stdoutRaw)
+      }
+
       if (code !== 0) {
         reject(new Error(extractCodexError(stderrRaw, stdoutRaw)))
         return
@@ -538,6 +487,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
       resolve({
         sessionId: session.id,
         message: finalMessage,
+        threadId: finalThreadId,
       })
     })
   }).finally(() => {
