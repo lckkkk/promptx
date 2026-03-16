@@ -1,5 +1,6 @@
 <script setup>
 import {
+  ArrowDown,
   Bot,
   CircleAlert,
   LoaderCircle,
@@ -22,6 +23,10 @@ const props = defineProps({
     default: null,
   },
   beforeSend: {
+    type: Function,
+    default: null,
+  },
+  afterSend: {
     type: Function,
     default: null,
   },
@@ -49,6 +54,7 @@ const {
   handleDeleteSession,
   handleSelectSession,
   handleSend,
+  handleTranscriptScroll,
   handleUpdateSession,
   helperText,
   loading,
@@ -57,6 +63,7 @@ const {
   refreshSessionsForSelection,
   selectedSessionId,
   sending,
+  hasNewerMessages,
   sessionError,
   shouldShowResponse,
   showManager,
@@ -148,7 +155,7 @@ defineExpose({
     </div>
 
     <div class="min-h-0 flex-1">
-      <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4">
+      <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4" @scroll="handleTranscriptScroll">
         <div
           v-if="!turns.length"
           class="rounded-sm border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500 dark:border-[#544941] dark:bg-[#2d2723] dark:text-stone-400"
@@ -206,6 +213,17 @@ defineExpose({
           </div>
         </div>
       </div>
+
+      <button
+        v-if="hasNewerMessages"
+        type="button"
+        class="tool-button absolute right-4 z-10 inline-flex items-center gap-2 border-stone-400 bg-stone-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur dark:border-[#5a4d45] dark:bg-[#342d28]/95 dark:text-stone-100"
+        :class="sending ? 'bottom-20' : 'bottom-4'"
+        @click="scrollToBottom"
+      >
+        <ArrowDown class="h-4 w-4" />
+        <span>有新消息，跳到底部</span>
+      </button>
     </div>
 
     <div

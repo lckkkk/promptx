@@ -479,7 +479,7 @@ export function useWorkbenchTasks(options = {}) {
     const currentStillExists = tasks.value.some((task) => task.slug === currentSlug)
     if (!currentStillExists) {
       if (tasks.value.length) {
-        await loadTask(tasks.value[0].slug, { force: true })
+        await loadTask(tasks.value[0].slug, { force: true, skipIfDirtyOnApply: true })
         return
       }
 
@@ -499,7 +499,7 @@ export function useWorkbenchTasks(options = {}) {
       return
     }
 
-    await loadTask(currentSlug, { force: true })
+    await loadTask(currentSlug, { force: true, skipIfDirtyOnApply: true })
   }
 
   async function handleServerEvent(event = {}) {
@@ -529,17 +529,17 @@ export function useWorkbenchTasks(options = {}) {
       blocks: normalizedBlocks,
     }
 
-    setTaskDraftState(slug, state)
-    upsertTaskSummary(toTaskSummary({
-      ...task,
-      blocks: normalizedBlocks,
-    }))
-
-    return state
+    return {
+      state,
+      summary: toTaskSummary({
+        ...task,
+        blocks: normalizedBlocks,
+      }),
+    }
   }
 
   async function loadTask(slug, options = {}) {
-    const { focusEditor = false, force = false } = options
+    const { focusEditor = false, force = false, skipIfDirtyOnApply = false } = options
     const targetSlug = String(slug || '').trim()
     if (!targetSlug) {
       return false
@@ -554,15 +554,30 @@ export function useWorkbenchTasks(options = {}) {
 
     try {
       let state = force ? null : getTaskDraftState(targetSlug)
+      let summary = null
       if (!state) {
-        state = await hydrateTaskFromServer(targetSlug)
+        const hydrated = await hydrateTaskFromServer(targetSlug)
+        state = hydrated?.state || null
+        summary = hydrated?.summary || null
       }
 
       if (requestId !== loadRequestId) {
         return false
       }
 
+      if (
+        skipIfDirtyOnApply
+        && targetSlug === currentTaskSlug.value
+        && hasUnsavedChanges.value
+      ) {
+        return false
+      }
+
       draft.value = cloneDraftState(state)
+      setTaskDraftState(targetSlug, state)
+      if (summary) {
+        upsertTaskSummary(summary)
+      }
       setTaskSelectedSessionId(targetSlug, state.codexSessionId)
       lastSavedSnapshot.value = createSnapshot(
         draft.value.title,
@@ -766,9 +781,25 @@ export function useWorkbenchTasks(options = {}) {
     }
   }
 
-  function clearCurrentTaskContent() {
-    editorRef.value?.clearContent?.()
-    flashToast('已清空当前任务内容，稍后会自动保存')
+  function clearCurrentTaskContent(options = {}) {
+    const { silent = false } = options
+    if (!currentTaskSlug.value) {
+      return
+    }
+
+    draft.value = {
+      ...draft.value,
+      blocks: [{ type: 'text', content: '', meta: {} }],
+    }
+    setTaskDraftState(currentTaskSlug.value, draft.value)
+    syncDraftSummary()
+    hasUnsavedChanges.value = true
+    nextTick(() => {
+      editorRef.value?.focusEditor?.()
+    })
+    if (!silent) {
+      flashToast('已清空当前任务内容，稍后会自动保存')
+    }
   }
 
   async function initializeWorkbench() {

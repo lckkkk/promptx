@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
@@ -54,7 +53,7 @@ const app = Fastify({ logger: true })
 const activeCodexRunControllers = new Map()
 const sseClients = new Set()
 const port = Number(process.env.PORT || 3000)
-const host = process.env.HOST || '0.0.0.0'
+const host = process.env.HOST || '127.0.0.1'
 const uploadsDir = path.resolve(process.cwd(), 'uploads')
 const tmpDir = path.resolve(process.cwd(), 'tmp')
 const serverRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -345,41 +344,11 @@ function startCodexRunInBackground(runRecord) {
     })
 }
 
-function listLanIpv4Addresses() {
-  const interfaces = os.networkInterfaces()
-  const addresses = []
-
-  Object.values(interfaces).forEach((entries) => {
-    ;(entries || []).forEach((entry) => {
-      if (!entry || entry.internal) {
-        return
-      }
-
-      const family = typeof entry.family === 'string'
-        ? entry.family
-        : entry.family === 4
-          ? 'IPv4'
-          : ''
-
-      if (family !== 'IPv4') {
-        return
-      }
-
-      addresses.push(entry.address)
-    })
-  })
-
-  return [...new Set(addresses)]
-}
-
 function buildServerAccessUrls(hostname, currentPort) {
   const normalizedHost = String(hostname || '').trim()
 
-  if (!normalizedHost || normalizedHost === '0.0.0.0' || normalizedHost === '::') {
-    return [
-      `本机: http://127.0.0.1:${currentPort}`,
-      ...listLanIpv4Addresses().map((address) => `局域网: http://${address}:${currentPort}`),
-    ]
+  if (!normalizedHost || normalizedHost === '0.0.0.0' || normalizedHost === '::' || normalizedHost === '127.0.0.1') {
+    return [`本机: http://127.0.0.1:${currentPort}`]
   }
 
   if (normalizedHost === 'localhost') {

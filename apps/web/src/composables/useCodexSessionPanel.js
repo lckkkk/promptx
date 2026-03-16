@@ -14,6 +14,7 @@ import { subscribeServerEvents } from '../lib/serverEvents.js'
 
 const SESSION_REFRESH_TTL = 1500
 const SERVER_SYNC_DELAY = 150
+const AUTO_SCROLL_THRESHOLD = 48
 
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
@@ -371,6 +372,7 @@ export function useCodexSessionPanel(props, emit) {
   const sendingElapsedSeconds = ref(0)
   const showManager = ref(false)
   const currentRunningRunId = ref('')
+  const hasNewerMessages = ref(false)
   const supportsServerEvents = typeof window !== 'undefined' && typeof window.EventSource !== 'undefined'
 
   let turnId = 0
@@ -383,6 +385,7 @@ export function useCodexSessionPanel(props, emit) {
   let lastRunFingerprint = ''
   let unsubscribeServerEvents = null
   let serverSyncTimer = null
+  let stickToBottom = true
   let pendingServerSync = {
     sessions: false,
     runs: false,
@@ -476,9 +479,35 @@ export function useCodexSessionPanel(props, emit) {
     }, SERVER_SYNC_DELAY)
   }
 
-  function scheduleScrollToBottom() {
+  function isTranscriptNearBottom(element = transcriptRef.value) {
+    if (!element) {
+      return true
+    }
+
+    const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight
+    return distanceToBottom <= AUTO_SCROLL_THRESHOLD
+  }
+
+  function handleTranscriptScroll() {
+    stickToBottom = isTranscriptNearBottom()
+    if (stickToBottom) {
+      hasNewerMessages.value = false
+    }
+  }
+
+  function scheduleScrollToBottom(options = {}) {
+    const { force = false } = options
+    if (force) {
+      stickToBottom = true
+      hasNewerMessages.value = false
+    }
+
     nextTick(() => {
       if (!transcriptRef.value) {
+        return
+      }
+      if (!force && !stickToBottom) {
+        hasNewerMessages.value = true
         return
       }
 
@@ -487,6 +516,8 @@ export function useCodexSessionPanel(props, emit) {
           return
         }
         transcriptRef.value.scrollTop = transcriptRef.value.scrollHeight
+        stickToBottom = true
+        hasNewerMessages.value = false
       }
 
       run()
@@ -498,7 +529,7 @@ export function useCodexSessionPanel(props, emit) {
   }
 
   function scrollToBottom() {
-    scheduleScrollToBottom()
+    scheduleScrollToBottom({ force: true })
   }
 
   function openManager() {
@@ -626,7 +657,7 @@ export function useCodexSessionPanel(props, emit) {
   }
 
   async function refreshRunHistory(options = {}) {
-    const { force = false } = options
+    const { force = false, scrollToLatest = false } = options
     const taskSlug = String(props.taskSlug || '').trim()
     if (!taskSlug || (!props.active && !force)) {
       return
@@ -646,7 +677,7 @@ export function useCodexSessionPanel(props, emit) {
           updatedAt: item.updatedAt,
           eventCount: Array.isArray(item.events) ? item.events.length : 0,
         })))
-        const shouldScroll = lastRunFingerprint && fingerprint !== lastRunFingerprint
+        const shouldScroll = scrollToLatest || (lastRunFingerprint && fingerprint !== lastRunFingerprint)
 
         rebuildTurns(items)
         lastRunFingerprint = fingerprint
@@ -844,6 +875,38 @@ export function useCodexSessionPanel(props, emit) {
     }
   }
 
+  function applyCreatedRun(result = {}) {
+    const createdRun = result?.run || null
+    const createdSession = result?.session || null
+
+    if (createdSession) {
+      mergeSession(createdSession, { preserveRunning: true })
+    }
+
+    if (!createdRun?.id) {
+      syncRunningStateFromTurns()
+      scheduleScrollToBottom({ force: true })
+      return
+    }
+
+    const mergeRunSession = (session) => {
+      mergeSession(session, { preserveRunning: true })
+    }
+    const nextTurn = createTurnFromRun(createdRun, nextTurnIdValue, nextLogIdValue, mergeRunSession)
+    const existingTurnIndex = turns.value.findIndex((turn) => turn.runId === nextTurn.runId)
+
+    if (existingTurnIndex >= 0) {
+      const nextTurns = [...turns.value]
+      nextTurns.splice(existingTurnIndex, 1, nextTurn)
+      turns.value = nextTurns
+    } else {
+      turns.value = [...turns.value, nextTurn]
+    }
+
+    syncRunningStateFromTurns()
+    scheduleScrollToBottom({ force: true })
+  }
+
   async function handleSend() {
     if (!props.taskSlug || !hasPrompt.value || sending.value) {
       return false
@@ -880,16 +943,23 @@ export function useCodexSessionPanel(props, emit) {
         return false
       }
 
-      await createTaskCodexRun(props.taskSlug, {
+      const result = await createTaskCodexRun(props.taskSlug, {
         sessionId: selectedSessionId.value,
         prompt,
       })
+      applyCreatedRun(result)
+      if (typeof props.afterSend === 'function') {
+        Promise.resolve(props.afterSend()).catch((err) => {
+          console.error('[promptx] afterSend failed', err)
+        })
+      }
 
-      await Promise.all([
+      Promise.all([
         refreshRunHistory({ force: true }),
         loadSessions({ force: true }),
-      ])
-      scheduleScrollToBottom()
+      ]).catch((err) => {
+        sessionError.value = err.message
+      })
       return true
     } catch (err) {
       sessionError.value = err.message
@@ -923,7 +993,9 @@ export function useCodexSessionPanel(props, emit) {
       turns.value = []
       currentRunningRunId.value = ''
       lastRunFingerprint = ''
-      scheduleScrollToBottom()
+      stickToBottom = true
+      hasNewerMessages.value = false
+      scheduleScrollToBottom({ force: true })
     } catch (err) {
       sessionError.value = err.message
     }
@@ -987,7 +1059,7 @@ export function useCodexSessionPanel(props, emit) {
     (active) => {
       if (active) {
         loadSessions({ force: true }).catch(() => {})
-        refreshRunHistory({ force: true }).catch(() => {})
+        refreshRunHistory({ force: true, scrollToLatest: true }).catch(() => {})
         return
       }
 
@@ -1003,10 +1075,12 @@ export function useCodexSessionPanel(props, emit) {
       turns.value = []
       currentRunningRunId.value = ''
       lastRunFingerprint = ''
+      stickToBottom = true
+      hasNewerMessages.value = false
       showManager.value = false
       sessionError.value = ''
       if (props.active) {
-        refreshRunHistory({ force: true }).catch(() => {})
+        refreshRunHistory({ force: true, scrollToLatest: true }).catch(() => {})
       }
     },
     { immediate: true }
@@ -1048,12 +1122,14 @@ export function useCodexSessionPanel(props, emit) {
     showManager,
     sortedSessions,
     stopSending,
+    hasNewerMessages,
     transcriptRef,
     turns,
     workspaces,
     workingLabel,
     sessions,
     loadSessions,
+    handleTranscriptScroll,
     scrollToBottom,
   }
 }

@@ -68,6 +68,7 @@ const {
   removingTask,
   renderedTasks,
   saveTask,
+  saving,
   selectTask,
   updateLastPromptPreview,
   uploading,
@@ -149,11 +150,7 @@ async function copyCodexPrompt() {
 
 async function sendToCodex() {
   updateLastPromptPreview(currentTaskSlug.value, buildPromptForTask(currentTaskSlug.value))
-
-  const started = await getCurrentPanelRef(currentTaskSlug.value)?.send?.()
-  if (started) {
-    editorRef.value?.clearContent?.()
-  }
+  await getCurrentPanelRef(currentTaskSlug.value)?.send?.()
 }
 
 function stopCodex() {
@@ -161,6 +158,10 @@ function stopCodex() {
 }
 
 function handleBeforeUnload(event) {
+  if (!hasUnsavedChanges.value && !uploading.value && !saving.value) {
+    return
+  }
+
   event.preventDefault()
   event.returnValue = ''
 }
@@ -325,6 +326,7 @@ onBeforeUnmount(() => {
               :active="Boolean(currentRenderedTask?.slug)"
               :task-slug="currentRenderedTask.slug"
               :build-prompt="() => prepareCodexPromptForTask(currentRenderedTask.slug)"
+              :after-send="() => clearCurrentTaskContent({ silent: true })"
               :selected-session-id="currentRenderedTask.codexSessionId || ''"
               @sending-change="handleTaskSendingChange(currentRenderedTask.slug, $event)"
               @selected-session-change="handleTaskSessionChange(currentRenderedTask.slug, $event)"
