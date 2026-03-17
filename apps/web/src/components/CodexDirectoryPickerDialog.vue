@@ -145,6 +145,16 @@ function getDisplayName(item) {
   return item?.name || item?.path || '未命名目录'
 }
 
+function getRootDisplayName(pathValue = '') {
+  const normalized = String(pathValue || '').trim()
+  if (!normalized) {
+    return 'Home'
+  }
+
+  const segments = normalized.split(/[\\/]/).filter(Boolean)
+  return segments.at(-1) || normalized
+}
+
 function escapeHtml(value = '') {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -295,7 +305,7 @@ async function loadHomeRoot() {
     })
     homePath.value = String(payload.path || '')
     rootNode.value = createTreeNode({
-      name: String(payload.path || ''),
+      name: getRootDisplayName(payload.path || ''),
       path: String(payload.path || ''),
       type: 'directory',
       hasChildren: true,
@@ -544,12 +554,12 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5">
-          <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-3">
-            <div class="theme-muted-text text-[11px] uppercase tracking-[0.12em]">
-              当前选中目录
-            </div>
-            <div class="mt-2 break-all font-mono text-sm text-[var(--theme-textPrimary)]">
-              {{ selectedPath || '请在目录树或搜索结果里选择目录' }}
+          <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-2">
+            <div class="flex items-start gap-2 text-xs leading-5">
+              <span class="theme-muted-text shrink-0">当前选中</span>
+              <span class="min-w-0 break-all font-mono text-[var(--theme-textPrimary)]">
+                {{ selectedPath || '请在目录树或搜索结果里选择目录' }}
+              </span>
             </div>
           </div>
 
@@ -716,10 +726,18 @@ onBeforeUnmount(() => {
                         : 'text-[var(--theme-textMuted)]'"
                     />
                     <div class="min-w-0 flex-1">
-                      <div class="truncate text-[13px] font-medium text-[var(--theme-textPrimary)]">
+                      <div
+                        class="truncate text-[13px]"
+                        :class="item.isHomeRoot
+                          ? 'font-medium text-[var(--theme-textSecondary)]'
+                          : 'font-medium text-[var(--theme-textPrimary)]'"
+                      >
                         {{ getDisplayName(item) }}
                       </div>
-                      <div class="theme-muted-text truncate font-mono text-[10px]">
+                      <div
+                        v-if="item.isHomeRoot"
+                        class="theme-muted-text truncate font-mono text-[10px]"
+                      >
                         {{ item.path }}
                       </div>
                     </div>
@@ -730,11 +748,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="theme-divider flex flex-col-reverse gap-2 border-t border-dashed px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <p class="theme-muted-text text-xs leading-5">
-            如果项目不在当前用户目录下，直接手动输入绝对路径会更快。
-          </p>
-
+        <div class="theme-divider flex flex-col-reverse gap-2 border-t border-dashed px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-5">
           <div class="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
             <button
               type="button"
