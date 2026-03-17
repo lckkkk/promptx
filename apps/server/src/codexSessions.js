@@ -36,7 +36,7 @@ function normalizeTitle(input = '', cwd = '') {
   return baseName || 'PromptX 会话'
 }
 
-function normalizeCwd(input = '') {
+export function normalizeCwd(input = '') {
   const cwd = String(input || '').trim()
   if (!cwd) {
     throw createHttpError('请先填写工作目录。')

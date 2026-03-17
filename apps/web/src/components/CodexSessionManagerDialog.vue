@@ -131,7 +131,13 @@ const duplicateCwdMessage = computed(() => {
 const selectionLockedMessage = computed(() =>
   props.selectionLockReason || '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
 )
+const cwdReadonlyMessage = computed(() => {
+  if (mode.value !== 'edit' || canEditCwd.value) {
+    return ''
+  }
 
+  return '当前会话已绑定 Codex 线程，工作目录不能再修改；如需使用新目录，请新建会话。'
+})
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? timestamp : 0
@@ -293,48 +299,77 @@ async function handleSubmit() {
   error.value = ''
 
   try {
-    if (mode.value === 'create') {
-      const cwd = String(form.cwd || '').trim()
-      if (!cwd) {
-        error.value = '请先填写工作目录。'
-        return
-      }
+    const submitAction = createSubmitAction()
+    if (!submitAction) {
+      return
+    }
 
-      creating.value = true
-      const session = await props.onCreate?.({
+    await submitSession(submitAction)
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+function createSubmitAction() {
+  if (mode.value === 'create') {
+    const cwd = String(form.cwd || '').trim()
+    if (!cwd) {
+      error.value = '请先填写工作目录。'
+      return null
+    }
+
+    return {
+      type: 'create',
+      cwd,
+      payload: {
         title: form.title,
         cwd,
-      })
+      },
+    }
+  }
 
+  if (!activeSession.value) {
+    error.value = '当前会话不存在，请重新选择。'
+    return null
+  }
+
+  const payload = {
+    title: form.title,
+  }
+
+  if (canEditCwd.value) {
+    payload.cwd = form.cwd
+  }
+
+  return {
+    type: 'update',
+    sessionId: activeSession.value.id,
+    payload,
+  }
+}
+
+async function submitSession(submitAction) {
+  if (submitAction.type === 'create') {
+    creating.value = true
+    try {
+      const session = await props.onCreate?.(submitAction.payload)
       if (session?.id) {
         openEditMode(session.id)
         emit('select-session', session.id)
       }
       return
+    } finally {
+      creating.value = false
     }
+  }
 
-    if (!activeSession.value) {
-      error.value = '当前会话不存在，请重新选择。'
-      return
-    }
-
-    saving.value = true
-    const payload = {
-      title: form.title,
-    }
-
-    if (canEditCwd.value) {
-      payload.cwd = form.cwd
-    }
-
-    const session = await props.onUpdate?.(activeSession.value.id, payload)
+  saving.value = true
+  try {
+    const session = await props.onUpdate?.(submitAction.sessionId, submitAction.payload)
     if (session?.id) {
       openEditMode(session.id)
     }
-  } catch (err) {
-    error.value = err.message
   } finally {
-    creating.value = false
     saving.value = false
   }
 }
@@ -444,7 +479,6 @@ onBeforeUnmount(() => {
           @cancel="showDeleteDialog = false"
           @confirm="handleDelete"
         />
-
         <div class="flex flex-wrap items-start justify-between gap-3 border-b border-stone-200 px-4 py-3 dark:border-stone-800 sm:px-5 sm:py-4">
           <div>
             <div class="inline-flex items-center gap-2 text-sm font-medium text-stone-900 dark:text-stone-100">
@@ -560,13 +594,21 @@ onBeforeUnmount(() => {
               </label>
 
               <label class="block text-xs text-stone-500 dark:text-stone-400">
-                <span>工作目录</span>
+                <span class="inline-flex items-center gap-2">
+                  <span>工作目录</span>
+                  <span
+                    v-if="mode === 'edit' && !canEditCwd"
+                    class="inline-flex items-center rounded-sm border border-dashed border-stone-300 bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+                  >
+                    已锁定
+                  </span>
+                </span>
                 <input
                   v-model="form.cwd"
                   type="text"
                   list="codex-manager-workspace-suggestions"
                   placeholder="例如：D:\\code\\yuyang-web"
-                  class="mt-1 w-full rounded-sm border bg-white px-3 py-2 text-sm text-stone-900 outline-none transition disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-500 dark:bg-stone-950 dark:text-stone-100 dark:disabled:bg-stone-900 dark:disabled:text-stone-500"
+                  class="mt-1 w-full rounded-sm border bg-white px-3 py-2 text-sm text-stone-900 outline-none transition disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-500 disabled:opacity-80 dark:bg-stone-950 dark:text-stone-100 dark:disabled:border-stone-800 dark:disabled:bg-stone-900 dark:disabled:text-stone-500"
                   :class="duplicateCwdMessage
                     ? 'border-amber-300 focus:border-amber-500 dark:border-amber-800 dark:focus:border-amber-500'
                     : 'border-stone-300 focus:border-stone-500 dark:border-stone-700 dark:focus:border-stone-400'"
@@ -577,6 +619,9 @@ onBeforeUnmount(() => {
                 </datalist>
                 <p v-if="duplicateCwdMessage" class="mt-2 text-[11px] leading-5 text-amber-700 dark:text-amber-300">
                   {{ duplicateCwdMessage }}
+                </p>
+                <p v-else-if="cwdReadonlyMessage" class="mt-2 text-[11px] leading-5 text-stone-500 dark:text-stone-400">
+                  {{ cwdReadonlyMessage }}
                 </p>
               </label>
             </div>

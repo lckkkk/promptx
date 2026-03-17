@@ -14,6 +14,7 @@ import {
 import CodexSessionManagerDialog from './CodexSessionManagerDialog.vue'
 import CodexSessionSelect from './CodexSessionSelect.vue'
 import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
+import { classifyCodexIssue } from '../composables/useCodexSessionPanel.js'
 
 const emit = defineEmits(['selected-session-change', 'sending-change', 'open-diff'])
 
@@ -102,6 +103,23 @@ const RESPONSE_COLLAPSE_MAX_LINES = 10
 const RESPONSE_COLLAPSE_MAX_CHARS = 400
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
 const latestTurnId = computed(() => turns.value.at(-1)?.id || '')
+const currentSession = computed(() => {
+  const targetSessionId = String(selectedSessionId.value || props.selectedSessionId || '').trim()
+  if (!targetSessionId) {
+    return null
+  }
+
+  return sessions.value.find((session) => session.id === targetSessionId) || null
+})
+const currentSessionSummary = computed(() => {
+  if (!currentSession.value) {
+    return '当前发送实际使用：未选择会话'
+  }
+
+  const title = String(currentSession.value.title || '').trim() || '未命名会话'
+  const cwd = String(currentSession.value.cwd || '').trim() || '未设置工作目录'
+  return `当前发送实际使用：${title} · ${cwd}`
+})
 
 const sessionSelectionHelperText = computed(() => {
   if (props.sessionSelectionLocked) {
@@ -250,6 +268,10 @@ function openTaskDiff() {
   })
 }
 
+function getTurnIssue(turn) {
+  return classifyCodexIssue(turn?.errorMessage || '')
+}
+
 watch(
   turns,
   (nextTurns) => {
@@ -335,6 +357,9 @@ defineExpose({
           class="text-xs text-stone-500 dark:text-stone-400"
         >
           {{ sessionSelectionHelperText }}
+        </p>
+        <p class="rounded-sm border border-dashed border-stone-300/80 bg-white/70 px-3 py-2 text-xs text-stone-600 dark:border-[#4e433d] dark:bg-[#2a2421] dark:text-stone-300">
+          {{ currentSessionSummary }}
         </p>
 
         <p v-if="sessionError" class="inline-flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
@@ -495,6 +520,12 @@ defineExpose({
                     ? 'from-red-50 via-red-50 to-red-50/15 dark:from-[#372321] dark:via-[#372321] dark:to-[#372321]/15'
                     : 'from-emerald-50 via-emerald-50 to-emerald-50/15 dark:from-[#243228] dark:via-[#243228] dark:to-[#243228]/15'"
                 />
+              </div>
+              <div
+                v-if="turn.errorMessage && getTurnIssue(turn)?.type === 'trusted_directory'"
+                class="mt-3 rounded-sm border border-dashed border-current/25 bg-white/35 px-3 py-3 text-xs text-current/85 dark:bg-black/10"
+              >
+                当前 PromptX 默认以满血模式运行 Codex；如果仍出现这个错误，请检查本机 Codex 启动参数是否被外部环境覆盖。
               </div>
             </div>
           </div>

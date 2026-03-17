@@ -100,6 +100,21 @@ process.stdin.on('end', () => {
     return
   }
 
+  if (prompt.includes('args-case')) {
+    if (outputFile) {
+      fs.writeFileSync(outputFile, JSON.stringify(args))
+    }
+    process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: threadId }) + '\\n')
+    process.stdout.write(JSON.stringify({
+      type: 'item.completed',
+      item: {
+        type: 'agent_message',
+        text: 'args-ok',
+      },
+    }) + '\\n')
+    return
+  }
+
   process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: threadId }) + '\\n')
 
   if (prompt.includes('stream-tail-case')) {
@@ -321,6 +336,34 @@ test('streamPromptToCodexSession emits starting status for new sessions and resu
           message: '已连接 PromptX 会话，正在继续这轮执行。',
         }
       )
+    }
+  )
+})
+
+test('streamPromptToCodexSession includes full-access codex args by default', async () => {
+  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-args-'))
+  const fakeBin = createFakeCodexBinary(tempHome)
+
+  await withEnv(
+    {
+      CODEX_HOME: tempHome,
+      CODEX_BIN: fakeBin,
+    },
+    async () => {
+      const { streamPromptToCodexSession } = await importFreshCodexModule()
+      const stream = streamPromptToCodexSession(
+        { id: 'session-args', cwd: getSessionCwd(), codexThreadId: '' },
+        'args-case'
+      )
+
+      const result = await stream.result
+      const args = JSON.parse(result.message)
+
+      assert.deepEqual(
+        args.slice(0, 4),
+        ['--dangerously-bypass-approvals-and-sandbox', '-C', getSessionCwd(), 'exec']
+      )
+      assert.equal(args.at(-2), '--output-last-message')
     }
   )
 })

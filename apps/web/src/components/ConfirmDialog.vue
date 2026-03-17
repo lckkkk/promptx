@@ -66,13 +66,18 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 px-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[70] flex items-center justify-center bg-stone-950/45 px-4 backdrop-blur-sm"
       @click.self="!loading && emit('cancel')"
     >
       <section class="panel w-full max-w-md overflow-hidden">
         <div class="flex items-start justify-between gap-3 border-b border-stone-200 px-5 py-4 dark:border-stone-800">
           <div class="flex items-start gap-3">
-            <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            <span
+              class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-dashed"
+              :class="danger
+                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300'
+                : 'border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-200'"
+            >
               <TriangleAlert class="h-4 w-4" />
             </span>
             <div>

@@ -482,6 +482,20 @@ export function hasTurnSummary(turn = {}) {
 
 const CODEX_ISSUE_PATTERNS = [
   {
+    type: 'trusted_directory',
+    title: '目录尚未信任',
+    summary: 'PromptX 默认以满血模式运行 Codex；如果仍出现这个错误，通常说明本机 Codex 启动参数或外部环境配置存在覆盖。',
+    patterns: [
+      /not inside a trusted directory/i,
+      /do you trust the contents of this directory/i,
+      /trusted directory/i,
+      /skip-git-repo-check/i,
+      /prompt injection/i,
+      /目录.*信任/,
+      /可信目录/,
+    ],
+  },
+  {
     type: 'billing',
     title: '额度或账单异常',
     summary: 'Codex 可能因为额度不足、欠费或账单限制而无法继续执行。',
