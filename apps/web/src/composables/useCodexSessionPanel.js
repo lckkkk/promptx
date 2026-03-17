@@ -1780,15 +1780,15 @@ export function useCodexSessionPanel(props, emit) {
 
   function getProcessCardClass(turn) {
     if (turn.status === 'error') {
-      return 'border-red-300 bg-red-50 text-red-900 dark:border-[#7b4f4a] dark:bg-[#372321] dark:text-[#f0dfdc]'
+      return 'border-red-200 bg-red-50/70 text-red-900 dark:border-[#6f4a45] dark:bg-[#32211f] dark:text-[#e9d7d3]'
     }
     if (turn.status === 'interrupted' || turn.status === 'stopped') {
-      return 'border-stone-300 bg-stone-100 text-stone-700 dark:border-[#544941] dark:bg-[#302924] dark:text-stone-200'
+      return 'border-stone-200 bg-stone-50/60 text-stone-600 dark:border-[#4d433d] dark:bg-[#24201d] dark:text-stone-400'
     }
     if (turn.status === 'completed') {
-      return 'border-stone-300 bg-white text-stone-700 dark:border-[#544941] dark:bg-[#2b2521] dark:text-stone-300'
+      return 'border-stone-200 bg-stone-50/55 text-stone-600 dark:border-[#49403a] dark:bg-[#211d1a] dark:text-stone-400'
     }
-    return 'border-amber-300 bg-amber-50 text-amber-900 dark:border-[#7f6949] dark:bg-[#392f20] dark:text-[#e5ce9a]'
+    return 'border-amber-200 bg-amber-50/60 text-amber-900 dark:border-[#725f45] dark:bg-[#2f261d] dark:text-[#dcc793]'
   }
 
   function shouldShowResponse(turn) {

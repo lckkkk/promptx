@@ -442,6 +442,7 @@ export function useTaskDiffReviewData(props) {
         }
 
         syncSelectedFile()
+        loadSelectedFilePatch().catch(() => {})
         if (!cachedStatsPayload) {
           loadDiffStats().catch(() => {})
         }
@@ -463,6 +464,7 @@ export function useTaskDiffReviewData(props) {
       lastLoadedSignature = signature
       lastStatsLoadedSignature = ''
       syncSelectedFile()
+      loadSelectedFilePatch().catch(() => {})
       loadDiffStats().catch(() => {})
     } catch (err) {
       if (currentRequestId !== loadRequestId) {
