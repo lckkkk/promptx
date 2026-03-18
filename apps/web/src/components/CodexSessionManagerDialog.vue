@@ -4,15 +4,16 @@ import {
   ArrowLeft,
   Bot,
   CircleAlert,
-  FolderOpen,
-  Info,
   PencilLine,
-  Plus,
   Trash2,
   X,
 } from 'lucide-vue-next'
+import { useMediaQuery } from '../composables/useMediaQuery.js'
 import ConfirmDialog from './ConfirmDialog.vue'
 import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
+import CodexSessionManagerForm from './CodexSessionManagerForm.vue'
+import CodexSessionManagerList from './CodexSessionManagerList.vue'
+import CodexSessionManagerStatus from './CodexSessionManagerStatus.vue'
 
 const props = defineProps({
   open: {
@@ -79,12 +80,9 @@ const saving = ref(false)
 const deleting = ref(false)
 const showDeleteDialog = ref(false)
 const showDirectoryPicker = ref(false)
-const isMobileLayout = ref(false)
+const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
 const mobileView = ref('list')
 const mobileDetailTab = ref('basic')
-const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)'
-let mobileMediaQueryList = null
-let removeMobileMediaQueryListener = () => {}
 
 const sortedSessions = computed(() => sortSessions(props.sessions))
 const activeSession = computed(() => props.sessions.find((session) => session.id === editingSessionId.value) || null)
@@ -146,6 +144,10 @@ const cwdReadonlyMessage = computed(() => {
 
   return '当前项目已绑定 Codex 线程，工作目录不能再修改；如需使用新目录，请新建项目。'
 })
+const desktopSubmitLabel = computed(() => (mode.value === 'create'
+  ? (creating.value ? '创建中...' : '创建项目')
+  : (saving.value ? '保存中...' : '保存修改')))
+const mobileTitle = computed(() => (mode.value === 'create' ? '新建项目' : activeSession.value?.title || '未命名项目'))
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? timestamp : 0
@@ -278,15 +280,16 @@ function handleSessionCardClick(sessionId) {
   }
 }
 
-function syncMobileLayout(matches) {
-  isMobileLayout.value = Boolean(matches)
-  if (!isMobileLayout.value) {
-    mobileView.value = 'detail'
-  }
-}
-
 function handleDirectoryPicked(pathValue) {
   form.cwd = String(pathValue || '').trim()
+}
+
+function updateFormTitle(value) {
+  form.title = String(value || '')
+}
+
+function updateFormCwd(value) {
+  form.cwd = String(value || '')
 }
 
 function initializeDialog() {
@@ -316,10 +319,6 @@ function handleKeydown(event) {
   if (event.key === 'Escape') {
     emit('close')
   }
-}
-
-function selectSession(sessionId) {
-  emit('select-session', sessionId)
 }
 
 async function handleRefresh() {
@@ -462,23 +461,6 @@ watch(
 
     if (open) {
       window.addEventListener('keydown', handleKeydown)
-      if (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && !mobileMediaQueryList) {
-        mobileMediaQueryList = window.matchMedia(MOBILE_BREAKPOINT_QUERY)
-        syncMobileLayout(mobileMediaQueryList.matches)
-        const handleMediaChange = (event) => {
-          syncMobileLayout(event.matches)
-        }
-
-        if (typeof mobileMediaQueryList.addEventListener === 'function') {
-          mobileMediaQueryList.addEventListener('change', handleMediaChange)
-          removeMobileMediaQueryListener = () => mobileMediaQueryList?.removeEventListener('change', handleMediaChange)
-        } else if (typeof mobileMediaQueryList.addListener === 'function') {
-          mobileMediaQueryList.addListener(handleMediaChange)
-          removeMobileMediaQueryListener = () => mobileMediaQueryList?.removeListener(handleMediaChange)
-        }
-      } else if (mobileMediaQueryList) {
-        syncMobileLayout(mobileMediaQueryList.matches)
-      }
       initializeDialog()
       handleRefresh().catch(() => {})
       return
@@ -489,6 +471,16 @@ watch(
     showDeleteDialog.value = false
     error.value = ''
   }
+)
+
+watch(
+  isMobileLayout,
+  (matches) => {
+    if (!matches) {
+      mobileView.value = 'detail'
+    }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -522,7 +514,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  removeMobileMediaQueryListener()
   document.body.classList.remove('overflow-hidden')
   window.removeEventListener('keydown', handleKeydown)
 })
@@ -578,72 +569,22 @@ onBeforeUnmount(() => {
 
         <div v-if="!isMobileLayout" class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
           <aside class="theme-divider border-b bg-[var(--theme-appPanelMuted)] px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <div class="theme-heading text-sm font-medium">项目列表</div>
-                <p v-if="!hasSessions" class="theme-muted-text mt-1 text-xs">
-                  还没有项目，先新建一个固定工作目录。
-                </p>
-              </div>
-              <button
-                type="button"
-                class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
-                :disabled="busy"
-                @click="handleCreateIntent"
-              >
-                <Plus class="h-4 w-4" />
-                <span>新建</span>
-              </button>
-            </div>
-
-            <div class="mt-4 max-h-52 space-y-2 overflow-y-auto pr-1 sm:max-h-64 lg:max-h-[calc(88vh-11rem)]">
-              <article
-                v-for="session in sortedSessions"
-                :key="session.id"
-                class="relative cursor-pointer rounded-sm border p-3 transition"
-                :class="mode === 'edit' && editingSessionId === session.id
-                  ? 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] shadow-sm'
-                  : isSessionRunning(session.id)
-                    ? 'theme-status-warning'
-                    : isCurrentSession(session.id)
-                      ? 'theme-status-info'
-                      : 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanel)]'"
-                @click="handleSessionCardClick(session.id)"
-              >
-                <span
-                  v-if="mode === 'edit' && editingSessionId === session.id"
-                  class="absolute inset-y-3 left-0 w-1 rounded-full bg-[var(--theme-accent)]"
-                />
-                <div class="w-full text-left">
-                  <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
-                    <span class="truncate">{{ session.title || '未命名项目' }}</span>
-                    <span
-                      v-if="isCurrentSession(session.id)"
-                      class="theme-status-info rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
-                    >
-                      当前
-                    </span>
-                    <span
-                      class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
-                      :class="getRuntimeStatusClass(session.id)"
-                    >
-                      <span v-if="isSessionRunning(session.id)" class="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                      {{ getRuntimeStatusLabel(session.id) }}
-                    </span>
-                    <span class="rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getThreadStatusClass(session)">
-                      {{ getThreadStatusLabel(session) }}
-                    </span>
-                  </div>
-                  <div class="theme-muted-text mt-2 break-all font-mono text-[11px] leading-5">
-                    {{ session.cwd }}
-                  </div>
-                  <div class="theme-muted-text mt-2 text-[11px]">
-                    最近更新：{{ formatUpdatedAt(session.updatedAt) }}
-                  </div>
-                </div>
-
-              </article>
-            </div>
+            <CodexSessionManagerList
+              :busy="busy"
+              :editing-session-id="editingSessionId"
+              :format-updated-at="formatUpdatedAt"
+              :get-runtime-status-class="getRuntimeStatusClass"
+              :get-runtime-status-label="getRuntimeStatusLabel"
+              :get-thread-status-class="getThreadStatusClass"
+              :get-thread-status-label="getThreadStatusLabel"
+              :has-sessions="hasSessions"
+              :is-current-session="isCurrentSession"
+              :is-session-running="isSessionRunning"
+              :mode="mode"
+              :sessions="sortedSessions"
+              @create="handleCreateIntent"
+              @select="handleSessionCardClick"
+            />
           </aside>
 
           <div class="min-h-0 overflow-y-auto px-4 py-4 sm:px-5">
@@ -657,53 +598,19 @@ onBeforeUnmount(() => {
 
             </div>
 
-            <div class="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <label class="theme-muted-text block text-xs">
-                <span>项目标题（可选）</span>
-                <input
-                  v-model="form.title"
-                  type="text"
-                  maxlength="140"
-                  placeholder=""
-                  class="tool-input mt-1"
-                  :disabled="busy"
-                >
-              </label>
-
-              <label class="theme-muted-text block text-xs">
-                <span>工作目录</span>
-                <div class="mt-1 flex gap-2">
-                  <input
-                    v-model="form.cwd"
-                    type="text"
-                    list="codex-manager-workspace-suggestions"
-                    placeholder=""
-                    class="tool-input min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-80"
-                    :class="duplicateCwdMessage
-                      ? 'border-[var(--theme-warning)]'
-                      : ''"
-                    :disabled="busy || (mode === 'edit' && !canEditCwd)"
-                  >
-                  <button
-                    type="button"
-                    class="tool-button inline-flex shrink-0 items-center gap-2 px-3 py-2 text-xs"
-                    :disabled="busy || (mode === 'edit' && !canEditCwd)"
-                    @click="showDirectoryPicker = true"
-                  >
-                    <FolderOpen class="h-4 w-4" />
-                    <span>选择目录</span>
-                  </button>
-                </div>
-                <datalist id="codex-manager-workspace-suggestions">
-                  <option v-for="item in workspaceSuggestions" :key="item" :value="item" />
-                </datalist>
-                <p v-if="duplicateCwdMessage" class="mt-2 text-[11px] leading-5 text-[var(--theme-warningText)]">
-                  {{ duplicateCwdMessage }}
-                </p>
-                <p v-else-if="cwdReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
-                  {{ cwdReadonlyMessage }}
-                </p>
-              </label>
+            <div class="mt-5">
+              <CodexSessionManagerForm
+                :busy="busy"
+                :can-edit-cwd="mode !== 'edit' || canEditCwd"
+                :cwd="form.cwd"
+                :cwd-readonly-message="cwdReadonlyMessage"
+                :duplicate-cwd-message="duplicateCwdMessage"
+                :title="form.title"
+                :workspace-suggestions="workspaceSuggestions"
+                @open-directory-picker="showDirectoryPicker = true"
+                @update:cwd="updateFormCwd"
+                @update:title="updateFormTitle"
+              />
             </div>
 
             <p v-if="error" class="theme-danger-text mt-4 inline-flex items-center gap-2 text-sm">
@@ -749,9 +656,7 @@ onBeforeUnmount(() => {
                   :disabled="busy"
                   @click="handleSubmit"
                 >
-                  {{ mode === 'create'
-                    ? (creating ? '创建中...' : '创建项目')
-                    : (saving ? '保存中...' : '保存修改') }}
+                  {{ desktopSubmitLabel }}
                 </button>
               </div>
             </div>
@@ -760,63 +665,24 @@ onBeforeUnmount(() => {
 
         <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div v-if="mobileView === 'list'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div class="theme-divider flex items-center justify-between gap-3 border-b px-4 py-3">
-              <div>
-                <div class="theme-heading text-sm font-medium">项目列表</div>
-                <p v-if="!hasSessions" class="theme-muted-text mt-1 text-xs">
-                  还没有项目，先新建一个固定工作目录。
-                </p>
-              </div>
-              <button
-                type="button"
-                class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
-                :disabled="busy"
-                @click="handleCreateIntent"
-              >
-                <Plus class="h-4 w-4" />
-                <span>新建</span>
-              </button>
-            </div>
-
-            <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              <div class="space-y-2">
-                <article
-                  v-for="session in sortedSessions"
-                  :key="session.id"
-                  class="relative cursor-pointer rounded-sm border p-3 transition"
-                  :class="mode === 'edit' && editingSessionId === session.id
-                    ? 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] shadow-sm'
-                    : isSessionRunning(session.id)
-                      ? 'theme-status-warning'
-                      : isCurrentSession(session.id)
-                        ? 'theme-status-info'
-                        : 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanel)]'"
-                  @click="handleSessionCardClick(session.id)"
-                >
-                  <span
-                    v-if="mode === 'edit' && editingSessionId === session.id"
-                    class="absolute inset-y-3 left-0 w-1 rounded-full bg-[var(--theme-accent)]"
-                  />
-                  <div class="w-full text-left">
-                    <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
-                      <span class="truncate">{{ session.title || '未命名项目' }}</span>
-                      <span
-                        class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
-                        :class="getRuntimeStatusClass(session.id)"
-                      >
-                        <span v-if="isSessionRunning(session.id)" class="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                        {{ getRuntimeStatusLabel(session.id) }}
-                      </span>
-                      <span class="rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getThreadStatusClass(session)">
-                        {{ getThreadStatusLabel(session) }}
-                      </span>
-                    </div>
-                    <div class="theme-muted-text mt-2 break-all font-mono text-[11px] leading-5">
-                      {{ session.cwd }}
-                    </div>
-                  </div>
-                </article>
-              </div>
+            <div class="min-h-0 flex-1 overflow-hidden px-3 py-3">
+              <CodexSessionManagerList
+                mobile
+                :busy="busy"
+                :editing-session-id="editingSessionId"
+                :format-updated-at="formatUpdatedAt"
+                :get-runtime-status-class="getRuntimeStatusClass"
+                :get-runtime-status-label="getRuntimeStatusLabel"
+                :get-thread-status-class="getThreadStatusClass"
+                :get-thread-status-label="getThreadStatusLabel"
+                :has-sessions="hasSessions"
+                :is-current-session="isCurrentSession"
+                :is-session-running="isSessionRunning"
+                :mode="mode"
+                :sessions="sortedSessions"
+                @create="handleCreateIntent"
+                @select="handleSessionCardClick"
+              />
             </div>
           </div>
 
@@ -833,7 +699,7 @@ onBeforeUnmount(() => {
               </button>
               <div class="min-w-0 flex-1">
                 <div class="theme-heading truncate text-sm font-medium">
-                  {{ mode === 'create' ? '新建项目' : activeSession?.title || '未命名项目' }}
+                  {{ mobileTitle }}
                 </div>
                 <p v-if="mode === 'edit' && activeSession?.cwd" class="theme-muted-text mt-1 truncate text-xs">
                   {{ activeSession.cwd }}
@@ -865,52 +731,19 @@ onBeforeUnmount(() => {
 
             <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               <div v-if="mobileDetailTab === 'basic'">
-                <div class="grid gap-4">
-                  <label class="theme-muted-text block text-xs">
-                    <span>项目标题（可选）</span>
-                    <input
-                      v-model="form.title"
-                      type="text"
-                      maxlength="140"
-                      placeholder=""
-                      class="tool-input mt-1"
-                      :disabled="busy"
-                    >
-                  </label>
-
-                  <label class="theme-muted-text block text-xs">
-                    <span>工作目录</span>
-                    <div class="mt-1 flex gap-2">
-                      <input
-                        v-model="form.cwd"
-                        type="text"
-                        list="codex-manager-workspace-suggestions-mobile"
-                        placeholder=""
-                        class="tool-input min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-80"
-                        :class="duplicateCwdMessage ? 'border-[var(--theme-warning)]' : ''"
-                        :disabled="busy || (mode === 'edit' && !canEditCwd)"
-                      >
-                      <button
-                        type="button"
-                        class="tool-button inline-flex shrink-0 items-center gap-2 px-3 py-2 text-xs"
-                        :disabled="busy || (mode === 'edit' && !canEditCwd)"
-                        @click="showDirectoryPicker = true"
-                      >
-                        <FolderOpen class="h-4 w-4" />
-                        <span>选择</span>
-                      </button>
-                    </div>
-                    <datalist id="codex-manager-workspace-suggestions-mobile">
-                      <option v-for="item in workspaceSuggestions" :key="item" :value="item" />
-                    </datalist>
-                    <p v-if="duplicateCwdMessage" class="mt-2 text-[11px] leading-5 text-[var(--theme-warningText)]">
-                      {{ duplicateCwdMessage }}
-                    </p>
-                    <p v-else-if="cwdReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
-                      {{ cwdReadonlyMessage }}
-                    </p>
-                  </label>
-                </div>
+                <CodexSessionManagerForm
+                  mobile
+                  :busy="busy"
+                  :can-edit-cwd="mode !== 'edit' || canEditCwd"
+                  :cwd="form.cwd"
+                  :cwd-readonly-message="cwdReadonlyMessage"
+                  :duplicate-cwd-message="duplicateCwdMessage"
+                  :title="form.title"
+                  :workspace-suggestions="workspaceSuggestions"
+                  @open-directory-picker="showDirectoryPicker = true"
+                  @update:cwd="updateFormCwd"
+                  @update:title="updateFormTitle"
+                />
 
                 <p v-if="error" class="theme-danger-text mt-4 inline-flex items-center gap-2 text-sm">
                   <CircleAlert class="h-4 w-4" />
@@ -924,9 +757,7 @@ onBeforeUnmount(() => {
                     :disabled="busy"
                     @click="handleSubmit"
                   >
-                    {{ mode === 'create'
-                      ? (creating ? '创建中...' : '创建项目')
-                      : (saving ? '保存中...' : '保存修改') }}
+                    {{ desktopSubmitLabel }}
                   </button>
                   <button
                     v-if="mode === 'edit' && activeSession"
@@ -940,50 +771,17 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div v-else class="space-y-3">
-                <div class="dashed-panel px-3 py-3">
-                  <div class="theme-muted-text text-[11px]">运行状态</div>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    <span class="inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1 text-xs" :class="getRuntimeStatusClass(activeSession?.id)">
-                      <span v-if="isSessionRunning(activeSession?.id)" class="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
-                      {{ getRuntimeStatusLabel(activeSession?.id) }}
-                    </span>
-                    <span class="inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1 text-xs" :class="getThreadStatusClass(activeSession)">
-                      {{ getThreadStatusLabel(activeSession) }}
-                    </span>
-                    <span
-                      v-if="activeSession?.id && isCurrentSession(activeSession.id)"
-                      class="theme-status-info inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1 text-xs"
-                    >
-                      当前项目
-                    </span>
-                  </div>
-                </div>
-
-                <div class="dashed-panel px-3 py-3">
-                  <div class="theme-muted-text text-[11px]">工作目录</div>
-                  <div class="mt-2 break-all font-mono text-xs leading-6 text-[var(--theme-textPrimary)]">
-                    {{ activeSession?.cwd || '未设置' }}
-                  </div>
-                </div>
-
-                <div class="dashed-panel px-3 py-3">
-                  <div class="theme-muted-text text-[11px]">最近更新</div>
-                  <div class="mt-2 text-sm text-[var(--theme-textPrimary)]">
-                    {{ formatUpdatedAt(activeSession?.updatedAt) }}
-                  </div>
-                </div>
-
-                <div class="dashed-panel px-3 py-3">
-                  <div class="theme-muted-text inline-flex items-center gap-2 text-[11px]">
-                    <Info class="h-3.5 w-3.5" />
-                    <span>说明</span>
-                  </div>
-                  <p class="mt-2 text-xs leading-6 text-[var(--theme-textSecondary)]">
-                    项目绑定目录，目录不变时会继续复用同一个 Codex 线程。
-                  </p>
-                </div>
-              </div>
+              <CodexSessionManagerStatus
+                v-else
+                :active-session="activeSession"
+                :format-updated-at="formatUpdatedAt"
+                :get-runtime-status-class="getRuntimeStatusClass"
+                :get-runtime-status-label="getRuntimeStatusLabel"
+                :get-thread-status-class="getThreadStatusClass"
+                :get-thread-status-label="getThreadStatusLabel"
+                :is-current-session="isCurrentSession"
+                :is-session-running="isSessionRunning"
+              />
             </div>
           </div>
         </div>
