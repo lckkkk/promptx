@@ -7,6 +7,7 @@ import {
   getTask,
   importPdf,
   listTasks,
+  listTaskWorkspaceDiffSummaries,
   resolveAssetUrl,
   updateTaskCodexSession,
   updateTask,
@@ -213,6 +214,7 @@ export function useWorkbenchTasks(options = {}) {
   let savePromise = null
   let loadRequestId = 0
   let serverSyncTimer = null
+  let workspaceDiffSummaryRequestId = 0
   let pendingServerSyncTaskSlug = null
 
   const currentTaskAutoTitle = computed(() => deriveAutoTaskTitle(draft.value.blocks))
@@ -485,6 +487,67 @@ export function useWorkbenchTasks(options = {}) {
     })
   }
 
+  function applyTaskWorkspaceDiffSummaries(items = []) {
+    const summaryBySlug = new Map(
+      (items || [])
+        .map((item) => {
+          const slug = String(item?.slug || '').trim()
+          if (!slug) {
+            return null
+          }
+
+          return [slug, normalizeWorkspaceDiffSummary(item.workspaceDiffSummary)]
+        })
+        .filter(Boolean)
+    )
+
+    if (!summaryBySlug.size) {
+      return
+    }
+
+    tasks.value = tasks.value.map((task) => {
+      if (!summaryBySlug.has(task.slug)) {
+        return task
+      }
+
+      return {
+        ...task,
+        workspaceDiffSummary: summaryBySlug.get(task.slug),
+      }
+    })
+  }
+
+  async function refreshTaskWorkspaceDiffSummaries(taskItems = tasks.value) {
+    const nextTaskItems = Array.isArray(taskItems) ? taskItems : []
+    const tasksWithSessions = nextTaskItems.filter((task) => String(task?.codexSessionId || '').trim())
+    const requestId = ++workspaceDiffSummaryRequestId
+
+    if (!tasksWithSessions.length) {
+      tasks.value = nextTaskItems.map((task) => {
+        if (Object.prototype.hasOwnProperty.call(task, 'workspaceDiffSummary')) {
+          return task
+        }
+
+        return {
+          ...task,
+          workspaceDiffSummary: null,
+        }
+      })
+      return
+    }
+
+    try {
+      const payload = await listTaskWorkspaceDiffSummaries(nextTaskItems.length || 30)
+      if (requestId !== workspaceDiffSummaryRequestId) {
+        return
+      }
+
+      applyTaskWorkspaceDiffSummaries(payload.items || [])
+    } catch {
+      // Ignore summary fetch failures so the main task list stays responsive.
+    }
+  }
+
   async function refreshTaskList(options = {}) {
     const { silent = false } = options
     if (!silent) {
@@ -497,6 +560,7 @@ export function useWorkbenchTasks(options = {}) {
       const nextTasks = sortTaskSummaries((payload.items || []).map(toTaskSummary))
       tasks.value = nextTasks
       syncSendingTaskMapWithTasks(nextTasks)
+      refreshTaskWorkspaceDiffSummaries(nextTasks)
     } catch (err) {
       if (!silent) {
         error.value = err.message

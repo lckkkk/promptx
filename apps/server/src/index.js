@@ -162,6 +162,13 @@ function attachTaskWorkspaceDiffSummaries(items = []) {
   })
 }
 
+function listTaskWorkspaceDiffSummaries(limit = 30) {
+  return attachTaskWorkspaceDiffSummaries(listTasks(limit)).map((task) => ({
+    slug: String(task?.slug || '').trim(),
+    workspaceDiffSummary: task?.workspaceDiffSummary || createEmptyWorkspaceDiffSummary(),
+  }))
+}
+
 const codexRunRuntime = createCodexRunRuntime({
   decorateSession: decorateCodexSession,
   onRunEvent({ taskSlug, runId, event }) {
@@ -337,7 +344,14 @@ app.get('/api/events/stream', async (request, reply) => {
 app.get('/api/tasks', async () => {
   purgeExpiredContent()
   return {
-    items: attachTaskWorkspaceDiffSummaries(decorateTaskList(listTasks())),
+    items: decorateTaskList(listTasks()),
+  }
+})
+
+app.get('/api/tasks/workspace-diff-summaries', async (request) => {
+  purgeExpiredContent()
+  return {
+    items: listTaskWorkspaceDiffSummaries(request.query?.limit),
   }
 })
 

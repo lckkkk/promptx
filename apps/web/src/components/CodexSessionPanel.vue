@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import {
   ArrowDown,
   Bot,
@@ -11,10 +11,11 @@ import {
   PencilLine,
   Square,
 } from 'lucide-vue-next'
-import CodexSessionManagerDialog from './CodexSessionManagerDialog.vue'
 import CodexSessionSelect from './CodexSessionSelect.vue'
 import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
 import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
+
+const CodexSessionManagerDialog = defineAsyncComponent(() => import('./CodexSessionManagerDialog.vue'))
 
 const emit = defineEmits(['selected-session-change', 'sending-change', 'open-diff'])
 
@@ -107,6 +108,7 @@ const RESPONSE_COLLAPSE_MAX_LINES = 10
 const RESPONSE_COLLAPSE_MAX_CHARS = 400
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
 const latestTurnId = computed(() => turns.value.at(-1)?.id || '')
+const renderedResponseCache = new Map()
 
 function exceedsCollapseThreshold(content, maxLines, maxChars) {
   const text = String(content || '').trimEnd()
@@ -146,8 +148,13 @@ function canCollapseResponse(turn) {
   return exceedsCollapseThreshold(getTurnResponseContent(turn), RESPONSE_COLLAPSE_MAX_LINES, RESPONSE_COLLAPSE_MAX_CHARS)
 }
 
+function getResponseCacheKey(turn) {
+  return String(turn?.runId || turn?.id || '').trim()
+}
+
 function syncCollapsedTurns(nextTurns = []) {
   const validIds = new Set((nextTurns || []).map((turn) => turn.id).filter(Boolean))
+  const validResponseCacheKeys = new Set((nextTurns || []).map((turn) => getResponseCacheKey(turn)).filter(Boolean))
 
   collapsedTurnMap.value = Object.fromEntries(
     Object.entries(collapsedTurnMap.value).filter(([id]) => validIds.has(id))
@@ -158,6 +165,12 @@ function syncCollapsedTurns(nextTurns = []) {
   collapsedResponseMap.value = Object.fromEntries(
     Object.entries(collapsedResponseMap.value).filter(([id]) => validIds.has(id))
   )
+
+  for (const key of renderedResponseCache.keys()) {
+    if (!validResponseCacheKeys.has(key)) {
+      renderedResponseCache.delete(key)
+    }
+  }
 }
 
 function isTurnEventsCollapsed(turn) {
@@ -252,7 +265,23 @@ function renderResponseBody(turn) {
     return ''
   }
 
-  return renderCodexMarkdown(turn?.responseMessage || '')
+  const responseMessage = String(turn?.responseMessage || '')
+  const cacheKey = getResponseCacheKey(turn)
+  if (!cacheKey) {
+    return renderCodexMarkdown(responseMessage)
+  }
+
+  const cached = renderedResponseCache.get(cacheKey)
+  if (cached?.source === responseMessage) {
+    return cached.html
+  }
+
+  const html = renderCodexMarkdown(responseMessage)
+  renderedResponseCache.set(cacheKey, {
+    source: responseMessage,
+    html,
+  })
+  return html
 }
 
 watch(
@@ -273,6 +302,7 @@ defineExpose({
 <template>
   <section class="panel relative flex h-full min-h-0 flex-col overflow-hidden">
     <CodexSessionManagerDialog
+      v-if="showManager"
       :open="showManager"
       :sessions="sessions"
       :workspaces="workspaces"

@@ -19,6 +19,8 @@ const SESSION_REFRESH_TTL = 1500
 const WORKSPACE_REFRESH_TTL = 30000
 const SERVER_SYNC_DELAY = 150
 const AUTO_SCROLL_THRESHOLD = 48
+const FALLBACK_RUN_POLL_INTERVAL_MS = 1800
+const FALLBACK_SESSION_POLL_INTERVAL_MS = 7200
 
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
@@ -1138,6 +1140,7 @@ export function useCodexSessionPanel(props, emit) {
   let runsLoadPromise = null
   let runPollTimer = null
   let lastRunFingerprint = ''
+  let lastFallbackSessionPollAt = 0
   let unsubscribeTaskRunEvents = null
   let serverSyncTimer = null
   let stickToBottom = true
@@ -1392,8 +1395,15 @@ export function useCodexSessionPanel(props, emit) {
 
     runPollTimer = window.setInterval(() => {
       refreshRunHistory({ force: true }).catch(() => {})
+
+      const now = Date.now()
+      if (now - lastFallbackSessionPollAt < FALLBACK_SESSION_POLL_INTERVAL_MS) {
+        return
+      }
+
+      lastFallbackSessionPollAt = now
       loadSessions({ force: true }).catch(() => {})
-    }, 1200)
+    }, FALLBACK_RUN_POLL_INTERVAL_MS)
   }
 
   function rebuildTurns(runs = []) {
@@ -1729,6 +1739,7 @@ export function useCodexSessionPanel(props, emit) {
       }
 
       if (!supportsServerEvents) {
+        lastFallbackSessionPollAt = Date.now()
         Promise.all([
           refreshRunHistory({ force: true }),
           loadSessions({ force: true }),
@@ -1751,6 +1762,7 @@ export function useCodexSessionPanel(props, emit) {
     try {
       await stopCodexRun(currentRunningRunId.value)
       if (!supportsServerEvents) {
+        lastFallbackSessionPollAt = Date.now()
         await Promise.all([
           refreshRunHistory({ force: true }),
           loadSessions({ force: true }),

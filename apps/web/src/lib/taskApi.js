@@ -4,6 +4,16 @@ export function listTasks() {
   return request('/api/tasks')
 }
 
+export function listTaskWorkspaceDiffSummaries(limit = 30) {
+  const params = new URLSearchParams()
+  const normalizedLimit = Math.max(1, Number(limit) || 30)
+  params.set('limit', String(normalizedLimit))
+
+  return request(`/api/tasks/workspace-diff-summaries?${params.toString()}`, {
+    cache: 'no-store',
+  })
+}
+
 export function createTask(payload) {
   return request('/api/tasks', {
     method: 'POST',
