@@ -96,6 +96,7 @@ const {
 const currentRenderedTask = computed(() =>
   renderedTasks.value.find((task) => task.slug === currentTaskSlug.value) || null
 )
+const currentTaskDiffSupported = computed(() => Boolean(currentRenderedTask.value?.workspaceDiffSummary?.supported))
 
 usePageTitle(pageTitle)
 
@@ -579,6 +580,7 @@ onBeforeUnmount(() => {
               :selected-session-id="currentRenderedTask.codexSessionId || ''"
               :session-selection-locked="Boolean(currentRenderedTask.sessionSelectionLocked)"
               :session-selection-lock-reason="currentRenderedTask.sessionSelectionLockReason || ''"
+              :diff-supported="currentTaskDiffSupported"
               @sending-change="handleTaskSendingChange(currentRenderedTask.slug, $event)"
               @selected-session-change="handleTaskSessionChange(currentRenderedTask.slug, $event)"
               @open-diff="openTaskDiff($event.scope, $event.runId)"
@@ -807,6 +809,7 @@ onBeforeUnmount(() => {
                 :selected-session-id="currentRenderedTask.codexSessionId || ''"
                 :session-selection-locked="Boolean(currentRenderedTask.sessionSelectionLocked)"
                 :session-selection-lock-reason="currentRenderedTask.sessionSelectionLockReason || ''"
+                :diff-supported="currentTaskDiffSupported"
                 @sending-change="handleTaskSendingChange(currentRenderedTask.slug, $event)"
                 @selected-session-change="handleTaskSessionChange(currentRenderedTask.slug, $event)"
                 @open-diff="openTaskDiff($event.scope, $event.runId)"

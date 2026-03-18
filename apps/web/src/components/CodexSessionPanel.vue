@@ -55,6 +55,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  diffSupported: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const {
@@ -298,6 +302,7 @@ defineExpose({
 
           <div class="ml-auto flex items-center gap-2">
             <button
+              v-if="diffSupported"
               type="button"
               class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
               :disabled="!taskSlug"
@@ -444,7 +449,7 @@ defineExpose({
                 </div>
                   </div>
                   <button
-                    v-if="turn.runId"
+                    v-if="diffSupported && turn.runId"
                     type="button"
                     class="shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="openTurnDiff(turn)"
