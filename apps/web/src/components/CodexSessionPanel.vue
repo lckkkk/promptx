@@ -104,14 +104,6 @@ const RESPONSE_COLLAPSE_MAX_CHARS = 400
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
 const latestTurnId = computed(() => turns.value.at(-1)?.id || '')
 
-const sessionSelectionHelperText = computed(() => {
-  if (props.sessionSelectionLocked) {
-    return props.sessionSelectionLockReason || '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
-  }
-
-  return helperText.value || ''
-})
-
 function exceedsCollapseThreshold(content, maxLines, maxChars) {
   const text = String(content || '').trimEnd()
   if (!text) {
@@ -338,13 +330,6 @@ defineExpose({
           </div>
 
         </div>
-
-        <p
-          v-if="sessionSelectionLocked"
-          class="theme-muted-text text-xs"
-        >
-          {{ sessionSelectionHelperText }}
-        </p>
 
         <p v-if="sessionError" class="theme-danger-text inline-flex items-center gap-2 text-sm">
           <CircleAlert class="h-4 w-4" />
