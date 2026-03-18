@@ -24,7 +24,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'refresh-intent'])
 
 function getSessionTitle(session) {
-  return session?.title || '未命名会话'
+  return session?.title || '未命名项目'
 }
 
 function getSessionCwd(session) {
@@ -50,8 +50,8 @@ function getOptionClass(selected) {
     :options="sessions"
     :loading="loading"
     :disabled="disabled"
-    placeholder="请选择 PromptX 会话"
-    empty-text="还没有会话，请先到管理弹窗里新建。"
+    placeholder="请选择 PromptX 项目"
+    empty-text="还没有项目，请先到管理弹窗里新建。"
     :get-option-value="(session) => session?.id || ''"
     @update:model-value="emit('update:modelValue', $event)"
     @refresh-intent="emit('refresh-intent')"
@@ -69,14 +69,14 @@ function getOptionClass(selected) {
       </template>
       <template v-else>
         <div class="theme-muted-text text-sm">
-          {{ loading ? '正在同步会话...' : '请选择 PromptX 会话' }}
+          {{ loading ? '正在同步项目...' : '请选择 PromptX 项目' }}
         </div>
       </template>
     </template>
 
     <template #header>
       <div class="theme-divider theme-muted-text flex items-center justify-between gap-3 border-b border-dashed px-3 py-2 text-[11px]">
-        <span>{{ loading ? '正在同步最新会话...' : `共 ${sessions.length} 个会话` }}</span>
+        <span>{{ loading ? '正在同步最新项目...' : `共 ${sessions.length} 个项目` }}</span>
         <LoaderCircle v-if="loading" class="h-3.5 w-3.5 animate-spin" />
       </div>
     </template>

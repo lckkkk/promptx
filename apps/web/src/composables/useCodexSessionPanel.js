@@ -932,7 +932,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (payload.type === 'session') {
     mergeSession(payload.session)
     appendTurnEvent(turn, {
-      title: `已连接 PromptX 会话：${payload.session?.title || '未命名会话'}`,
+      title: `已连接 PromptX 项目：${payload.session?.title || '未命名项目'}`,
       detail: payload.session?.cwd ? `工作目录：${payload.session.cwd}` : '',
     }, nextLogId)
     return
@@ -941,8 +941,8 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (payload.type === 'session.updated') {
     mergeSession(payload.session)
     appendTurnEvent(turn, {
-      title: '会话线程已更新',
-      detail: payload.session?.started ? '后续请求会继续复用当前 PromptX 会话。' : '',
+      title: '项目线程已更新',
+      detail: payload.session?.started ? '后续请求会继续复用当前项目的 Codex 线程。' : '',
     }, nextLogId)
     return
   }
@@ -1155,7 +1155,7 @@ export function useCodexSessionPanel(props, emit) {
   const sortedSessions = computed(() => sortSessions(sessions.value, selectedSessionId.value))
   const helperText = computed(() => {
     if (!hasSessions.value) {
-      return '还没有 PromptX 会话，请先在管理弹窗里新建一个固定工作目录。'
+      return '还没有 PromptX 项目，请先在管理弹窗里新建一个固定工作目录。'
     }
     return ''
   })
@@ -1559,7 +1559,7 @@ export function useCodexSessionPanel(props, emit) {
       && normalizedSessionId
       && normalizedSessionId !== selectedSessionId.value
     ) {
-      sessionError.value = props.sessionSelectionLockReason || '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
+      sessionError.value = props.sessionSelectionLockReason || '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
       return
     }
 
@@ -1682,7 +1682,7 @@ export function useCodexSessionPanel(props, emit) {
 
     if (!selectedSessionId.value) {
       openManager()
-      sessionError.value = '请先选择一个 PromptX 会话。'
+      sessionError.value = '请先选择一个 PromptX 项目。'
       return false
     }
 
@@ -1695,12 +1695,12 @@ export function useCodexSessionPanel(props, emit) {
 
       const latestSelectedSession = sessions.value.find((session) => session.id === selectedSessionId.value) || null
       if (!latestSelectedSession) {
-        sessionError.value = '当前会话不存在，请重新选择。'
+        sessionError.value = '当前项目不存在，请重新选择。'
         return false
       }
 
       if (latestSelectedSession.running) {
-        sessionError.value = '当前会话正在运行中，请等待完成后再发送。'
+        sessionError.value = '当前项目正在运行中，请等待完成后再发送。'
         return false
       }
 

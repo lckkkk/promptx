@@ -296,7 +296,7 @@ export function useWorkbenchTasks(options = {}) {
       codexSessionId,
       sessionSelectionLocked: Boolean(codexSessionId && Number(task.codexRunCount || 0) > 0),
       sessionSelectionLockReason: codexSessionId && Number(task.codexRunCount || 0) > 0
-        ? '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
+        ? '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
         : '',
       displayTitle: resolveTaskDisplayTitle({ title, autoTitle, preview }, blocks),
       sending: Boolean(task.running || sendingTaskMap.value[task.slug]),
@@ -386,7 +386,7 @@ export function useWorkbenchTasks(options = {}) {
     const previousSessionId = selectedSessionMap.value[targetSlug] || currentSummary?.codexSessionId || ''
     const sessionSelectionLocked = Boolean(previousSessionId && Number(currentSummary?.codexRunCount || 0) > 0)
     if (sessionSelectionLocked && normalizedSessionId !== previousSessionId) {
-      error.value = '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。'
+      error.value = '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
       return
     }
 

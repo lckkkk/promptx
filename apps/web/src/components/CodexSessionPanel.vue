@@ -291,7 +291,7 @@ defineExpose({
           <div class="min-w-0 shrink-0">
             <div class="theme-heading flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
-              <span>会话</span>
+              <span>项目</span>
             </div>
             <p v-if="helperText" class="theme-muted-text mt-1 text-xs">{{ helperText }}</p>
           </div>
@@ -313,7 +313,7 @@ defineExpose({
               @click="openManager"
             >
               <PencilLine class="h-4 w-4" />
-              <span>管理会话</span>
+              <span>管理项目</span>
             </button>
           </div>
         </div>
@@ -344,7 +344,7 @@ defineExpose({
           v-if="!turns.length"
           class="theme-empty-state px-4 py-6 text-sm"
         >
-          这里会显示会话执行过程和 Codex 回复。
+          这里会显示项目执行过程和 Codex 回复。
         </div>
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">

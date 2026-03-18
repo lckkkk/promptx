@@ -398,7 +398,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
   const normalizedPrompt = String(prompt || '').trim()
 
   if (!session) {
-    throw new Error('缺少 PromptX 会话。')
+    throw new Error('缺少 PromptX 项目。')
   }
   if (!normalizedPrompt) {
     throw new Error('没有可发送的提示词。')
@@ -451,8 +451,8 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     type: 'status',
     stage: session.codexThreadId ? 'resuming' : 'starting',
     message: session.codexThreadId
-      ? '已连接 PromptX 会话，正在继续这轮执行。'
-      : '已创建 PromptX 会话，正在启动第一轮执行。',
+      ? '已连接 PromptX 项目，正在继续这轮执行。'
+      : '已创建 PromptX 项目，正在启动第一轮执行。',
   })
 
   child.stdout.on('data', (chunk) => {

@@ -125,18 +125,18 @@ const duplicateCwdMessage = computed(() => {
 
   const labels = duplicateCwdSessions.value
     .slice(0, 3)
-    .map((session) => `「${session.title || '未命名会话'}」`)
+    .map((session) => `「${session.title || '未命名项目'}」`)
     .join('、')
-  const suffix = duplicateCwdSessions.value.length > 3 ? '等会话' : '会话'
+  const suffix = duplicateCwdSessions.value.length > 3 ? '等项目' : '项目'
 
-  return `该工作目录已被${labels}${suffix}使用，建议优先复用，避免把同一目录拆成多个会话。`
+  return `该目录已被${labels}${suffix}使用，建议优先复用，避免把同一目录拆成多个项目。`
 })
 const cwdReadonlyMessage = computed(() => {
   if (mode.value !== 'edit' || canEditCwd.value) {
     return ''
   }
 
-  return '当前会话已绑定 Codex 线程，工作目录不能再修改；如需使用新目录，请新建会话。'
+  return '当前项目已绑定 Codex 线程，工作目录不能再修改；如需使用新目录，请新建项目。'
 })
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
@@ -329,7 +329,7 @@ function createSubmitAction() {
   }
 
   if (!activeSession.value) {
-    error.value = '当前会话不存在，请重新选择。'
+    error.value = '当前项目不存在，请重新选择。'
     return null
   }
 
@@ -469,9 +469,9 @@ onBeforeUnmount(() => {
       <section class="panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-auto sm:max-h-[88vh]">
         <ConfirmDialog
           :open="showDeleteDialog"
-          title="确认删除 PromptX 会话？"
+          title="确认删除 PromptX 项目？"
           :description="activeSession
-            ? `将删除「${activeSession.title || '未命名会话'}」这条本地记录，不会删除工作目录，也不会删除 Codex 的历史数据。`
+            ? `将删除「${activeSession.title || '未命名项目'}」这条本地记录，不会删除工作目录，也不会删除 Codex 的历史数据。`
             : ''"
           confirm-text="确认删除"
           cancel-text="先保留"
@@ -491,7 +491,7 @@ onBeforeUnmount(() => {
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
-              <span>PromptX 会话管理</span>
+              <span>PromptX 项目管理</span>
             </div>
           </div>
 
@@ -511,9 +511,9 @@ onBeforeUnmount(() => {
           <aside class="theme-divider border-b bg-[var(--theme-appPanelMuted)] px-3 py-3 sm:px-4 sm:py-4 lg:border-b-0 lg:border-r">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <div class="theme-heading text-sm font-medium">会话列表</div>
+                <div class="theme-heading text-sm font-medium">项目列表</div>
                 <p v-if="!hasSessions" class="theme-muted-text mt-1 text-xs">
-                  还没有会话，先新建一个固定工作目录。
+                  还没有项目，先新建一个固定工作目录。
                 </p>
               </div>
               <button
@@ -547,7 +547,7 @@ onBeforeUnmount(() => {
                 />
                 <div class="w-full text-left">
                   <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
-                    <span class="truncate">{{ session.title || '未命名会话' }}</span>
+                    <span class="truncate">{{ session.title || '未命名项目' }}</span>
                     <span
                       v-if="isCurrentSession(session.id)"
                       class="theme-status-info rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
@@ -582,7 +582,7 @@ onBeforeUnmount(() => {
               <div>
                 <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
                   <PencilLine class="h-4 w-4" />
-                  <span>{{ mode === 'create' ? '新建会话' : '编辑会话' }}</span>
+                  <span>{{ mode === 'create' ? '新建项目' : '编辑项目' }}</span>
                 </div>
               </div>
 
@@ -590,7 +590,7 @@ onBeforeUnmount(() => {
 
             <div class="mt-5 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
               <label class="theme-muted-text block text-xs">
-                <span>会话标题（可选）</span>
+                <span>项目标题（可选）</span>
                 <input
                   v-model="form.title"
                   type="text"
@@ -652,7 +652,7 @@ onBeforeUnmount(() => {
                   @click="showDeleteDialog = true"
                 >
                   <Trash2 class="h-4 w-4" />
-                  <span>{{ deleting ? '删除中...' : '删除会话' }}</span>
+                  <span>{{ deleting ? '删除中...' : '删除项目' }}</span>
                 </button>
               </div>
 
@@ -681,7 +681,7 @@ onBeforeUnmount(() => {
                   @click="handleSubmit"
                 >
                   {{ mode === 'create'
-                    ? (creating ? '创建中...' : '创建会话')
+                    ? (creating ? '创建中...' : '创建项目')
                     : (saving ? '保存中...' : '保存修改') }}
                 </button>
               </div>

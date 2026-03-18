@@ -276,7 +276,7 @@ export function createCodexRun(input = {}) {
     throw new Error('缺少任务。')
   }
   if (!sessionId) {
-    throw new Error('请先选择 PromptX 会话。')
+    throw new Error('请先选择 PromptX 项目。')
   }
   if (!prompt) {
     throw new Error('没有可发送的提示词。')
@@ -289,7 +289,7 @@ export function createCodexRun(input = {}) {
 
   const session = getPromptxCodexSessionById(sessionId)
   if (!session) {
-    throw new Error('没有找到对应的 PromptX 会话。')
+    throw new Error('没有找到对应的 PromptX 项目。')
   }
 
   const now = new Date().toISOString()

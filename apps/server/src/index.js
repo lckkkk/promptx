@@ -408,14 +408,14 @@ app.post('/api/tasks/:slug/codex-session', async (request, reply) => {
   const taskSessionLocked = Boolean(task.codexSessionId && Number(task.codexRunCount || 0) > 0)
   if (taskSessionLocked && sessionId !== String(task.codexSessionId || '').trim()) {
     return reply.code(409).send({
-      message: '该任务已有会话历史，不能再切换会话；如需使用新会话，请新建任务。',
+      message: '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。',
     })
   }
 
   if (sessionId) {
     const session = getPromptxCodexSessionById(sessionId)
     if (!session) {
-      return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
     }
   }
 
@@ -486,7 +486,7 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
   const prompt = String(request.body?.prompt || '').trim()
 
   if (!sessionId) {
-    return reply.code(400).send({ message: '请先选择一个 PromptX 会话。' })
+    return reply.code(400).send({ message: '请先选择一个 PromptX 项目。' })
   }
   if (!prompt) {
     return reply.code(400).send({ message: '没有可发送的提示词。' })
@@ -494,12 +494,12 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
 
   const session = getPromptxCodexSessionById(sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
   }
 
   const runningRunOnSession = getRunningCodexRunBySessionId(sessionId)
   if (runningRunOnSession) {
-    return reply.code(409).send({ message: '当前会话正在执行中，请等待完成后再发送。' })
+    return reply.code(409).send({ message: '当前项目正在执行中，请等待完成后再发送。' })
   }
 
   const runRecord = createCodexRun({
@@ -656,7 +656,7 @@ app.get('/api/codex/directories/search', async (request) => (
 app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
   const session = getPromptxCodexSessionById(request.params.sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
   }
 
   const payload = listWorkspaceTree(session.cwd, {
@@ -670,7 +670,7 @@ app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
 app.get('/api/codex/sessions/:sessionId/files/search', async (request, reply) => {
   const session = getPromptxCodexSessionById(request.params.sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
   }
 
   const payload = searchWorkspaceEntries(session.cwd, {
@@ -692,7 +692,7 @@ app.post('/api/codex/sessions', async (request, reply) => {
 app.patch('/api/codex/sessions/:sessionId', async (request, reply) => {
   const session = updatePromptxCodexSession(request.params.sessionId, request.body || {})
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
   }
 
   broadcastServerEvent('sessions.changed', {
@@ -703,12 +703,12 @@ app.patch('/api/codex/sessions/:sessionId', async (request, reply) => {
 
 app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
   if (getRunningCodexRunBySessionId(request.params.sessionId)) {
-    return reply.code(409).send({ message: '当前会话正在执行中，请先停止后再删除。' })
+    return reply.code(409).send({ message: '当前项目正在执行中，请先停止后再删除。' })
   }
   const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId)
   const session = deletePromptxCodexSession(request.params.sessionId)
   if (!session) {
-    return reply.code(404).send({ message: '没有找到对应的 PromptX 会话。' })
+    return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
   }
 
   broadcastServerEvent('sessions.changed', {

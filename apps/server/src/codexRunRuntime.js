@@ -71,7 +71,7 @@ export function createCodexRunRuntime(options = {}) {
     if (!session) {
       updateCodexRun(runId, {
         status: 'error',
-        errorMessage: '没有找到对应的 PromptX 会话。',
+        errorMessage: '没有找到对应的 PromptX 项目。',
         finishedAt: new Date().toISOString(),
       })
       return

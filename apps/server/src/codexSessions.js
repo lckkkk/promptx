@@ -33,7 +33,7 @@ function normalizeTitle(input = '', cwd = '') {
   }
 
   const baseName = path.basename(String(cwd || '').trim())
-  return baseName || 'PromptX 会话'
+  return baseName || 'PromptX 项目'
 }
 
 export function normalizeCwd(input = '') {
@@ -112,7 +112,7 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
     : existing.cwd
 
   if (existing.started && wantsCwd && nextCwd !== existing.cwd) {
-    throw createHttpError('已启动的 PromptX 会话不能直接修改工作目录。', 409)
+    throw createHttpError('已启动的 PromptX 项目不能直接修改工作目录。', 409)
   }
 
   const title = Object.prototype.hasOwnProperty.call(patch, 'title')

@@ -324,7 +324,7 @@ test('streamPromptToCodexSession emits starting status for new sessions and resu
         {
           type: 'status',
           stage: 'starting',
-          message: '已创建 PromptX 会话，正在启动第一轮执行。',
+          message: '已创建 PromptX 项目，正在启动第一轮执行。',
         }
       )
 
@@ -333,7 +333,7 @@ test('streamPromptToCodexSession emits starting status for new sessions and resu
         {
           type: 'status',
           stage: 'resuming',
-          message: '已连接 PromptX 会话，正在继续这轮执行。',
+          message: '已连接 PromptX 项目，正在继续这轮执行。',
         }
       )
     }

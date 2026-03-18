@@ -131,7 +131,7 @@ defineExpose({
           v-if="!sessionId"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          请先选择会话。
+          请先选择项目。
         </div>
 
         <div
