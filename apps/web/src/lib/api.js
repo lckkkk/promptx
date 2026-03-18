@@ -5,6 +5,7 @@ export {
   fetchRawTask,
   getTask,
   listTasks,
+  listTaskWorkspaceDiffSummaries,
   updateTask,
 } from './taskApi.js'
 export {

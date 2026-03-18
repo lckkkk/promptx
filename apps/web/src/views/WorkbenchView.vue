@@ -1,11 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import TaskDiffReviewDialog from '../components/TaskDiffReviewDialog.vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import WorkbenchActivityPanel from '../components/WorkbenchActivityPanel.vue'
 import WorkbenchInputPanel from '../components/WorkbenchInputPanel.vue'
 import WorkbenchMobileDetailHeader from '../components/WorkbenchMobileDetailHeader.vue'
-import WorkbenchSettingsDialog from '../components/WorkbenchSettingsDialog.vue'
 import WorkbenchTaskListPanel from '../components/WorkbenchTaskListPanel.vue'
 import TopToast from '../components/TopToast.vue'
 import { useWorkbenchMobileLayout } from '../composables/useWorkbenchMobileLayout.js'
@@ -22,6 +20,8 @@ const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
 const { toastMessage, flashToast, clearToast } = useToast()
+const TaskDiffReviewDialog = defineAsyncComponent(() => import('../components/TaskDiffReviewDialog.vue'))
+const WorkbenchSettingsDialog = defineAsyncComponent(() => import('../components/WorkbenchSettingsDialog.vue'))
 
 const codexPanelRef = ref(null)
 
@@ -412,6 +412,7 @@ const mobileDetailHeaderListeners = {
       @confirm="confirmRemoveCurrentTask"
     />
     <TaskDiffReviewDialog
+      v-if="showDiffDialog"
       :open="showDiffDialog"
       :task-slug="currentTaskSlug"
       :task-title="currentTaskDisplayTitle"
@@ -421,6 +422,7 @@ const mobileDetailHeaderListeners = {
       @close="closeTaskDiff"
     />
     <WorkbenchSettingsDialog
+      v-if="showSettingsDialog"
       :open="showSettingsDialog"
       @close="closeSettingsDialog"
     />
