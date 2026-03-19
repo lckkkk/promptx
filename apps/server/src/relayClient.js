@@ -35,8 +35,10 @@ function readRelayClientConfig({
   const normalizedRelayUrl = String(relayUrl || '').trim()
   const normalizedDeviceId = String(deviceId || '').trim()
   const normalizedDeviceToken = String(deviceToken || '').trim()
-  const normalizedEnabled = String(enabled || '').trim().toLowerCase()
-  const shouldEnable = normalizedEnabled
+  const hasExplicitEnabled = typeof enabled === 'boolean'
+    || (typeof enabled !== 'undefined' && String(enabled || '').trim() !== '')
+  const normalizedEnabled = hasExplicitEnabled ? String(enabled).trim().toLowerCase() : ''
+  const shouldEnable = hasExplicitEnabled
     ? !['0', 'false', 'off', 'no'].includes(normalizedEnabled)
     : Boolean(normalizedRelayUrl && normalizedDeviceId && normalizedDeviceToken)
 

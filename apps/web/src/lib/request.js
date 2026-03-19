@@ -6,7 +6,19 @@ function resolveDefaultApiBase() {
   }
 
   const url = new URL(window.location.origin)
-  url.port = importMetaEnv.VITE_API_PORT || '3000'
+  const explicitApiPort = String(importMetaEnv.VITE_API_PORT || '').trim()
+  if (explicitApiPort) {
+    url.port = explicitApiPort
+    return url.toString().replace(/\/$/, '')
+  }
+
+  const currentPort = String(url.port || '')
+  const viteDevPorts = new Set(['4173', '5173', '5174'])
+  if (viteDevPorts.has(currentPort)) {
+    url.port = '3000'
+    return url.toString().replace(/\/$/, '')
+  }
+
   return url.toString().replace(/\/$/, '')
 }
 

@@ -50,9 +50,12 @@ function getRelayConfigForClient() {
   const deviceId = String(process.env.PROMPTX_RELAY_DEVICE_ID || stored.deviceId || '').trim()
   const deviceToken = String(process.env.PROMPTX_RELAY_DEVICE_TOKEN || stored.deviceToken || '').trim()
   const envEnabled = String(process.env.PROMPTX_RELAY_ENABLED || '').trim()
+  const managedByEnv = isRelayConfigManagedByEnv()
   const enabled = envEnabled
     ? !['0', 'false', 'off', 'no'].includes(envEnabled.toLowerCase())
-    : Boolean(stored.enabled)
+    : managedByEnv
+      ? Boolean(relayUrl && deviceId && deviceToken)
+      : Boolean(stored.enabled)
 
   return normalizeRelayConfig({
     relayUrl,
