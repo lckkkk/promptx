@@ -6,8 +6,16 @@ export function listCodexSessions() {
   return request('/api/codex/sessions')
 }
 
-export function listCodexWorkspaces() {
-  return request('/api/codex/workspaces')
+export function listCodexWorkspaces(options = {}) {
+  const params = new URLSearchParams()
+  const engine = String(options.engine || '').trim()
+
+  if (engine) {
+    params.set('engine', engine)
+  }
+
+  const query = params.toString()
+  return request(`/api/codex/workspaces${query ? `?${query}` : ''}`)
 }
 
 export function listCodexDirectoryTree(options = {}) {

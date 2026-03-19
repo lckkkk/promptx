@@ -14,6 +14,7 @@ import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
 import CodexSessionManagerForm from './CodexSessionManagerForm.vue'
 import CodexSessionManagerList from './CodexSessionManagerList.vue'
 import CodexSessionManagerStatus from './CodexSessionManagerStatus.vue'
+import { getEnabledAgentEngineOptions, normalizeAgentEngine } from '../lib/agentEngines.js'
 
 const props = defineProps({
   open: {
@@ -72,6 +73,7 @@ const mode = ref('edit')
 const editingSessionId = ref('')
 const form = reactive({
   title: '',
+  engine: 'codex',
   cwd: '',
 })
 const error = ref('')
@@ -111,6 +113,7 @@ const workspaceSuggestions = computed(() => {
 
   return items.slice(0, 12)
 })
+const engineOptions = computed(() => getEnabledAgentEngineOptions())
 const duplicateCwdSessions = computed(() => {
   const target = normalizeCwdForCompare(form.cwd)
   if (!target) {
@@ -142,7 +145,14 @@ const cwdReadonlyMessage = computed(() => {
     return ''
   }
 
-  return '当前项目已绑定 Codex 线程，工作目录不能再修改；如需使用新目录，请新建项目。'
+  return '当前项目已绑定执行引擎会话，工作目录不能再修改；如需使用新目录，请新建项目。'
+})
+const engineReadonlyMessage = computed(() => {
+  if (mode.value !== 'edit' || !activeSession.value) {
+    return ''
+  }
+
+  return '项目创建后暂不支持直接切换执行引擎；如需更换，请新建项目。'
 })
 const desktopSubmitLabel = computed(() => (mode.value === 'create'
   ? (creating.value ? '创建中...' : '创建项目')
@@ -229,6 +239,7 @@ function formatUpdatedAt(value = '') {
 
 function syncFormFromSession(session) {
   form.title = String(session?.title || '')
+  form.engine = normalizeAgentEngine(session?.engine)
   form.cwd = String(session?.cwd || '')
 }
 
@@ -237,6 +248,7 @@ function openCreateMode() {
   editingSessionId.value = ''
   error.value = ''
   form.title = ''
+  form.engine = 'codex'
   form.cwd = ''
 }
 
@@ -294,6 +306,10 @@ function handleDirectoryPicked(pathValue) {
 
 function updateFormTitle(value) {
   form.title = String(value || '')
+}
+
+function updateFormEngine(value) {
+  form.engine = normalizeAgentEngine(value)
 }
 
 function updateFormCwd(value) {
@@ -371,6 +387,7 @@ function createSubmitAction() {
       cwd,
       payload: {
         title: form.title,
+        engine: form.engine,
         cwd,
       },
     }
@@ -383,6 +400,7 @@ function createSubmitAction() {
 
   const payload = {
     title: form.title,
+    engine: form.engine,
   }
 
   if (canEditCwd.value) {
@@ -610,15 +628,20 @@ onBeforeUnmount(() => {
 
             <div class="mt-5">
               <CodexSessionManagerForm
-                :busy="busy"
+              :busy="busy"
+                :can-edit-engine="mode !== 'edit'"
                 :can-edit-cwd="mode !== 'edit' || canEditCwd"
                 :cwd="form.cwd"
                 :cwd-readonly-message="cwdReadonlyMessage"
                 :duplicate-cwd-message="duplicateCwdMessage"
+                :engine="form.engine"
+                :engine-options="engineOptions"
+                :engine-readonly-message="engineReadonlyMessage"
                 :title="form.title"
                 :workspace-suggestions="workspaceSuggestions"
                 @open-directory-picker="showDirectoryPicker = true"
                 @update:cwd="updateFormCwd"
+                @update:engine="updateFormEngine"
                 @update:title="updateFormTitle"
               />
             </div>
@@ -744,14 +767,19 @@ onBeforeUnmount(() => {
                 <CodexSessionManagerForm
                   mobile
                   :busy="busy"
+                  :can-edit-engine="mode !== 'edit'"
                   :can-edit-cwd="mode !== 'edit' || canEditCwd"
                   :cwd="form.cwd"
                   :cwd-readonly-message="cwdReadonlyMessage"
                   :duplicate-cwd-message="duplicateCwdMessage"
+                  :engine="form.engine"
+                  :engine-options="engineOptions"
+                  :engine-readonly-message="engineReadonlyMessage"
                   :title="form.title"
                   :workspace-suggestions="workspaceSuggestions"
                   @open-directory-picker="showDirectoryPicker = true"
                   @update:cwd="updateFormCwd"
+                  @update:engine="updateFormEngine"
                   @update:title="updateFormTitle"
                 />
 

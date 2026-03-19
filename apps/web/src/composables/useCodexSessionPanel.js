@@ -953,8 +953,8 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (payload.type === 'session.updated') {
     mergeSession(payload.session)
     appendTurnEvent(turn, {
-      title: '项目线程已更新',
-      detail: payload.session?.started ? '后续请求会继续复用当前项目的 Codex 线程。' : '',
+      title: '项目会话已更新',
+      detail: payload.session?.started ? '后续请求会继续复用当前项目的执行引擎会话。' : '',
     }, nextLogId)
     return
   }

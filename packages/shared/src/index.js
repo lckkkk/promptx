@@ -14,6 +14,30 @@ export const VISIBILITY_OPTIONS = [
   { value: 'private', label: '仅自己可见' },
 ]
 
+export const AGENT_ENGINES = {
+  CODEX: 'codex',
+  CLAUDE_CODE: 'claude-code',
+  OPENCODE: 'opencode',
+}
+
+export const AGENT_ENGINE_OPTIONS = [
+  {
+    value: AGENT_ENGINES.CODEX,
+    label: 'Codex',
+    enabled: true,
+  },
+  {
+    value: AGENT_ENGINES.CLAUDE_CODE,
+    label: 'Claude Code',
+    enabled: true,
+  },
+  {
+    value: AGENT_ENGINES.OPENCODE,
+    label: 'OpenCode',
+    enabled: false,
+  },
+]
+
 export const BLOCK_TYPES = {
   TEXT: 'text',
   IMAGE: 'image',
@@ -36,6 +60,15 @@ export function normalizeExpiry(value) {
 
 export function getVisibilityLabel(value) {
   return VISIBILITY_OPTIONS.find((item) => item.value === value)?.label || '仅自己可见'
+}
+
+export function normalizeAgentEngine(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  return AGENT_ENGINE_OPTIONS.find((item) => item.value === normalized)?.value || AGENT_ENGINES.CODEX
+}
+
+export function getAgentEngineLabel(value) {
+  return AGENT_ENGINE_OPTIONS.find((item) => item.value === normalizeAgentEngine(value))?.label || 'Codex'
 }
 
 export function getBlockTypeLabel(value) {

@@ -6,6 +6,10 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  canEditEngine: {
+    type: Boolean,
+    default: true,
+  },
   canEditCwd: {
     type: Boolean,
     default: true,
@@ -19,6 +23,18 @@ defineProps({
     default: '',
   },
   duplicateCwdMessage: {
+    type: String,
+    default: '',
+  },
+  engine: {
+    type: String,
+    default: 'codex',
+  },
+  engineOptions: {
+    type: Array,
+    default: () => [],
+  },
+  engineReadonlyMessage: {
     type: String,
     default: '',
   },
@@ -36,11 +52,11 @@ defineProps({
   },
 })
 
-const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:title'])
+const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine', 'update:title'])
 </script>
 
 <template>
-  <div class="grid gap-4" :class="mobile ? '' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]'">
+  <div class="grid gap-4" :class="mobile ? '' : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'">
     <label class="theme-muted-text block text-xs">
       <span>项目标题（可选）</span>
       <input
@@ -52,6 +68,23 @@ const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:title']
         :disabled="busy"
         @input="emit('update:title', $event.target.value)"
       >
+    </label>
+
+    <label class="theme-muted-text block text-xs">
+      <span>执行引擎</span>
+      <select
+        :value="engine"
+        class="tool-input mt-1"
+        :disabled="busy || !canEditEngine"
+        @change="emit('update:engine', $event.target.value)"
+      >
+        <option v-for="item in engineOptions" :key="item.value" :value="item.value" :disabled="item.enabled === false">
+          {{ item.label }}{{ item.enabled === false ? '（即将支持）' : '' }}
+        </option>
+      </select>
+      <p v-if="engineReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
+        {{ engineReadonlyMessage }}
+      </p>
     </label>
 
     <label class="theme-muted-text block text-xs">

@@ -1,8 +1,8 @@
 import { getPromptxCodexSessionById, updatePromptxCodexSession } from './codexSessions.js'
-import { streamPromptToCodexSession } from './codex.js'
 import { appendCodexRunEvent, updateCodexRun } from './codexRuns.js'
+import { assertAgentRunner } from './agents/index.js'
 
-export function createCodexRunRuntime(options = {}) {
+export function createAgentRunRuntime(options = {}) {
   const {
     decorateSession = (session) => session,
     onRunEvent = () => {},
@@ -77,6 +77,18 @@ export function createCodexRunRuntime(options = {}) {
       return
     }
 
+    let runner
+    try {
+      runner = assertAgentRunner(session.engine)
+    } catch (error) {
+      updateCodexRun(runId, {
+        status: 'error',
+        errorMessage: error.message || '当前执行引擎不可用。',
+        finishedAt: new Date().toISOString(),
+      })
+      return
+    }
+
     let eventSeq = 0
     let stopRequested = false
 
@@ -102,13 +114,14 @@ export function createCodexRunRuntime(options = {}) {
       session: decorateSession(session),
     })
 
-    const stream = streamPromptToCodexSession(session, runRecord.prompt, {
+    const stream = runner.streamSessionPrompt(session, runRecord.prompt, {
       onEvent(payload) {
         persistRunEvent(payload)
       },
       onThreadStarted(threadId) {
         const updatedSession = updatePromptxCodexSession(session.id, {
           codexThreadId: threadId,
+          engineThreadId: threadId,
         })
 
         if (updatedSession) {
@@ -183,7 +196,7 @@ export function createCodexRunRuntime(options = {}) {
 
         const nextRun = updateCodexRun(runId, {
           status: 'error',
-          errorMessage: error.message || 'Codex 执行失败。',
+          errorMessage: error.message || '执行引擎运行失败。',
           finishedAt: new Date().toISOString(),
         })
         notifyListeners(runId, {
@@ -209,4 +222,8 @@ export function createCodexRunRuntime(options = {}) {
     subscribe,
     start,
   }
+}
+
+export function createCodexRunRuntime(options = {}) {
+  return createAgentRunRuntime(options)
 }

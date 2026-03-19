@@ -1,7 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { nanoid } from 'nanoid'
+import { normalizeAgentEngine } from '../../../packages/shared/src/index.js'
 import { all, get, run, transaction } from './db.js'
+import { assertAgentRunner } from './agents/index.js'
 
 function createHttpError(message, statusCode = 400) {
   const error = new Error(message)
@@ -17,12 +19,33 @@ function toCodexSession(row) {
   return {
     id: row.id,
     title: row.title,
+    engine: normalizeAgentEngine(row.engine),
     cwd: row.cwd,
-    codexThreadId: row.codex_thread_id || '',
+    codexThreadId: row.codex_thread_id || row.engine_thread_id || '',
+    engineSessionId: row.engine_session_id || '',
+    engineThreadId: row.engine_thread_id || row.codex_thread_id || '',
+    engineMeta: parseEngineMeta(row.engine_meta_json),
     running: false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    started: Boolean(row.codex_thread_id),
+    started: Boolean(row.engine_thread_id || row.codex_thread_id),
+  }
+}
+
+function parseEngineMeta(rawValue = '{}') {
+  try {
+    const parsed = JSON.parse(rawValue || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function ensureAgentRunnerAvailable(engine) {
+  try {
+    assertAgentRunner(engine)
+  } catch (error) {
+    throw createHttpError(error.message || '当前执行引擎不可用。')
   }
 }
 
@@ -57,7 +80,7 @@ export function normalizeCwd(input = '') {
 
 export function listPromptxCodexSessions(limit = 30) {
   const rows = all(
-    `SELECT id, title, cwd, codex_thread_id, created_at, updated_at
+    `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
      FROM codex_sessions
      ORDER BY updated_at DESC
      LIMIT ?`,
@@ -75,7 +98,7 @@ export function getPromptxCodexSessionById(sessionId) {
 
   return toCodexSession(
     get(
-      `SELECT id, title, cwd, codex_thread_id, created_at, updated_at
+      `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
        FROM codex_sessions
        WHERE id = ?`,
       [targetId]
@@ -86,14 +109,18 @@ export function getPromptxCodexSessionById(sessionId) {
 export function createPromptxCodexSession(input = {}) {
   const cwd = normalizeCwd(input.cwd)
   const title = normalizeTitle(input.title, cwd)
+  const engine = normalizeAgentEngine(input.engine)
+  ensureAgentRunnerAvailable(engine)
   const now = new Date().toISOString()
   const id = `pxcs_${nanoid(12)}`
 
   transaction(() => {
     run(
-      `INSERT INTO codex_sessions (id, title, cwd, codex_thread_id, created_at, updated_at)
-       VALUES (?, ?, ?, '', ?, ?)`,
-      [id, title, cwd, now, now]
+      `INSERT INTO codex_sessions (
+         id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
+       )
+       VALUES (?, ?, ?, ?, '', '', '', '{}', ?, ?)`,
+      [id, title, engine, cwd, now, now]
     )
   })
 
@@ -110,9 +137,17 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   const nextCwd = wantsCwd
     ? normalizeCwd(patch.cwd)
     : existing.cwd
+  const wantsEngine = Object.prototype.hasOwnProperty.call(patch, 'engine')
+  const nextEngine = wantsEngine
+    ? normalizeAgentEngine(patch.engine)
+    : existing.engine
+  ensureAgentRunnerAvailable(nextEngine)
 
   if (existing.started && wantsCwd && nextCwd !== existing.cwd) {
     throw createHttpError('已启动的 PromptX 项目不能直接修改工作目录。', 409)
+  }
+  if (wantsEngine && nextEngine !== existing.engine) {
+    throw createHttpError('暂不支持直接切换执行引擎，请新建项目。', 409)
   }
 
   const title = Object.prototype.hasOwnProperty.call(patch, 'title')
@@ -121,14 +156,23 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   const codexThreadId = Object.prototype.hasOwnProperty.call(patch, 'codexThreadId')
     ? String(patch.codexThreadId || '').trim()
     : existing.codexThreadId
+  const engineSessionId = Object.prototype.hasOwnProperty.call(patch, 'engineSessionId')
+    ? String(patch.engineSessionId || '').trim()
+    : existing.engineSessionId
+  const engineThreadId = Object.prototype.hasOwnProperty.call(patch, 'engineThreadId')
+    ? String(patch.engineThreadId || '').trim()
+    : (codexThreadId || existing.engineThreadId)
+  const engineMeta = Object.prototype.hasOwnProperty.call(patch, 'engineMeta')
+    ? (patch.engineMeta && typeof patch.engineMeta === 'object' ? patch.engineMeta : {})
+    : existing.engineMeta
   const updatedAt = patch.updatedAt || new Date().toISOString()
 
   transaction(() => {
     run(
       `UPDATE codex_sessions
-       SET title = ?, cwd = ?, codex_thread_id = ?, updated_at = ?
+       SET title = ?, engine = ?, cwd = ?, codex_thread_id = ?, engine_session_id = ?, engine_thread_id = ?, engine_meta_json = ?, updated_at = ?
        WHERE id = ?`,
-      [title, nextCwd, codexThreadId, updatedAt, existing.id]
+      [title, nextEngine, nextCwd, codexThreadId, engineSessionId, engineThreadId, JSON.stringify(engineMeta), updatedAt, existing.id]
     )
   })
 

@@ -4,6 +4,7 @@ import { all, get, run, transaction } from './db.js'
 import { getPromptxCodexSessionById } from './codexSessions.js'
 import { captureRunGitBaseline, captureRunGitFinalSnapshot, captureTaskGitBaseline } from './gitDiff.js'
 import { getTaskBySlug, updateTaskCodexSession } from './repository.js'
+import { assertAgentRunner } from './agents/index.js'
 
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted'])
 const EVENT_FLUSH_DELAY_MS = 180
@@ -80,6 +81,7 @@ function toCodexRun(row, events = []) {
     id: row.id,
     taskSlug: row.task_slug,
     sessionId: row.session_id,
+    engine: String(row.engine || '').trim() || 'codex',
     prompt: row.prompt || '',
     promptBlocks: parsePromptBlocks(row.prompt_blocks_json),
     status: row.status || 'running',
@@ -144,7 +146,7 @@ function getRunRowById(runId) {
   }
 
   return get(
-    `SELECT id, task_slug, session_id, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
+    `SELECT id, task_slug, session_id, engine, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE id = ?`,
     [targetId]
@@ -251,6 +253,7 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
        runs.id,
        runs.task_slug,
        runs.session_id,
+       runs.engine,
        runs.prompt,
        runs.prompt_blocks_json,
        runs.status,
@@ -271,6 +274,7 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
        runs.id,
        runs.task_slug,
        runs.session_id,
+       runs.engine,
        runs.prompt,
        runs.prompt_blocks_json,
        runs.status,
@@ -338,6 +342,7 @@ export function createCodexRun(input = {}) {
   if (!session) {
     throw new Error('没有找到对应的 PromptX 项目。')
   }
+  assertAgentRunner(session.engine)
 
   const now = new Date().toISOString()
   const runId = `pxcr_${nanoid(12)}`
@@ -345,11 +350,11 @@ export function createCodexRun(input = {}) {
   transaction(() => {
     run(
       `INSERT INTO codex_runs (
-         id, task_slug, session_id, prompt, prompt_blocks_json, status,
+         id, task_slug, session_id, engine, prompt, prompt_blocks_json, status,
          response_message, error_message, created_at, updated_at, started_at, finished_at
        )
-       VALUES (?, ?, ?, ?, ?, 'running', '', '', ?, ?, ?, NULL)`,
-      [runId, task.slug, session.id, prompt, JSON.stringify(promptBlocks), now, now, now]
+       VALUES (?, ?, ?, ?, ?, ?, 'running', '', '', ?, ?, ?, NULL)`,
+      [runId, task.slug, session.id, session.engine || 'codex', prompt, JSON.stringify(promptBlocks), now, now, now]
     )
   })
 
@@ -476,7 +481,7 @@ export function getRunningCodexRunBySessionId(sessionId) {
   }
 
   const row = get(
-    `SELECT id, task_slug, session_id, prompt, status, response_message, error_message, created_at, updated_at, started_at, finished_at
+    `SELECT id, task_slug, session_id, engine, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE session_id = ?
        AND status = 'running'
@@ -495,7 +500,7 @@ export function getRunningCodexRunByTaskSlug(taskSlug) {
   }
 
   const row = get(
-    `SELECT id, task_slug, session_id, prompt, status, response_message, error_message, created_at, updated_at, started_at, finished_at
+    `SELECT id, task_slug, session_id, engine, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE task_slug = ?
        AND status = 'running'

@@ -1,6 +1,7 @@
 <script setup>
 import { Check, LoaderCircle } from 'lucide-vue-next'
 import WorkbenchSelect from './WorkbenchSelect.vue'
+import { getAgentEngineLabel } from '../lib/agentEngines.js'
 
 const props = defineProps({
   modelValue: {
@@ -63,6 +64,9 @@ function getOptionClass(selected) {
             <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(selectedOption) }}</span>
             <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(selectedOption) }}</span>
           </span>
+          <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]">
+            {{ getAgentEngineLabel(selectedOption.engine) }}
+          </span>
           <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(selectedOption)">
             {{ getRuntimeStatusLabel(selectedOption) }}
           </span>
@@ -95,6 +99,9 @@ function getOptionClass(selected) {
               <span class="min-w-0 flex-1 truncate">
                 <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(option) }}</span>
                 <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(option) }}</span>
+              </span>
+              <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]">
+                {{ getAgentEngineLabel(option.engine) }}
               </span>
               <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(option)">
                 {{ getRuntimeStatusLabel(option) }}

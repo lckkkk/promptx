@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { Jimp } from 'jimp'
 import { nanoid } from 'nanoid'
-import { EXPIRY_OPTIONS, VISIBILITY_OPTIONS } from '../../../packages/shared/src/index.js'
+import { AGENT_ENGINE_OPTIONS, EXPIRY_OPTIONS, VISIBILITY_OPTIONS } from '../../../packages/shared/src/index.js'
 import {
   buildTaskExports,
   canEditTask,
@@ -20,9 +20,6 @@ import {
   updateTaskCodexSession,
   updateTask,
 } from './repository.js'
-import {
-  listKnownCodexWorkspaces,
-} from './codex.js'
 import {
   getTaskGitDiffReview,
   getWorkspaceGitDiffReviewByCwd,
@@ -47,7 +44,8 @@ import {
   markInterruptedCodexRuns,
   updateCodexRun,
 } from './codexRuns.js'
-import { createCodexRunRuntime } from './codexRunRuntime.js'
+import { createAgentRunRuntime } from './codexRunRuntime.js'
+import { listKnownWorkspacesByEngine } from './agents/index.js'
 import { importPdfBlocks } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import {
@@ -193,7 +191,7 @@ function listTaskWorkspaceDiffSummaries(limit = 30) {
   }))
 }
 
-const codexRunRuntime = createCodexRunRuntime({
+const codexRunRuntime = createAgentRunRuntime({
   decorateSession: decorateCodexSession,
   onRunEvent({ taskSlug, runId, event }) {
     broadcastServerEvent('run.event', {
@@ -273,7 +271,7 @@ function listSiblingWorkspaceDirs(baseDir) {
     .sort((a, b) => a.localeCompare(b, 'zh-CN'))
 }
 
-function listWorkspaceSuggestions(limit = 24) {
+function listWorkspaceSuggestions(limit = 24, engine = 'codex') {
   const seen = new Set()
   const suggestions = []
 
@@ -298,7 +296,7 @@ function listWorkspaceSuggestions(limit = 24) {
   addPath(workspaceRootDir)
   listSiblingWorkspaceDirs(workspaceParentDir).forEach(addPath)
   listPromptxCodexSessions(limit).forEach((session) => addPath(session.cwd))
-  listKnownCodexWorkspaces(limit * 2).forEach(addPath)
+  listKnownWorkspacesByEngine(engine, limit * 2).forEach(addPath)
 
   return suggestions.slice(0, Math.max(1, Number(limit) || 24))
 }
@@ -345,6 +343,7 @@ app.get('/api/meta', async () => ({
   version: promptxVersion,
   expiryOptions: EXPIRY_OPTIONS,
   visibilityOptions: VISIBILITY_OPTIONS,
+  agentEngineOptions: AGENT_ENGINE_OPTIONS,
 }))
 
 app.get('/api/relay/status', async () => ({
@@ -711,8 +710,8 @@ app.get('/api/codex/sessions', async () => ({
   items: decorateCodexSessionList(listPromptxCodexSessions()),
 }))
 
-app.get('/api/codex/workspaces', async () => ({
-  items: listWorkspaceSuggestions(),
+app.get('/api/codex/workspaces', async (request) => ({
+  items: listWorkspaceSuggestions(24, request.query?.engine),
 }))
 
 app.get('/api/codex/directories/tree', async (request) => (

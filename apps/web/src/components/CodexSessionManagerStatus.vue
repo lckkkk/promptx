@@ -1,5 +1,6 @@
 <script setup>
 import { Info } from 'lucide-vue-next'
+import { getAgentEngineLabel } from '../lib/agentEngines.js'
 
 defineProps({
   activeSession: {
@@ -59,6 +60,13 @@ defineProps({
     </div>
 
     <div class="dashed-panel px-3 py-3">
+      <div class="theme-muted-text text-[11px]">执行引擎</div>
+      <div class="mt-2 text-sm text-[var(--theme-textPrimary)]">
+        {{ getAgentEngineLabel(activeSession?.engine) }}
+      </div>
+    </div>
+
+    <div class="dashed-panel px-3 py-3">
       <div class="theme-muted-text text-[11px]">工作目录</div>
       <div class="mt-2 break-all font-mono text-xs leading-6 text-[var(--theme-textPrimary)]">
         {{ activeSession?.cwd || '未设置' }}
@@ -78,7 +86,7 @@ defineProps({
         <span>说明</span>
       </div>
       <p class="mt-2 text-xs leading-6 text-[var(--theme-textSecondary)]">
-        项目绑定目录，目录不变时会继续复用同一个 Codex 线程。
+        项目绑定目录与执行引擎，目录不变时会继续复用同一条引擎会话。
       </p>
     </div>
   </div>

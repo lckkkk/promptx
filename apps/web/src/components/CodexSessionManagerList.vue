@@ -1,5 +1,6 @@
 <script setup>
 import { Plus } from 'lucide-vue-next'
+import { getAgentEngineLabel } from '../lib/agentEngines.js'
 
 const props = defineProps({
   busy: {
@@ -132,6 +133,9 @@ function getSessionStateClass(session) {
           <span class="rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getThreadStatusClass(session)">
             {{ getThreadStatusLabel(session) }}
           </span>
+        </div>
+        <div class="theme-muted-text mt-2 text-[11px]">
+          引擎：{{ getAgentEngineLabel(session.engine) }}
         </div>
         <div class="theme-muted-text mt-2 break-all font-mono text-[11px] leading-5">
           {{ session.cwd }}

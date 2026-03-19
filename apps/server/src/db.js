@@ -193,8 +193,12 @@ function migrateToV1() {
     CREATE TABLE IF NOT EXISTS codex_sessions (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      engine TEXT NOT NULL DEFAULT 'codex',
       cwd TEXT NOT NULL,
       codex_thread_id TEXT,
+      engine_session_id TEXT NOT NULL DEFAULT '',
+      engine_thread_id TEXT NOT NULL DEFAULT '',
+      engine_meta_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -205,6 +209,7 @@ function migrateToV1() {
       id TEXT PRIMARY KEY,
       task_slug TEXT NOT NULL,
       session_id TEXT NOT NULL,
+      engine TEXT NOT NULL DEFAULT 'codex',
       prompt TEXT NOT NULL DEFAULT '',
       prompt_blocks_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
@@ -303,7 +308,18 @@ function applyAdditiveSchemaPatches() {
     `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN last_prompt_preview TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE codex_sessions ADD COLUMN engine TEXT NOT NULL DEFAULT 'codex'`,
+    `ALTER TABLE codex_sessions ADD COLUMN engine_session_id TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE codex_sessions ADD COLUMN engine_thread_id TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE codex_sessions ADD COLUMN engine_meta_json TEXT NOT NULL DEFAULT '{}'`,
+    `UPDATE codex_sessions
+     SET engine_thread_id = COALESCE(NULLIF(engine_thread_id, ''), COALESCE(codex_thread_id, ''))
+     WHERE COALESCE(NULLIF(engine_thread_id, ''), '') = ''`,
     `ALTER TABLE codex_runs ADD COLUMN prompt_blocks_json TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE codex_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'codex'`,
+    `UPDATE codex_runs
+     SET engine = COALESCE(NULLIF(engine, ''), 'codex')
+     WHERE COALESCE(NULLIF(engine, ''), '') = ''`,
     `ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE codex_run_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'event'`,
