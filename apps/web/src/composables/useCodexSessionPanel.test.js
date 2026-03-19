@@ -224,6 +224,28 @@ test('createTurnFromRun restores wrapped event payloads from persisted runs', ()
   assert.equal(turn.lastEventSeq, 2)
 })
 
+test('createTurnFromRun keeps promptBlocks for new data and resolves image assets', () => {
+  let turnId = 0
+  let logId = 0
+
+  const turn = createTurnFromRun({
+    id: 'run-blocks',
+    prompt: 'https://example.com/manual-image-link.png',
+    promptBlocks: [
+      { type: 'text', content: '请看这张图', meta: {} },
+      { type: 'image', content: '/uploads/demo.png', meta: {} },
+    ],
+    status: 'completed',
+    events: [],
+  }, () => ++turnId, () => ++logId, () => {})
+
+  assert.equal(turn.prompt, 'https://example.com/manual-image-link.png')
+  assert.deepEqual(turn.promptBlocks, [
+    { type: 'text', content: '请看这张图', meta: {} },
+    { type: 'image', content: 'http://localhost:3000/uploads/demo.png', meta: {} },
+  ])
+})
+
 test('applyRunEventToTurn appends incremental codex events once and updates response text', () => {
   let turnId = 0
   let logId = 0

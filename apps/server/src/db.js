@@ -206,6 +206,7 @@ function migrateToV1() {
       task_slug TEXT NOT NULL,
       session_id TEXT NOT NULL,
       prompt TEXT NOT NULL DEFAULT '',
+      prompt_blocks_json TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
       response_message TEXT NOT NULL DEFAULT '',
       error_message TEXT NOT NULL DEFAULT '',
@@ -295,11 +296,14 @@ function migrateToV1() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_run_git_final_snapshot_entries_scope_path
       ON run_git_final_snapshot_entries(run_id, path);
   `)
+}
 
+function applyAdditiveSchemaPatches() {
   const alterStatements = [
     `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN last_prompt_preview TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN codex_session_id TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE codex_runs ADD COLUMN prompt_blocks_json TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE codex_run_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'event'`,
@@ -328,6 +332,8 @@ function ensureSchema() {
     migrateToV1()
     writeSchemaVersion(1)
   }
+
+  applyAdditiveSchemaPatches()
 
   if (readSchemaVersion() < SCHEMA_VERSION) {
     writeSchemaVersion(SCHEMA_VERSION)

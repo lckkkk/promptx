@@ -1111,6 +1111,18 @@ export function useWorkbenchTasks(options = {}) {
     }, getTaskRawUrl(slug))
   }
 
+  function getPromptBlocksForTask(slug) {
+    const state = slug === currentTaskSlug.value
+      ? draft.value
+      : getTaskDraftState(slug)
+
+    if (!state) {
+      return []
+    }
+
+    return cloneBlocks(normalizeBlocksForSave(state.blocks || []))
+  }
+
   async function ensureCodexPromptReady(taskSlug) {
     if (uploading.value) {
       error.value = '文件仍在处理中，请稍后再发送给 Codex。'
@@ -1194,6 +1206,7 @@ export function useWorkbenchTasks(options = {}) {
 
   return {
     buildPromptForTask,
+    getPromptBlocksForTask,
     buildPromptPreview,
     clearCurrentTaskContent,
     createTaskAndSelect,

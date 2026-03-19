@@ -41,6 +41,7 @@ function scrollCurrentPanelToBottom() {
 
 const {
   buildPromptForTask,
+  getPromptBlocksForTask,
   clearCurrentTaskContent,
   createTaskAndSelect,
   creatingTask,
@@ -89,6 +90,14 @@ const currentTaskBuildPrompt = computed(() => {
 
   return () => prepareCodexPromptForTask(task.slug)
 })
+const currentTaskBuildPromptBlocks = computed(() => {
+  const task = currentRenderedTask.value
+  if (!task) {
+    return null
+  }
+
+  return () => getPromptBlocksForTask(task.slug)
+})
 const taskListPanelProps = computed(() => ({
   creatingTask: creatingTask.value,
   currentTaskAutoTitle: draft.value.autoTitle || currentTaskAutoTitle.value,
@@ -104,6 +113,7 @@ const taskListPanelProps = computed(() => ({
   uploading: uploading.value,
 }))
 const activityPanelProps = computed(() => ({
+  buildPromptBlocks: currentTaskBuildPromptBlocks.value,
   buildPrompt: currentTaskBuildPrompt.value,
   diffSupported: currentTaskDiffSupported.value,
   selectedSessionId: currentRenderedTask.value?.codexSessionId || '',

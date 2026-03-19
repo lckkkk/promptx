@@ -112,7 +112,7 @@ function getTaskWorkspaceBadgeClass(task) {
       <button
         type="button"
         class="tool-button tool-button-primary mt-4 inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-sm"
-        :disabled="creatingTask || loadingTask || uploading"
+        :disabled="creatingTask || uploading"
         @click="emit('create-task')"
       >
         <Plus class="h-4 w-4" />

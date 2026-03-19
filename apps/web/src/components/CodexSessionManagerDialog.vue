@@ -252,6 +252,14 @@ function openEditMode(sessionId) {
   syncFormFromSession(session)
 }
 
+function getPreferredSessionId() {
+  if (props.selectedSessionId && props.sessions.some((session) => session.id === props.selectedSessionId)) {
+    return props.selectedSessionId
+  }
+
+  return sortedSessions.value[0]?.id || ''
+}
+
 function enterMobileDetail(tab = 'basic') {
   mobileView.value = 'detail'
   mobileDetailTab.value = tab
@@ -298,13 +306,9 @@ function initializeDialog() {
   mobileDetailTab.value = 'basic'
   mobileView.value = isMobileLayout.value ? 'list' : 'detail'
 
-  if (props.selectedSessionId && props.sessions.some((session) => session.id === props.selectedSessionId)) {
-    openEditMode(props.selectedSessionId)
-    return
-  }
-
-  if (sortedSessions.value[0]?.id) {
-    openEditMode(sortedSessions.value[0].id)
+  const preferredSessionId = getPreferredSessionId()
+  if (preferredSessionId) {
+    openEditMode(preferredSessionId)
     return
   }
 
@@ -470,7 +474,8 @@ watch(
     showDirectoryPicker.value = false
     showDeleteDialog.value = false
     error.value = ''
-  }
+  },
+  { immediate: true }
 )
 
 watch(
@@ -491,6 +496,15 @@ watch(
     }
 
     if (mode.value === 'create') {
+      const hasDraft = Boolean(String(form.title || '').trim() || String(form.cwd || '').trim())
+      if (hasDraft) {
+        return
+      }
+
+      const preferredSessionId = getPreferredSessionId()
+      if (preferredSessionId) {
+        openEditMode(preferredSessionId)
+      }
       return
     }
 
@@ -499,13 +513,9 @@ watch(
       return
     }
 
-    if (props.selectedSessionId && props.sessions.some((session) => session.id === props.selectedSessionId)) {
-      openEditMode(props.selectedSessionId)
-      return
-    }
-
-    if (sortedSessions.value[0]?.id) {
-      openEditMode(sortedSessions.value[0].id)
+    const preferredSessionId = getPreferredSessionId()
+    if (preferredSessionId) {
+      openEditMode(preferredSessionId)
       return
     }
 

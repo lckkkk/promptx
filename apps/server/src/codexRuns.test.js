@@ -33,9 +33,12 @@ test('listTaskCodexRunsWithOptions omits events by default and can include them 
       ['session-1', 'Repo Session', tempDir, now, now]
     )
     run(
-      `INSERT INTO codex_runs (id, task_slug, session_id, prompt, status, response_message, error_message, created_at, updated_at, started_at, finished_at)
-       VALUES (?, ?, ?, ?, 'completed', '', '', ?, ?, ?, ?)`,
-      ['run-1', 'task-1', 'session-1', 'hello', now, now, now, now]
+      `INSERT INTO codex_runs (id, task_slug, session_id, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at)
+       VALUES (?, ?, ?, ?, ?, 'completed', '', '', ?, ?, ?, ?)`,
+      ['run-1', 'task-1', 'session-1', 'hello', JSON.stringify([
+        { type: 'text', content: '请看这张图', meta: {} },
+        { type: 'image', content: '/uploads/demo.png', meta: {} },
+      ]), now, now, now, now]
     )
 
     appendCodexRunEvent('run-1', 1, { type: 'turn.started' })
@@ -46,6 +49,10 @@ test('listTaskCodexRunsWithOptions omits events by default and can include them 
     assert.equal(summaryRuns[0].eventCount, 2)
     assert.equal(summaryRuns[0].lastEventSeq, 2)
     assert.deepEqual(summaryRuns[0].events, [])
+    assert.deepEqual(summaryRuns[0].promptBlocks, [
+      { type: 'text', content: '请看这张图', meta: {} },
+      { type: 'image', content: '/uploads/demo.png', meta: {} },
+    ])
 
     const detailedRuns = listTaskCodexRunsWithOptions('task-1', { limit: 20, includeEvents: true })
     assert.equal(detailedRuns?.length, 1)

@@ -7,11 +7,13 @@ import {
   ChevronUp,
   CircleAlert,
   FileDiff,
+  Image as ImageIcon,
   LoaderCircle,
   PencilLine,
   Square,
 } from 'lucide-vue-next'
 import CodexSessionSelect from './CodexSessionSelect.vue'
+import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
 import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
 import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
 
@@ -25,6 +27,10 @@ const props = defineProps({
     default: '',
   },
   buildPrompt: {
+    type: Function,
+    default: null,
+  },
+  buildPromptBlocks: {
     type: Function,
     default: null,
   },
@@ -109,6 +115,7 @@ const RESPONSE_COLLAPSE_MAX_CHARS = 400
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
 const latestTurnId = computed(() => turns.value.at(-1)?.id || '')
 const renderedResponseCache = new Map()
+const previewPromptImageUrl = ref('')
 
 function exceedsCollapseThreshold(content, maxLines, maxChars) {
   const text = String(content || '').trimEnd()
@@ -155,7 +162,6 @@ function getResponseCacheKey(turn) {
 function syncCollapsedTurns(nextTurns = []) {
   const validIds = new Set((nextTurns || []).map((turn) => turn.id).filter(Boolean))
   const validResponseCacheKeys = new Set((nextTurns || []).map((turn) => getResponseCacheKey(turn)).filter(Boolean))
-
   collapsedTurnMap.value = Object.fromEntries(
     Object.entries(collapsedTurnMap.value).filter(([id]) => validIds.has(id))
   )
@@ -284,6 +290,16 @@ function renderResponseBody(turn) {
   return html
 }
 
+function openPromptImage(url) {
+  previewPromptImageUrl.value = String(url || '').trim()
+}
+
+const promptPreviewImages = computed(() => (
+  turns.value.flatMap((turn) => (Array.isArray(turn?.promptBlocks) ? turn.promptBlocks : [])
+    .filter((item) => item?.type === 'image')
+    .map((item) => item.content))
+))
+
 watch(
   turns,
   (nextTurns) => {
@@ -344,7 +360,7 @@ defineExpose({
             <button
               type="button"
               class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
-              :disabled="sending || managerBusy"
+              :disabled="managerBusy"
               @click="openManager"
             >
               <PencilLine class="h-4 w-4" />
@@ -402,7 +418,42 @@ defineExpose({
                 </div>
               </div>
               <div class="relative mt-2">
+                <div
+                  v-if="Array.isArray(turn.promptBlocks) && turn.promptBlocks.length"
+                  class="space-y-3"
+                  :class="canCollapsePrompt(turn) && isPromptCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : ''"
+                >
+                  <template v-for="(item, itemIndex) in turn.promptBlocks" :key="`${turn.id}-prompt-${itemIndex}`">
+                    <pre
+                      v-if="item.type === 'text' || item.type === 'imported_text'"
+                      class="whitespace-pre-wrap break-all font-sans leading-7"
+                    >{{ item.content }}</pre>
+                    <div
+                      v-else
+                      class="overflow-hidden rounded-sm border border-dashed border-[var(--theme-promptBorder)]/70 bg-white/40"
+                    >
+                      <div class="flex items-center gap-2 border-b border-dashed border-[var(--theme-promptBorder)]/60 px-3 py-2 text-xs opacity-80">
+                        <ImageIcon class="h-3.5 w-3.5" />
+                        <span>本轮附图</span>
+                      </div>
+                      <div class="px-3 py-3">
+                        <button
+                          type="button"
+                          class="inline-flex cursor-zoom-in justify-center"
+                          @click="openPromptImage(item.content)"
+                        >
+                          <img
+                            :src="item.content"
+                            alt="本轮提示词图片"
+                            class="max-h-52 w-auto max-w-full rounded-sm object-contain"
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </template>
+                </div>
                 <pre
+                  v-else
                   class="whitespace-pre-wrap break-all font-sans leading-7"
                   :class="canCollapsePrompt(turn) && isPromptCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : ''"
                 >{{ turn.prompt }}</pre>
@@ -568,5 +619,10 @@ defineExpose({
         <span>停止</span>
       </button>
     </div>
+
+    <ImagePreviewOverlay
+      v-model="previewPromptImageUrl"
+      :images="promptPreviewImages"
+    />
   </section>
 </template>

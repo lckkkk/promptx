@@ -11,6 +11,10 @@ const props = defineProps({
     type: Function,
     default: null,
   },
+  buildPromptBlocks: {
+    type: Function,
+    default: null,
+  },
   selectedSessionId: {
     type: String,
     default: '',
@@ -67,6 +71,7 @@ defineExpose({
       :active="Boolean(taskSlug)"
       :task-slug="taskSlug"
       :build-prompt="buildPrompt || (() => '')"
+      :build-prompt-blocks="buildPromptBlocks || (() => [])"
       :selected-session-id="selectedSessionId"
       :session-selection-locked="sessionSelectionLocked"
       :session-selection-lock-reason="sessionSelectionLockReason"

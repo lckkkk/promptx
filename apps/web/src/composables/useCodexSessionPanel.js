@@ -7,6 +7,7 @@ import {
   listCodexSessions,
   listCodexWorkspaces,
   listTaskCodexRuns,
+  resolveAssetUrl,
   stopCodexRun,
   updateCodexSession,
 } from '../lib/api.js'
@@ -883,10 +884,19 @@ function normalizeLogEntry(entry = {}, nextLogId) {
 }
 
 function createBaseTurn(run = {}, nextTurnId) {
+  const promptBlocks = Array.isArray(run.promptBlocks)
+    ? run.promptBlocks.map((block) => ({
+        ...block,
+        meta: block?.meta ? { ...block.meta } : {},
+        content: block?.type === 'image' ? resolveAssetUrl(block.content) : block.content,
+      }))
+    : []
+
   return {
     id: nextTurnId(),
     runId: String(run.id || '').trim(),
     prompt: String(run.prompt || '').trim(),
+    promptBlocks,
     status: 'completed',
     startedAt: run.startedAt || run.createdAt || '',
     finishedAt: run.finishedAt || '',
@@ -1721,6 +1731,9 @@ export function useCodexSessionPanel(props, emit) {
       const prompt = typeof props.buildPrompt === 'function'
         ? await props.buildPrompt()
         : props.prompt
+      const promptBlocks = typeof props.buildPromptBlocks === 'function'
+        ? await props.buildPromptBlocks()
+        : []
 
       if (!String(prompt || '').trim()) {
         sessionError.value = '没有可发送的提示词。'
@@ -1730,6 +1743,7 @@ export function useCodexSessionPanel(props, emit) {
       const result = await createTaskCodexRun(props.taskSlug, {
         sessionId: selectedSessionId.value,
         prompt,
+        promptBlocks,
       })
       applyCreatedRun(result)
       if (typeof props.afterSend === 'function') {

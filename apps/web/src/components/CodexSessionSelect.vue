@@ -59,8 +59,9 @@ function getOptionClass(selected) {
     <template #trigger="{ selectedOption }">
       <template v-if="selectedOption">
         <div class="flex items-center gap-2 text-sm">
-          <span class="min-w-0 flex-1 truncate font-medium text-[var(--theme-textPrimary)]">
-            {{ getSessionTitle(selectedOption) }} - {{ getSessionCwd(selectedOption) }}
+          <span class="min-w-0 flex-1 truncate">
+            <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(selectedOption) }}</span>
+            <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(selectedOption) }}</span>
           </span>
           <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(selectedOption)">
             {{ getRuntimeStatusLabel(selectedOption) }}
@@ -91,8 +92,9 @@ function getOptionClass(selected) {
         <div class="flex items-start gap-3">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 text-sm">
-              <span class="min-w-0 flex-1 truncate font-medium text-[var(--theme-textPrimary)]">
-                {{ getSessionTitle(option) }} - {{ getSessionCwd(option) }}
+              <span class="min-w-0 flex-1 truncate">
+                <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(option) }}</span>
+                <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(option) }}</span>
               </span>
               <span class="inline-flex items-center rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]" :class="getRuntimeStatusClass(option)">
                 {{ getRuntimeStatusLabel(option) }}

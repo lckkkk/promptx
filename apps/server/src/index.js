@@ -524,6 +524,7 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
 
   const sessionId = String(request.body?.sessionId || '').trim()
   const prompt = String(request.body?.prompt || '').trim()
+  const promptBlocks = Array.isArray(request.body?.promptBlocks) ? request.body.promptBlocks : []
 
   if (!sessionId) {
     return reply.code(400).send({ message: '请先选择一个 PromptX 项目。' })
@@ -546,6 +547,7 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
     taskSlug: request.params.slug,
     sessionId,
     prompt,
+    promptBlocks,
   })
 
   updateTaskCodexSession(request.params.slug, sessionId)

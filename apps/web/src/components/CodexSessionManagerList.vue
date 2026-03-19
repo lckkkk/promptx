@@ -60,18 +60,22 @@ const emit = defineEmits(['create', 'select'])
 
 function getCardClass(session) {
   if (props.mode === 'edit' && props.editingSessionId === session.id) {
-    return 'border-[var(--theme-accent)] bg-[var(--theme-appPanelStrong)] shadow-sm'
+    return 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
   }
 
   if (props.isSessionRunning(session.id)) {
-    return 'theme-status-warning'
-  }
-
-  if (props.isCurrentSession(session.id)) {
-    return 'theme-status-info'
+    return 'border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] text-[var(--theme-textPrimary)] hover:bg-[var(--theme-appPanelHover)]'
   }
 
   return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanel)]'
+}
+
+function getSessionStateLabel(session) {
+  return props.isCurrentSession(session.id) ? '当前' : '普通'
+}
+
+function getSessionStateClass(session) {
+  return props.isCurrentSession(session.id) ? 'theme-status-info' : 'theme-status-neutral'
 }
 </script>
 
@@ -113,10 +117,10 @@ function getCardClass(session) {
         <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
           <span class="truncate">{{ session.title || '未命名项目' }}</span>
           <span
-            v-if="!mobile && isCurrentSession(session.id)"
-            class="theme-status-info rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
+            class="rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
+            :class="getSessionStateClass(session)"
           >
-            当前
+            {{ getSessionStateLabel(session) }}
           </span>
           <span
             class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"

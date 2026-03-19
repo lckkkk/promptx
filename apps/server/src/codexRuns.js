@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { BLOCK_TYPES, clampText } from '../../../packages/shared/src/index.js'
 import { all, get, run, transaction } from './db.js'
 import { getPromptxCodexSessionById } from './codexSessions.js'
 import { captureRunGitBaseline, captureRunGitFinalSnapshot, captureTaskGitBaseline } from './gitDiff.js'
@@ -16,6 +17,48 @@ function parseEventPayload(rawValue = '{}') {
   } catch {
     return {}
   }
+}
+
+function parsePromptBlocks(rawValue = '[]') {
+  try {
+    const parsed = JSON.parse(rawValue || '[]')
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function normalizePromptBlock(block = {}) {
+  const type =
+    block.type === BLOCK_TYPES.IMAGE
+      ? BLOCK_TYPES.IMAGE
+      : block.type === BLOCK_TYPES.IMPORTED_TEXT
+        ? BLOCK_TYPES.IMPORTED_TEXT
+        : BLOCK_TYPES.TEXT
+
+  const content = clampText(
+    String(block.content || ''),
+    type === BLOCK_TYPES.IMAGE ? 1000 : 50000
+  )
+  const meta =
+    type === BLOCK_TYPES.IMPORTED_TEXT
+      ? {
+          fileName: clampText(block.meta?.fileName || '', 180),
+          collapsed: Boolean(block.meta?.collapsed),
+        }
+      : {}
+
+  return {
+    type,
+    content,
+    meta,
+  }
+}
+
+function normalizePromptBlocks(blocks = []) {
+  return Array.isArray(blocks)
+    ? blocks.map((block) => normalizePromptBlock(block)).filter(Boolean)
+    : []
 }
 
 function toCodexRunEvent(row) {
@@ -38,6 +81,7 @@ function toCodexRun(row, events = []) {
     taskSlug: row.task_slug,
     sessionId: row.session_id,
     prompt: row.prompt || '',
+    promptBlocks: parsePromptBlocks(row.prompt_blocks_json),
     status: row.status || 'running',
     responseMessage: row.response_message || '',
     errorMessage: row.error_message || '',
@@ -100,7 +144,7 @@ function getRunRowById(runId) {
   }
 
   return get(
-    `SELECT id, task_slug, session_id, prompt, status, response_message, error_message, created_at, updated_at, started_at, finished_at
+    `SELECT id, task_slug, session_id, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE id = ?`,
     [targetId]
@@ -208,6 +252,7 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
        runs.task_slug,
        runs.session_id,
        runs.prompt,
+       runs.prompt_blocks_json,
        runs.status,
        runs.response_message,
        runs.error_message,
@@ -227,6 +272,7 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
        runs.task_slug,
        runs.session_id,
        runs.prompt,
+       runs.prompt_blocks_json,
        runs.status,
        runs.response_message,
        runs.error_message,
@@ -271,6 +317,7 @@ export function createCodexRun(input = {}) {
   const taskSlug = String(input.taskSlug || '').trim()
   const sessionId = String(input.sessionId || '').trim()
   const prompt = String(input.prompt || '').trim()
+  const promptBlocks = normalizePromptBlocks(input.promptBlocks)
 
   if (!taskSlug) {
     throw new Error('缺少任务。')
@@ -298,11 +345,11 @@ export function createCodexRun(input = {}) {
   transaction(() => {
     run(
       `INSERT INTO codex_runs (
-         id, task_slug, session_id, prompt, status,
+         id, task_slug, session_id, prompt, prompt_blocks_json, status,
          response_message, error_message, created_at, updated_at, started_at, finished_at
        )
-       VALUES (?, ?, ?, ?, 'running', '', '', ?, ?, ?, NULL)`,
-      [runId, task.slug, session.id, prompt, now, now, now]
+       VALUES (?, ?, ?, ?, ?, 'running', '', '', ?, ?, ?, NULL)`,
+      [runId, task.slug, session.id, prompt, JSON.stringify(promptBlocks), now, now, now]
     )
   })
 
