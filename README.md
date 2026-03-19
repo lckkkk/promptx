@@ -104,3 +104,7 @@ uploads/
 tmp/
 run/
 ```
+
+## 开源协议
+
+本项目采用 `Apache-2.0` 开源协议，详见根目录 `LICENSE`。

@@ -2,6 +2,7 @@
   "name": "@muyichengshayu/promptx",
   "version": "0.1.6",
   "description": "PromptX 本机 AI 协作工作台",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "promptx": "./bin/promptx.js"
