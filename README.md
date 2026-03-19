@@ -13,6 +13,20 @@ PromptX 是一个面向本机 AI 协作的轻量工作台。
 - 支持公开页与 Raw 导出
 - 内置禅道 Chrome 扩展，可一键把 Bug 内容带入工作台
 
+## 项目截图
+
+### 工作台
+
+![PromptX 工作台](docs/assets/workbench-overview.jpg)
+
+### 设置
+
+![PromptX 设置](docs/assets/settings-panel.jpg)
+
+### 手机端
+
+![PromptX 手机端](docs/assets/mobile-remote.jpg)
+
 ## 运行前提
 
 - 已安装 Node，支持 `20`、`22`、`24`，推荐 `22`
