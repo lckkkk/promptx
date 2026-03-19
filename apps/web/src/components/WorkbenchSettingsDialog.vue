@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Info, LoaderCircle, Palette, Settings2, Wifi, X } from 'lucide-vue-next'
+import { Eye, EyeOff, Info, LoaderCircle, Palette, Settings2, Wifi, X } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
 import { getMeta, getRelayConfig, updateRelayConfig } from '../lib/api.js'
 
@@ -22,6 +22,7 @@ const relaySuccess = ref('')
 const relayStatus = ref(null)
 const relayManagedByEnv = ref(false)
 const relayToggleSaving = ref(false)
+const relayTokenVisible = ref(false)
 const relayForm = reactive({
   enabled: false,
   relayUrl: '',
@@ -295,9 +296,6 @@ onBeforeUnmount(() => {
                     <Wifi class="h-4 w-4" />
                     <span>远程访问 Relay</span>
                   </div>
-                  <p class="theme-muted-text mt-1 text-xs leading-5">
-                    配好后，本机 PromptX 会主动连接你的公网 Relay。多同事场景下，建议每个人使用自己的子域名，例如 `https://user1.promptx.example.com`。
-                  </p>
                 </div>
                 <span
                   class="rounded-sm border border-dashed px-2.5 py-1 text-xs font-medium"
@@ -347,13 +345,24 @@ onBeforeUnmount(() => {
 
                   <label class="space-y-1.5">
                     <span class="theme-muted-text text-xs">设备 Token</span>
-                    <input
-                      v-model="relayForm.deviceToken"
-                      type="password"
-                      placeholder="请输入云端 Relay 的设备 token"
-                      class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
-                      :disabled="relayManagedByEnv"
-                    >
+                    <div class="relative">
+                      <input
+                        v-model="relayForm.deviceToken"
+                        :type="relayTokenVisible ? 'text' : 'password'"
+                        placeholder="请输入云端 Relay 的设备 token"
+                        class="w-full rounded-sm border border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] px-3 py-2 pr-10 text-sm text-[var(--theme-textPrimary)] outline-none transition focus:border-[var(--theme-borderStrong)]"
+                        :disabled="relayManagedByEnv"
+                      >
+                      <button
+                        type="button"
+                        class="theme-icon-button absolute inset-y-1 right-1 flex h-auto w-8 items-center justify-center"
+                        :disabled="relayManagedByEnv"
+                        @click="relayTokenVisible = !relayTokenVisible"
+                      >
+                        <Eye v-if="!relayTokenVisible" class="h-4 w-4" />
+                        <EyeOff v-else class="h-4 w-4" />
+                      </button>
+                    </div>
                   </label>
                 </div>
 

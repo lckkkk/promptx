@@ -43,6 +43,8 @@ PromptX CLI
   promptx version
   promptx relay start
   promptx relay tenant add <key>
+  promptx relay tenant list
+  promptx relay tenant remove <key>
   promptx relay tenant add <key> --domain promptx.mushayu.com
 
 说明：
@@ -54,7 +56,9 @@ PromptX CLI
   - version: 输出当前版本
   - relay start: 启动 PromptX Relay 中转服务
   - relay tenant add: 追加一个 Relay 子域名租户并自动生成 host/token
-    默认读取 PROMPTX_RELAY_BASE_DOMAIN 和 PROMPTX_RELAY_TENANTS_FILE
+  - relay tenant list: 查看当前 Relay 租户列表
+  - relay tenant remove: 删除一个 Relay 租户
+    默认读取 PROMPTX_RELAY_BASE_DOMAIN / PROMPTX_RELAY_PUBLIC_URL / PROMPTX_RELAY_TENANTS_FILE
 `.trim())
 }
 
@@ -104,6 +108,6 @@ if (
   runNodeScript(relayTenantScriptPath, process.argv.slice(4))
 } else {
   console.error(`[promptx] 不支持的命令：${command}`)
-  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / relay start / relay tenant add')
+  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / relay start / relay tenant add / relay tenant list / relay tenant remove')
   process.exitCode = 1
 }

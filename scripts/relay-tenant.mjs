@@ -1,6 +1,10 @@
 import process from 'node:process'
 
-import { addRelayTenant } from '../apps/server/src/relayTenants.js'
+import {
+  addRelayTenant,
+  listRelayTenants,
+  removeRelayTenant,
+} from '../apps/server/src/relayTenants.js'
 
 const DEFAULT_RELAY_TENANTS_FILE = '/etc/promptx-relay-tenants.json'
 
@@ -10,6 +14,8 @@ PromptX Relay Tenant CLI
 
 用法：
   promptx relay tenant add <key>
+  promptx relay tenant list
+  promptx relay tenant remove <key>
   promptx relay tenant add <key> --domain promptx.mushayu.com
   promptx relay tenant add <key> --host user1.promptx.mushayu.com
 
@@ -31,6 +37,27 @@ function readOption(args, name) {
   return String(args[index + 1] || '').trim()
 }
 
+function resolveConfigPath(extraArgs) {
+  return readOption(extraArgs, '--config')
+    || String(process.env.PROMPTX_RELAY_TENANTS_FILE || '').trim()
+    || DEFAULT_RELAY_TENANTS_FILE
+}
+
+function printTenantList(filePath) {
+  const result = listRelayTenants(filePath)
+  console.log(`[promptx-relay] 当前租户配置文件：${result.path}`)
+  if (!result.tenants.length) {
+    console.log('- 暂无租户')
+    return
+  }
+
+  result.tenants.forEach((tenant, index) => {
+    console.log(`${index + 1}. ${tenant.key}`)
+    console.log(`   host: ${tenant.host}`)
+    console.log(`   deviceId: ${tenant.deviceId}`)
+  })
+}
+
 function main() {
   const action = String(process.argv[2] || '').trim()
   const key = String(process.argv[3] || '').trim()
@@ -41,27 +68,43 @@ function main() {
     return
   }
 
-  if (action !== 'add') {
+  if (!['add', 'list', 'remove'].includes(action)) {
     throw new Error(`不支持的 relay tenant 命令：${action}`)
   }
 
-  if (!key) {
-    throw new Error('请提供租户 key，例如：promptx relay tenant add user1')
+  const filePath = resolveConfigPath(extraArgs)
+
+  if (action === 'list') {
+    printTenantList(filePath)
+    return
   }
 
-  const filePath = readOption(extraArgs, '--config')
-    || String(process.env.PROMPTX_RELAY_TENANTS_FILE || '').trim()
-    || DEFAULT_RELAY_TENANTS_FILE
+  if (!key && !readOption(extraArgs, '--host')) {
+    throw new Error(`请提供租户 key，例如：promptx relay tenant ${action} user1`)
+  }
 
   const domain = readOption(extraArgs, '--domain')
     || String(process.env.PROMPTX_RELAY_BASE_DOMAIN || '').trim()
   const host = readOption(extraArgs, '--host')
+
+  if (action === 'remove') {
+    const result = removeRelayTenant({
+      filePath,
+      key,
+      host,
+    })
+    console.log(`[promptx-relay] 已更新租户配置：${result.path}`)
+    console.log(`[promptx-relay] 当前剩余 ${result.tenants.length} 个租户`)
+    return
+  }
 
   const result = addRelayTenant({
     filePath,
     key,
     domain,
     host,
+    fallbackDomain: process.env.PROMPTX_RELAY_PUBLIC_URL,
+    fallbackHost: process.env.PROMPTX_RELAY_PUBLIC_URL,
     deviceId: readOption(extraArgs, '--device-id'),
     deviceToken: readOption(extraArgs, '--device-token'),
     accessToken: readOption(extraArgs, '--access-token'),

@@ -150,6 +150,9 @@ promptx relay tenant add user1
 - `deviceToken`
 - `accessToken`
 
+如果已经有一个租户配置文件，后续新增租户时即使不再传 `--domain`，也会自动复用现有租户的基础域名。
+如果你没有设置 `PROMPTX_RELAY_BASE_DOMAIN`，也可以让它回退使用 `PROMPTX_RELAY_PUBLIC_URL`。
+
 如果你不想依赖环境变量，也可以显式写：
 
 ```bash
@@ -161,6 +164,13 @@ promptx relay tenant add user1 --domain promptx.mushayu.com --config /etc/prompt
 - Relay 地址
 - 设备 ID
 - 设备 Token
+
+查看与删除租户也可以直接走 CLI：
+
+```bash
+promptx relay tenant list
+promptx relay tenant remove user1
+```
 
 2. 启动云端 Relay
 

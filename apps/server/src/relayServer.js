@@ -292,15 +292,18 @@ function createTenantState(tenant) {
   }
 }
 
-async function startRelayServer() {
-  const config = readRelayServerConfig()
-  const webDistDir = getWebDistRoot()
+async function startRelayServer(options = {}) {
+  const config = options.config || readRelayServerConfig()
+  const webDistDir = options.webDistDir || getWebDistRoot()
   const webIndexPath = path.join(webDistDir, 'index.html')
   if (!fs.existsSync(webIndexPath)) {
     throw new Error('没有找到前端构建产物，请先运行 `pnpm build`。')
   }
 
-  const app = Fastify({ logger: true, bodyLimit: 35 * 1024 * 1024 })
+  const app = Fastify({
+    logger: typeof options.logger === 'undefined' ? true : options.logger,
+    bodyLimit: 35 * 1024 * 1024,
+  })
   app.addContentTypeParser('*', { parseAs: 'buffer' }, (request, body, done) => {
     done(null, body)
   })
@@ -778,8 +781,10 @@ async function startRelayServer() {
   })
 
   await app.listen({ host: config.host, port: config.port })
+  const resolvedAddress = app.server.address()
+  const resolvedPort = typeof resolvedAddress === 'object' && resolvedAddress ? resolvedAddress.port : config.port
 
-  const accessUrl = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${config.port}`
+  const accessUrl = `http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${resolvedPort}`
   app.log.info(`promptx relay running at ${accessUrl}`)
   app.log.info(`[relay] 已加载 ${config.tenants.length} 个租户，来源：${config.tenantSource}`)
   config.tenants.forEach((tenant) => {
@@ -790,6 +795,22 @@ async function startRelayServer() {
       accessTokenEnabled: Boolean(tenant.accessToken),
     }, '[relay] 租户已就绪，等待本地 PromptX 接入')
   })
+
+  return {
+    app,
+    config,
+    port: resolvedPort,
+    async close() {
+      await new Promise((resolve) => {
+        try {
+          wsServer.close(() => resolve())
+        } catch {
+          resolve()
+        }
+      })
+      await app.close()
+    },
+  }
 }
 
 export {

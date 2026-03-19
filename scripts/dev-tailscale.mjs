@@ -1,11 +1,38 @@
 import { spawn, execFileSync } from 'node:child_process'
 import process from 'node:process'
+import path from 'node:path'
 
 const DEFAULT_SERVER_PORT = 3000
 const DEFAULT_WEB_PORT = 5173
 
 function resolvePnpmCommand() {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+  if (process.platform !== 'win32') {
+    return 'pnpm'
+  }
+
+  try {
+    const output = execFileSync('where.exe', ['pnpm'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    }).trim()
+
+    if (!output) {
+      return 'pnpm'
+    }
+
+    const candidates = output
+      .split(/\r?\n/g)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    return candidates.find((item) => /\.(cmd|bat)$/i.test(item))
+      || candidates.find((item) => /\.(exe|com)$/i.test(item))
+      || candidates[0]
+      || 'pnpm'
+  } catch {
+    return 'pnpm'
+  }
 }
 
 function parseArgs(argv = []) {
@@ -120,7 +147,11 @@ function resolveTailscaleIp(args) {
 }
 
 function spawnChild(command, childArgs, options = {}) {
-  return spawn(command, childArgs, {
+  const isWindowsShellScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(path.basename(command))
+  const spawnCommand = isWindowsShellScript ? (process.env.ComSpec || 'cmd.exe') : command
+  const spawnArgs = isWindowsShellScript ? ['/d', '/s', '/c', command, ...childArgs] : childArgs
+
+  return spawn(spawnCommand, spawnArgs, {
     cwd: process.cwd(),
     stdio: 'inherit',
     windowsHide: true,
@@ -128,6 +159,7 @@ function spawnChild(command, childArgs, options = {}) {
       ...process.env,
       ...(options.env || {}),
     },
+    shell: false,
   })
 }
 

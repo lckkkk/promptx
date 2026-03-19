@@ -36,6 +36,15 @@ function resolveTenantHost({ key = '', domain = '', host = '' } = {}) {
   return `${normalizedKey}.${normalizedDomain}`
 }
 
+function inferBaseDomainFromHost(host = '') {
+  const normalizedHost = normalizeHost(host)
+  const parts = normalizedHost.split('.').filter(Boolean)
+  if (parts.length < 3) {
+    return ''
+  }
+  return parts.slice(1).join('.')
+}
+
 function createRandomToken(prefix = 'px') {
   return `${prefix}_${crypto.randomBytes(12).toString('base64url')}`
 }
@@ -74,11 +83,49 @@ function writeRelayTenantsFile(filePath, tenants = []) {
   return resolvedPath
 }
 
+function listRelayTenants(filePath) {
+  return readRelayTenantsFile(filePath)
+}
+
+function inferRelayTenantDomain({
+  filePath,
+  domain = '',
+  fallbackDomain = '',
+  fallbackHost = '',
+} = {}) {
+  const normalizedDomain = normalizeHost(domain)
+  if (normalizedDomain) {
+    return normalizedDomain
+  }
+
+  const normalizedFallbackDomain = normalizeHost(fallbackDomain)
+  if (normalizedFallbackDomain) {
+    return normalizedFallbackDomain
+  }
+
+  const inferredFromFallbackHost = inferBaseDomainFromHost(fallbackHost)
+  if (inferredFromFallbackHost) {
+    return inferredFromFallbackHost
+  }
+
+  const current = readRelayTenantsFile(filePath)
+  for (const tenant of current.tenants) {
+    const inferred = inferBaseDomainFromHost(tenant?.host)
+    if (inferred) {
+      return inferred
+    }
+  }
+
+  return ''
+}
+
 function addRelayTenant({
   filePath,
   key,
   domain,
   host,
+  fallbackDomain,
+  fallbackHost,
   deviceId,
   deviceToken,
   accessToken,
@@ -88,7 +135,13 @@ function addRelayTenant({
     throw new Error('租户 key 不能为空，且只能包含字母、数字和中划线。')
   }
 
-  const resolvedHost = resolveTenantHost({ key: normalizedKey, domain, host })
+  const resolvedDomain = inferRelayTenantDomain({
+    filePath,
+    domain,
+    fallbackDomain,
+    fallbackHost,
+  })
+  const resolvedHost = resolveTenantHost({ key: normalizedKey, domain: resolvedDomain, host })
   if (!resolvedHost) {
     throw new Error('请提供 --domain 或 --host，用来生成租户子域名。')
   }
@@ -124,12 +177,52 @@ function addRelayTenant({
   }
 }
 
+function removeRelayTenant({
+  filePath,
+  key,
+  host,
+} = {}) {
+  const normalizedKey = normalizeTenantKey(key)
+  const normalizedHost = normalizeHost(host)
+  if (!normalizedKey && !normalizedHost) {
+    throw new Error('请提供要删除的租户 key 或 --host。')
+  }
+
+  const current = readRelayTenantsFile(filePath)
+  const nextTenants = current.tenants.filter((item) => {
+    const itemKey = normalizeTenantKey(item?.key)
+    const itemHost = normalizeHost(item?.host)
+    if (normalizedKey && itemKey === normalizedKey) {
+      return false
+    }
+    if (normalizedHost && itemHost === normalizedHost) {
+      return false
+    }
+    return true
+  })
+
+  if (nextTenants.length === current.tenants.length) {
+    throw new Error(`未找到要删除的租户：${normalizedKey || normalizedHost}`)
+  }
+
+  writeRelayTenantsFile(current.path, nextTenants)
+
+  return {
+    path: current.path,
+    tenants: nextTenants,
+  }
+}
+
 export {
   addRelayTenant,
   createRandomToken,
+  inferBaseDomainFromHost,
+  inferRelayTenantDomain,
+  listRelayTenants,
   normalizeHost,
   normalizeTenantKey,
   readRelayTenantsFile,
+  removeRelayTenant,
   resolveTenantHost,
   writeRelayTenantsFile,
 }
