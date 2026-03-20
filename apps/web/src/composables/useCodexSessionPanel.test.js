@@ -81,6 +81,13 @@ test('formatCodexIssueMessage adds a clearer summary for rate limit failures', (
   assert.match(detail, /原始错误/)
 })
 
+test('classifyCodexIssue recognizes OpenCode cli missing errors', () => {
+  const issue = classifyCodexIssue('找不到 OpenCode CLI，请先确认终端里可以运行 opencode --version', 'opencode')
+
+  assert.equal(issue?.type, 'cli_missing')
+  assert.equal(issue?.title, 'OpenCode CLI 不可用')
+})
+
 test('extractCodexEventErrorText reads nested codex event errors', () => {
   const text = extractCodexEventErrorText({
     type: 'turn.failed',

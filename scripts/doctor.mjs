@@ -16,6 +16,31 @@ const SUPPORTED_NODE_RANGES = [
 ]
 const RECOMMENDED_NODE_MAJOR = 22
 const CODEX_BIN = process.env.CODEX_BIN || 'codex'
+const CLAUDE_CODE_BIN = process.env.CLAUDE_CODE_BIN || 'claude'
+const OPENCODE_BIN = process.env.OPENCODE_BIN || 'opencode'
+const AGENT_CLI_CONFIGS = [
+  {
+    key: 'codex',
+    name: 'Codex CLI',
+    envName: 'CODEX_BIN',
+    bin: CODEX_BIN,
+    versionArgs: ['--version'],
+  },
+  {
+    key: 'claude-code',
+    name: 'Claude Code CLI',
+    envName: 'CLAUDE_CODE_BIN',
+    bin: CLAUDE_CODE_BIN,
+    versionArgs: ['--version'],
+  },
+  {
+    key: 'opencode',
+    name: 'OpenCode CLI',
+    envName: 'OPENCODE_BIN',
+    bin: OPENCODE_BIN,
+    versionArgs: ['--version'],
+  },
+]
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const webIndexPath = path.join(rootDir, 'apps', 'web', 'dist', 'index.html')
@@ -42,36 +67,36 @@ function parseNodeVersion(value = '') {
     .map((part) => Number(part) || 0)
 }
 
-function resolveCodexBinary() {
+function resolveCliBinary(bin = '') {
   if (process.platform !== 'win32') {
-    return CODEX_BIN
+    return bin
   }
 
-  if (path.extname(CODEX_BIN)) {
-    return CODEX_BIN
+  if (path.extname(bin)) {
+    return bin
   }
 
-  if (fs.existsSync(`${CODEX_BIN}.cmd`)) {
-    return `${CODEX_BIN}.cmd`
+  if (fs.existsSync(`${bin}.cmd`)) {
+    return `${bin}.cmd`
   }
 
-  if (fs.existsSync(`${CODEX_BIN}.bat`)) {
-    return `${CODEX_BIN}.bat`
+  if (fs.existsSync(`${bin}.bat`)) {
+    return `${bin}.bat`
   }
 
-  if (fs.existsSync(CODEX_BIN)) {
-    return CODEX_BIN
+  if (fs.existsSync(bin)) {
+    return bin
   }
 
   try {
-    const output = execFileSync('where.exe', [CODEX_BIN], {
+    const output = execFileSync('where.exe', [bin], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
     }).trim()
 
     if (!output) {
-      return CODEX_BIN
+      return bin
     }
 
     const candidates = output
@@ -82,27 +107,35 @@ function resolveCodexBinary() {
     return candidates.find((item) => /\.(cmd|bat)$/i.test(item))
       || candidates.find((item) => /\.(exe|com)$/i.test(item))
       || candidates[0]
-      || CODEX_BIN
+      || bin
   } catch {
-    return CODEX_BIN
+    return bin
   }
 }
 
-function execCodex(args = []) {
-  const resolvedCodexBin = resolveCodexBinary()
-  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedCodexBin)) {
-    return execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', resolvedCodexBin, ...args], {
+function execCli(bin = '', args = []) {
+  const resolvedBin = resolveCliBinary(bin)
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolvedBin)) {
+    return execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', resolvedBin, ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })
   }
 
-  return execFileSync(resolvedCodexBin, args, {
+  return execFileSync(resolvedBin, args, {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
+}
+
+function resolveCodexBinary() {
+  return resolveCliBinary(CODEX_BIN)
+}
+
+function execCodex(args = []) {
+  return execCli(CODEX_BIN, args)
 }
 
 function createCheck(name, status, detail) {
@@ -155,16 +188,17 @@ function checkBuiltAssets() {
   return createCheck('前端产物', 'pass', '已包含前端构建产物')
 }
 
-function checkCodexVersion() {
+function checkAgentCli(config) {
   try {
-    const output = execCodex(['--version']).trim()
-    const detail = output ? `${resolveCodexBinary()} -> ${output}` : `${resolveCodexBinary()} 可执行`
-    return createCheck('Codex CLI', 'pass', detail)
+    const output = execCli(config.bin, config.versionArgs).trim()
+    const resolvedBin = resolveCliBinary(config.bin)
+    const detail = output ? `${resolvedBin} -> ${output}` : `${resolvedBin} 可执行`
+    return createCheck(config.name, 'pass', detail)
   } catch (error) {
     return createCheck(
-      'Codex CLI',
-      'fail',
-      `找不到可用 Codex。请先确认终端里可以运行 \`codex --version\`，或设置 \`CODEX_BIN\`。${error.message ? ` (${error.message})` : ''}`
+      config.name,
+      'warn',
+      `当前不可用。请先确认终端里可以运行 \`${config.bin} --version\`，或设置 \`${config.envName}\`。${error.message ? ` (${error.message})` : ''}`
     )
   }
 }
@@ -221,13 +255,26 @@ async function checkServicePort() {
 }
 
 async function main() {
-  const codexVersionCheck = checkCodexVersion()
+  const agentCliChecks = AGENT_CLI_CONFIGS.map(checkAgentCli)
+  const availableAgentCliChecks = agentCliChecks.filter((item) => item.status === 'pass')
+  const agentSummaryCheck = availableAgentCliChecks.length > 0
+    ? createCheck(
+        '执行引擎',
+        'pass',
+        `已检测到 ${availableAgentCliChecks.map((item) => item.name.replace(/ CLI$/, '')).join(' / ')}`
+      )
+    : createCheck(
+        '执行引擎',
+        'fail',
+        '至少需要安装一个可用执行引擎：Codex / Claude Code / OpenCode'
+      )
   const checks = [
     checkNodeVersion(),
     checkStorageWritable(),
     checkBuiltAssets(),
-    codexVersionCheck,
-    codexVersionCheck.status === 'pass'
+    agentSummaryCheck,
+    ...agentCliChecks,
+    availableAgentCliChecks.some((item) => item.name === 'Codex CLI')
       ? checkCodexFullModeFlags()
       : createCheck('Codex 满血参数', 'warn', '已跳过，因为 Codex CLI 当前不可用'),
     await checkServicePort(),

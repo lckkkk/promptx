@@ -6,10 +6,12 @@ import {
 } from '../../../../packages/shared/src/index.js'
 import { codexRunner } from './codexRunner.js'
 import { claudeCodeRunner } from './claudeCodeRunner.js'
+import { openCodeRunner } from './openCodeRunner.js'
 
 const runnerRegistry = new Map([
   [codexRunner.engine, codexRunner],
   [claudeCodeRunner.engine, claudeCodeRunner],
+  [openCodeRunner.engine, openCodeRunner],
 ])
 
 export function getAgentRunner(engine = AGENT_ENGINES.CODEX) {

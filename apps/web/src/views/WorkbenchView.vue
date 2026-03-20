@@ -276,7 +276,7 @@ async function flushCurrentEditorInput() {
 async function copyCodexPrompt() {
   await flushCurrentEditorInput()
   await navigator.clipboard.writeText(buildPromptForTask(currentTaskSlug.value))
-  flashToast('已复制给 Codex')
+  flashToast('已复制提示词')
 }
 
 async function handleCreateTask() {

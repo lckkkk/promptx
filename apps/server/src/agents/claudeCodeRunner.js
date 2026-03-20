@@ -16,6 +16,7 @@ import {
   createTurnCompletedEvent,
   getAgentEngineLabel,
 } from '../../../../packages/shared/src/index.js'
+import { createManagedSpawnOptions, forceStopChildProcess } from '../processControl.js'
 
 const CLAUDE_CODE_BIN = process.env.CLAUDE_CODE_BIN || 'claude'
 const CLAUDE_DEFAULT_ARGS = ['--dangerously-skip-permissions']
@@ -68,16 +69,10 @@ function resolveClaudeCodeBinary() {
 }
 
 function createClaudeSpawn(commandArgs = [], cwd = '') {
-  const options = {
-    env: process.env,
+  const options = createManagedSpawnOptions({
+    cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  }
-
-  const normalizedCwd = String(cwd || '').trim()
-  if (normalizedCwd) {
-    options.cwd = normalizedCwd
-  }
+  })
 
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(RESOLVED_CLAUDE_CODE_BIN)) {
     return spawn(
@@ -524,9 +519,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
     child,
     result,
     cancel() {
-      if (!child.killed) {
-        child.kill('SIGTERM')
-      }
+      forceStopChildProcess(child)
     },
   }
 }

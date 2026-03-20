@@ -13,6 +13,7 @@ import {
   createStderrEnvelopeEvent,
   createStdoutEnvelopeEvent,
 } from '../../../packages/shared/src/index.js'
+import { createManagedSpawnOptions, forceStopChildProcess } from './processControl.js'
 
 const CODEX_BIN = process.env.CODEX_BIN || 'codex'
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
@@ -79,16 +80,10 @@ function resolveCodexBinary() {
 }
 
 function createCodexSpawn(commandArgs = [], cwd = '') {
-  const options = {
-    env: process.env,
+  const options = createManagedSpawnOptions({
+    cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  }
-  const normalizedCwd = String(cwd || '').trim()
-
-  if (normalizedCwd) {
-    options.cwd = normalizedCwd
-  }
+  })
 
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(RESOLVED_CODEX_BIN)) {
     return spawn(
@@ -550,25 +545,10 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     child,
     result,
     cancel() {
-      if (child.killed) {
+      if (child.killed || !child.pid) {
         return
       }
-
-      if (process.platform === 'win32' && child.pid) {
-        try {
-          execFileSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-            stdio: 'ignore',
-            windowsHide: true,
-          })
-          return
-        } catch {
-          // Fall through to the default child kill when taskkill is unavailable.
-        }
-      }
-
-      if (!child.killed) {
-        child.kill('SIGTERM')
-      }
+      forceStopChildProcess(child)
     },
   }
 }

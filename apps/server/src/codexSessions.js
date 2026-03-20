@@ -146,8 +146,8 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   if (existing.started && wantsCwd && nextCwd !== existing.cwd) {
     throw createHttpError('已启动的 PromptX 项目不能直接修改工作目录。', 409)
   }
-  if (wantsEngine && nextEngine !== existing.engine) {
-    throw createHttpError('暂不支持直接切换执行引擎，请新建项目。', 409)
+  if (existing.started && wantsEngine && nextEngine !== existing.engine) {
+    throw createHttpError('已启动的 PromptX 项目不能直接切换执行引擎，请新建项目。', 409)
   }
 
   const title = Object.prototype.hasOwnProperty.call(patch, 'title')

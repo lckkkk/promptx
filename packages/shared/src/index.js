@@ -34,7 +34,7 @@ export const AGENT_ENGINE_OPTIONS = [
   {
     value: AGENT_ENGINES.OPENCODE,
     label: 'OpenCode',
-    enabled: false,
+    enabled: true,
   },
 ]
 

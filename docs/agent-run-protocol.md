@@ -7,7 +7,7 @@
 - 使用“两层协议”，不要把所有事件压成一层
 - 第一层是运行时包络事件，描述项目会话、流式输出与轮次结束状态
 - 第二层是标准 agent 事件，描述思考、工具调用、文件改动、子代理协作等细粒度语义
-- 引擎适配器负责把 Codex、Claude Code 等原始事件先映射到第二层，再装进第一层
+- 引擎适配器负责把 Codex、Claude Code、OpenCode 等原始事件先映射到第二层，再装进第一层
 
 ## 第一层：运行时包络事件
 
@@ -90,5 +90,6 @@
 - 标准 agent 事件定义：`packages/shared/src/agentRunEvents.js`
 - Codex 适配：`apps/server/src/codex.js`
 - Claude Code 适配：`apps/server/src/agents/claudeCodeRunner.js`
+- OpenCode 适配：`apps/server/src/agents/openCodeRunner.js`
 - 前端消费：`apps/web/src/composables/codexSessionPanelTurns.js`
 - 契约测试：`apps/server/src/agents/runnerContract.test.js`

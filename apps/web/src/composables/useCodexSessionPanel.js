@@ -45,6 +45,7 @@ export function useCodexSessionPanel(props, emit) {
   const loading = ref(false)
   const managerBusy = ref(false)
   const sending = ref(false)
+  const stopping = ref(false)
   const sessionError = ref('')
   const turns = ref([])
   const transcriptRef = ref(null)
@@ -72,7 +73,11 @@ export function useCodexSessionPanel(props, emit) {
     },
   })
 
-  const workingLabel = computed(() => `运行中 (${formatElapsedDuration(sendingElapsedSeconds.value)})`)
+  const workingLabel = computed(() => (
+    stopping.value
+      ? '正在停止...'
+      : `运行中 (${formatElapsedDuration(sendingElapsedSeconds.value)})`
+  ))
 
   const {
     destroy: destroyTranscriptAutoScroll,
@@ -165,6 +170,7 @@ export function useCodexSessionPanel(props, emit) {
     loading,
     managerBusy,
     sending,
+    stopping,
     sessionError,
     showManager,
     selectedSessionId,
@@ -292,6 +298,7 @@ export function useCodexSessionPanel(props, emit) {
         clearSendingTimer()
         sendingStartedAt.value = 0
         sendingElapsedSeconds.value = 0
+        stopping.value = false
       }
       updatePollingState()
       emit('sending-change', value)
@@ -432,6 +439,7 @@ export function useCodexSessionPanel(props, emit) {
     refreshSessionsForSelection,
     selectedSessionId,
     sending,
+    stopping,
     sessionError,
     shouldShowResponse,
     showManager,

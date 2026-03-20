@@ -156,9 +156,14 @@ export function getTurnAgentLabel(turn = {}) {
 }
 
 function getAgentCliCommand(engine = 'codex') {
-  return normalizeAgentEngine(engine) === 'claude-code'
-    ? 'claude --version'
-    : 'codex --version'
+  const normalized = normalizeAgentEngine(engine)
+  if (normalized === 'claude-code') {
+    return 'claude --version'
+  }
+  if (normalized === 'opencode') {
+    return 'opencode --version'
+  }
+  return 'codex --version'
 }
 
 function getAgentFailureText(engine = 'codex') {
@@ -647,8 +652,10 @@ const CODEX_ISSUE_PATTERNS = [
     patterns: [
       /找不到 Codex CLI/,
       /找不到 Claude Code CLI/,
+      /找不到 OpenCode CLI/,
       /codex --version/i,
       /claude --version/i,
+      /opencode --version/i,
       /enoent/i,
       /not recognized as an internal or external command/i,
       /command not found/i,

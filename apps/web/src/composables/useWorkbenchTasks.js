@@ -1127,7 +1127,7 @@ export function useWorkbenchTasks(options = {}) {
 
   async function ensureCodexPromptReady(taskSlug) {
     if (uploading.value) {
-      error.value = '文件仍在处理中，请稍后再发送给 Codex。'
+      error.value = '文件仍在处理中，请稍后再发送给当前执行引擎。'
       return false
     }
 

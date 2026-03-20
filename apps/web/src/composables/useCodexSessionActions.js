@@ -21,6 +21,7 @@ export function useCodexSessionActions(options = {}) {
     loading,
     managerBusy,
     sending,
+    stopping,
     sessionError,
     showManager,
     selectedSessionId,
@@ -241,7 +242,7 @@ export function useCodexSessionActions(options = {}) {
   }
 
   async function handleSend() {
-    if (!props.taskSlug || !hasPrompt.value || sending.value) {
+    if (!props.taskSlug || !hasPrompt.value || sending.value || stopping.value) {
       return false
     }
 
@@ -310,11 +311,12 @@ export function useCodexSessionActions(options = {}) {
   }
 
   async function stopSending() {
-    if (!currentRunningRunId.value) {
+    if (!currentRunningRunId.value || stopping.value) {
       return
     }
 
     try {
+      stopping.value = true
       await stopCodexRun(currentRunningRunId.value)
       if (!supportsServerEvents) {
         markFallbackSessionPollNow()
@@ -324,6 +326,7 @@ export function useCodexSessionActions(options = {}) {
         ])
       }
     } catch (err) {
+      stopping.value = false
       sessionError.value = err.message
     }
   }

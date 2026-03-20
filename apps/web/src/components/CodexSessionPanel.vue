@@ -92,6 +92,7 @@ const {
   refreshSessionsForSelection,
   selectedSessionId,
   sending,
+  stopping,
   hasTurnSummary,
   hasNewerMessages,
   sessionError,
@@ -508,10 +509,12 @@ defineExpose({
       <button
         type="button"
         class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+        :disabled="stopping"
         @click="stopSending"
       >
-        <Square class="h-4 w-4" />
-        <span>停止</span>
+        <LoaderCircle v-if="stopping" class="h-4 w-4 animate-spin" />
+        <Square v-else class="h-4 w-4" />
+        <span>{{ stopping ? '正在停止...' : '停止' }}</span>
       </button>
     </div>
 

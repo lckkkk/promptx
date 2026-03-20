@@ -8,7 +8,6 @@ import fastifyStatic from '@fastify/static'
 import { Jimp } from 'jimp'
 import { nanoid } from 'nanoid'
 import {
-  AGENT_ENGINE_OPTIONS,
   EXPIRY_OPTIONS,
   VISIBILITY_OPTIONS,
   normalizeCodexRunEventsMode,
@@ -50,7 +49,7 @@ import {
   updateCodexRun,
 } from './codexRuns.js'
 import { createAgentRunRuntime } from './codexRunRuntime.js'
-import { listKnownWorkspacesByEngine } from './agents/index.js'
+import { listAvailableAgentEngines, listKnownWorkspacesByEngine } from './agents/index.js'
 import { importPdfBlocks } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import {
@@ -348,7 +347,7 @@ app.get('/api/meta', async () => ({
   version: promptxVersion,
   expiryOptions: EXPIRY_OPTIONS,
   visibilityOptions: VISIBILITY_OPTIONS,
-  agentEngineOptions: AGENT_ENGINE_OPTIONS,
+  agentEngineOptions: listAvailableAgentEngines(),
 }))
 
 app.get('/api/relay/status', async () => ({

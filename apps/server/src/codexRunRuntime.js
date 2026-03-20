@@ -96,6 +96,7 @@ export function createAgentRunRuntime(options = {}) {
 
     let eventSeq = 0
     let stopRequested = false
+    let stopFinalized = false
 
     const persistRunEvent = (payload) => {
       eventSeq += 1
@@ -112,6 +113,34 @@ export function createAgentRunRuntime(options = {}) {
         })
       }
       return event
+    }
+
+    const finalizeStoppedRun = (message = '') => {
+      if (stopFinalized) {
+        return
+      }
+
+      stopFinalized = true
+      persistRunEvent(createStoppedEnvelopeEvent('执行已手动停止。'))
+
+      const nextRun = updateCodexRun(runId, {
+        status: 'stopped',
+        ...(message ? { responseMessage: message } : {}),
+        errorMessage: '',
+        finishedAt: new Date().toISOString(),
+      })
+
+      notifyListeners(runId, {
+        type: 'run',
+        run: nextRun,
+      })
+      onRunUpdated({
+        taskSlug: runRecord.taskSlug,
+        runId,
+      })
+      onSessionChanged({
+        sessionId: session.id,
+      })
     }
 
     persistRunEvent(createSessionEnvelopeEvent(decorateSession(session)))
@@ -138,6 +167,9 @@ export function createAgentRunRuntime(options = {}) {
     const controller = {
       listeners: new Set(),
       cancel() {
+        if (stopRequested) {
+          return
+        }
         stopRequested = true
         stream.cancel()
       },
@@ -149,6 +181,11 @@ export function createAgentRunRuntime(options = {}) {
 
     stream.result
       .then((result) => {
+        if (stopRequested) {
+          finalizeStoppedRun(result?.message || '')
+          return
+        }
+
         const nextRun = updateCodexRun(runId, {
           status: 'completed',
           responseMessage: result.message || '',
@@ -169,24 +206,7 @@ export function createAgentRunRuntime(options = {}) {
       })
       .catch((error) => {
         if (stopRequested) {
-          persistRunEvent(createStoppedEnvelopeEvent('执行已手动停止。'))
-          const nextRun = updateCodexRun(runId, {
-            status: 'stopped',
-            responseMessage: '',
-            errorMessage: '',
-            finishedAt: new Date().toISOString(),
-          })
-          notifyListeners(runId, {
-            type: 'run',
-            run: nextRun,
-          })
-          onRunUpdated({
-            taskSlug: runRecord.taskSlug,
-            runId,
-          })
-          onSessionChanged({
-            sessionId: session.id,
-          })
+          finalizeStoppedRun('')
           return
         }
 

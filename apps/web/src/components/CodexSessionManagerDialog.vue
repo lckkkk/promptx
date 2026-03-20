@@ -14,7 +14,11 @@ import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
 import CodexSessionManagerForm from './CodexSessionManagerForm.vue'
 import CodexSessionManagerList from './CodexSessionManagerList.vue'
 import CodexSessionManagerStatus from './CodexSessionManagerStatus.vue'
-import { getEnabledAgentEngineOptions, normalizeAgentEngine } from '../lib/agentEngines.js'
+import {
+  fetchEnabledAgentEngineOptions,
+  getEnabledAgentEngineOptions,
+  normalizeAgentEngine,
+} from '../lib/agentEngines.js'
 
 const props = defineProps({
   open: {
@@ -85,12 +89,14 @@ const showDirectoryPicker = ref(false)
 const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
 const mobileView = ref('list')
 const mobileDetailTab = ref('basic')
+const loadedEngineOptions = ref(getEnabledAgentEngineOptions())
 
 const sortedSessions = computed(() => sortSessions(props.sessions))
 const activeSession = computed(() => props.sessions.find((session) => session.id === editingSessionId.value) || null)
 const hasSessions = computed(() => props.sessions.length > 0)
 const currentSession = computed(() => props.sessions.find((session) => session.id === props.selectedSessionId) || null)
 const canEditCwd = computed(() => !activeSession.value?.started)
+const canEditEngine = computed(() => !activeSession.value?.started)
 const busy = computed(() => props.loading || creating.value || saving.value || deleting.value)
 const workspaceSuggestions = computed(() => {
   const seen = new Set()
@@ -113,7 +119,7 @@ const workspaceSuggestions = computed(() => {
 
   return items.slice(0, 12)
 })
-const engineOptions = computed(() => getEnabledAgentEngineOptions())
+const engineOptions = computed(() => loadedEngineOptions.value)
 const duplicateCwdSessions = computed(() => {
   const target = normalizeCwdForCompare(form.cwd)
   if (!target) {
@@ -148,11 +154,11 @@ const cwdReadonlyMessage = computed(() => {
   return '当前项目已绑定执行引擎会话，工作目录不能再修改；如需使用新目录，请新建项目。'
 })
 const engineReadonlyMessage = computed(() => {
-  if (mode.value !== 'edit' || !activeSession.value) {
+  if (mode.value !== 'edit' || !activeSession.value || canEditEngine.value) {
     return ''
   }
 
-  return '项目创建后暂不支持直接切换执行引擎；如需更换，请新建项目。'
+  return '当前项目已绑定执行引擎会话，执行引擎不能再修改；如需更换，请新建项目。'
 })
 const desktopSubmitLabel = computed(() => (mode.value === 'create'
   ? (creating.value ? '创建中...' : '创建项目')
@@ -349,9 +355,20 @@ async function handleRefresh() {
   error.value = ''
 
   try {
-    await props.onRefresh()
+    await Promise.all([
+      props.onRefresh(),
+      loadEngineOptions(),
+    ])
   } catch (err) {
     error.value = err.message
+  }
+}
+
+async function loadEngineOptions() {
+  try {
+    loadedEngineOptions.value = await fetchEnabledAgentEngineOptions()
+  } catch {
+    loadedEngineOptions.value = getEnabledAgentEngineOptions()
   }
 }
 
@@ -484,7 +501,11 @@ watch(
     if (open) {
       window.addEventListener('keydown', handleKeydown)
       initializeDialog()
-      handleRefresh().catch(() => {})
+      if (typeof props.onRefresh === 'function') {
+        handleRefresh().catch(() => {})
+      } else {
+        loadEngineOptions().catch(() => {})
+      }
       return
     }
 
@@ -559,7 +580,7 @@ onBeforeUnmount(() => {
           :open="showDeleteDialog"
           title="确认删除 PromptX 项目？"
           :description="activeSession
-            ? `将删除「${activeSession.title || '未命名项目'}」这条本地记录，不会删除工作目录，也不会删除 Codex 的历史数据。`
+            ? `将删除「${activeSession.title || '未命名项目'}」这条本地记录，不会删除工作目录，也不会删除对应执行引擎的历史数据。`
             : ''"
           confirm-text="确认删除"
           cancel-text="先保留"
@@ -629,7 +650,7 @@ onBeforeUnmount(() => {
             <div class="mt-5">
               <CodexSessionManagerForm
               :busy="busy"
-                :can-edit-engine="mode !== 'edit'"
+                :can-edit-engine="mode !== 'edit' || canEditEngine"
                 :can-edit-cwd="mode !== 'edit' || canEditCwd"
                 :cwd="form.cwd"
                 :cwd-readonly-message="cwdReadonlyMessage"
@@ -767,7 +788,7 @@ onBeforeUnmount(() => {
                 <CodexSessionManagerForm
                   mobile
                   :busy="busy"
-                  :can-edit-engine="mode !== 'edit'"
+                  :can-edit-engine="mode !== 'edit' || canEditEngine"
                   :can-edit-cwd="mode !== 'edit' || canEditCwd"
                   :cwd="form.cwd"
                   :cwd-readonly-message="cwdReadonlyMessage"

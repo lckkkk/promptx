@@ -9,7 +9,7 @@ PromptX 是一个面向本机 AI 协作的轻量工作台。
 - 左侧管理任务，中间查看项目执行过程，右侧整理输入内容
 - 支持文本、图片、`md`、`txt`、`pdf`
 - 支持为任务绑定本机项目，并持续复用同一个执行引擎线程
-- 支持多执行引擎，当前已接入 `Codex`、`Claude Code`
+- 支持多执行引擎，当前已接入 `Codex`、`Claude Code`、`OpenCode`
 - 支持查看执行过程、代码变更和最终回复
 - 支持公开页与 Raw 导出
 - 内置禅道 Chrome 扩展，可一键把 Bug 内容带入工作台
@@ -35,6 +35,7 @@ PromptX 是一个面向本机 AI 协作的轻量工作台。
 - 当前支持：
   - `codex --version`
   - `claude --version`
+  - `opencode --version`
 - 如使用 Codex，建议开启高权限并使用满血模式
 
 ## 安装
@@ -78,6 +79,7 @@ promptx doctor
 
 - `Codex`
 - `Claude Code`
+- `OpenCode`
 
 PromptX 内部已经开始使用统一的 agent run 事件协议，后续继续扩展其他执行引擎时，前端展示层和执行过程面板可以尽量复用。
 

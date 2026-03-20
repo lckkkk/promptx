@@ -31,12 +31,21 @@ function withEnv(overrides, fn) {
 
 async function importFreshRunnerModules() {
   const suffix = `test=${Date.now()}-${Math.random().toString(16).slice(2)}`
-  const [{ streamPromptToCodexSession }, { streamPromptToClaudeCodeSession }] = await Promise.all([
+  const [
+    { streamPromptToCodexSession },
+    { streamPromptToClaudeCodeSession },
+    { streamPromptToOpenCodeSession },
+  ] = await Promise.all([
     import(`../codex.js?${suffix}`),
     import(`./claudeCodeRunner.js?${suffix}`),
+    import(`./openCodeRunner.js?${suffix}`),
   ])
 
-  return { streamPromptToCodexSession, streamPromptToClaudeCodeSession }
+  return {
+    streamPromptToCodexSession,
+    streamPromptToClaudeCodeSession,
+    streamPromptToOpenCodeSession,
+  }
 }
 
 function createFakeCodexBinary(tempDir) {
@@ -145,6 +154,81 @@ process.stdout.write(JSON.stringify({
   return cmdPath
 }
 
+function createFakeOpenCodeBinary(tempDir) {
+  const scriptPath = path.join(tempDir, process.platform === 'win32' ? 'fake-opencode.js' : 'fake-opencode')
+  const script = `#!/usr/bin/env node
+const args = process.argv.slice(2)
+const sessionIndex = args.indexOf('--session')
+const sessionId = sessionIndex >= 0 ? args[sessionIndex + 1] || 'thread-contract-1' : 'thread-contract-1'
+const prompt = args[args.length - 1] || ''
+
+if (!prompt) {
+  process.stderr.write('missing prompt\\n')
+  process.exit(1)
+  return
+}
+
+process.stdout.write(JSON.stringify({
+  type: 'step_start',
+  sessionID: sessionId,
+  part: {
+    type: 'step-start',
+  },
+}) + '\\n')
+
+process.stdout.write(JSON.stringify({
+  type: 'tool_use',
+  sessionID: sessionId,
+  part: {
+    type: 'tool',
+    tool: 'read',
+    state: {
+      status: 'completed',
+      input: {
+        filePath: '/tmp/demo',
+      },
+      output: 'demo output',
+    },
+  },
+}) + '\\n')
+
+process.stdout.write(JSON.stringify({
+  type: 'text',
+  sessionID: sessionId,
+  part: {
+    type: 'text',
+    text: '最终回复',
+  },
+}) + '\\n')
+
+process.stdout.write(JSON.stringify({
+  type: 'step_finish',
+  sessionID: sessionId,
+  part: {
+    type: 'step-finish',
+    reason: 'stop',
+    tokens: {
+      input: 100,
+      output: 20,
+      cache: {
+        read: 10,
+      },
+    },
+  },
+}) + '\\n')
+`
+
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 })
+
+  if (process.platform !== 'win32') {
+    return scriptPath
+  }
+
+  const cmdPath = path.join(tempDir, 'fake-opencode.cmd')
+  fs.writeFileSync(cmdPath, '@echo off\r\nnode "%~dp0fake-opencode.js" %*\r\n')
+  return cmdPath
+}
+
 function simplifyEvent(event = {}) {
   if (event.type === 'status') {
     return {
@@ -190,38 +274,109 @@ async function collectRunnerContractEvents(streamSessionPrompt) {
   }
 }
 
-test('Codex 与 Claude runner 会产出同结构事件', async () => {
+function projectRunnerContractPhases(events = []) {
+  return events.map((event) => {
+    if (event.type === 'status') {
+      return 'status'
+    }
+
+    if (event.type === 'completed') {
+      return 'completed'
+    }
+
+    if (event.type !== 'agent_event') {
+      return ''
+    }
+
+    const payload = event.event || {}
+    if (payload.type === 'thread.started') {
+      return 'thread.started'
+    }
+
+    if (payload.type === 'turn.started') {
+      return 'turn.started'
+    }
+
+    if (payload.type === 'item.started' && payload.item?.type === 'command_execution') {
+      return 'command.started'
+    }
+
+    if (payload.type === 'item.completed' && payload.item?.type === 'command_execution') {
+      return 'command.completed'
+    }
+
+    if (payload.type === 'item.completed' && payload.item?.type === 'agent_message') {
+      return 'agent_message'
+    }
+
+    if (payload.type === 'turn.completed') {
+      return 'turn.completed'
+    }
+
+    return ''
+  }).filter(Boolean)
+}
+
+function assertOrderedSubsequence(actual = [], expected = []) {
+  let actualIndex = 0
+
+  expected.forEach((item) => {
+    while (actualIndex < actual.length && actual[actualIndex] !== item) {
+      actualIndex += 1
+    }
+
+    assert.ok(actualIndex < actual.length, `未找到预期阶段：${item}，实际阶段：${actual.join(' -> ')}`)
+    actualIndex += 1
+  })
+}
+
+function assertRunnerContract(result, expectedThreadId) {
+  assert.deepEqual(result.result, {
+    sessionId: 'session-1',
+    threadId: expectedThreadId,
+    message: '最终回复',
+  })
+
+  const phases = projectRunnerContractPhases(result.events)
+  assertOrderedSubsequence(phases, [
+    'status',
+    'thread.started',
+    'command.started',
+    'command.completed',
+    'agent_message',
+    'turn.completed',
+    'completed',
+  ])
+}
+
+test('Codex / Claude Code / OpenCode runner 会产出兼容的核心事件结构', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-runner-contract-'))
   const fakeCodexBin = createFakeCodexBinary(tempDir)
   const fakeClaudeBin = createFakeClaudeBinary(tempDir)
+  const fakeOpenCodeBin = createFakeOpenCodeBinary(tempDir)
 
   await withEnv(
     {
       CODEX_BIN: fakeCodexBin,
       CLAUDE_CODE_BIN: fakeClaudeBin,
+      OPENCODE_BIN: fakeOpenCodeBin,
     },
     async () => {
       const {
         streamPromptToCodexSession,
         streamPromptToClaudeCodeSession,
+        streamPromptToOpenCodeSession,
       } = await importFreshRunnerModules()
 
-      const [codexResult, claudeResult] = await Promise.all([
+      const [codexResult, claudeResult, openCodeResult] = await Promise.all([
         collectRunnerContractEvents(streamPromptToCodexSession),
         collectRunnerContractEvents(streamPromptToClaudeCodeSession),
+        collectRunnerContractEvents(streamPromptToOpenCodeSession),
       ])
 
-      assert.deepEqual(codexResult.events, claudeResult.events)
-      assert.deepEqual(codexResult.result, {
-        sessionId: 'session-1',
-        threadId: 'thread-contract-1',
-        message: '最终回复',
-      })
-      assert.deepEqual(claudeResult.result, {
-        sessionId: 'session-1',
-        threadId: 'thread-contract-1',
-        message: '最终回复',
-      })
+      assertRunnerContract(codexResult, 'thread-contract-1')
+      assertRunnerContract(claudeResult, 'thread-contract-1')
+      assertRunnerContract(openCodeResult, 'thread-contract-1')
     }
   )
 })
