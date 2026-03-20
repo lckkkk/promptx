@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   applyRunEventToTurn,
+  applyRunEventsPayloadToTurns,
   classifyCodexIssue,
   createTurnFromRun,
   extractCodexEventErrorText,
@@ -258,6 +259,79 @@ test('createTurnFromRun keeps promptBlocks for new data and resolves image asset
     { type: 'text', content: '请看这张图', meta: {} },
     { type: 'image', content: 'http://localhost:3000/uploads/demo.png', meta: {} },
   ])
+})
+
+test('applyRunEventsPayloadToTurns always writes back to the latest turn object with the same runId', () => {
+  let logId = 0
+  const staleTurn = {
+    runId: 'run-1',
+    eventCount: 3,
+    eventsLoaded: false,
+    eventsLoading: true,
+    events: [],
+    lastEventSeq: 0,
+    summary: {},
+  }
+  const latestTurn = {
+    runId: 'run-1',
+    eventCount: 3,
+    eventsLoaded: false,
+    eventsLoading: true,
+    events: [],
+    lastEventSeq: 0,
+    summary: {},
+  }
+  const turns = [latestTurn]
+
+  const appliedTurn = applyRunEventsPayloadToTurns(turns, 'run-1', {
+    items: [
+      {
+        seq: 1,
+        eventType: 'session',
+        payload: {
+          type: 'session',
+          session: {
+            id: 'session-1',
+            title: 'demo',
+            cwd: '/tmp/demo',
+          },
+        },
+      },
+      {
+        seq: 2,
+        eventType: 'completed',
+        payload: {
+          type: 'completed',
+          message: '最终结果',
+        },
+      },
+    ],
+  }, () => ++logId, () => {})
+
+  assert.equal(appliedTurn, latestTurn)
+  assert.equal(latestTurn.eventsLoaded, true)
+  assert.equal(latestTurn.eventsLoading, false)
+  assert.equal(latestTurn.events.length, 2)
+  assert.equal(latestTurn.responseMessage, '最终结果')
+  assert.equal(staleTurn.events.length, 0)
+})
+
+test('createTurnFromRun keeps historical event logs unloaded when events are omitted', () => {
+  let turnId = 0
+  let logId = 0
+
+  const turn = createTurnFromRun({
+    id: 'run-summary',
+    prompt: 'hello',
+    status: 'completed',
+    eventCount: 6,
+    eventsIncluded: false,
+    events: [],
+  }, () => ++turnId, () => ++logId, () => {})
+
+  assert.equal(turn.eventCount, 6)
+  assert.equal(turn.eventsLoaded, false)
+  assert.deepEqual(turn.events, [])
 })
 
 test('applyRunEventToTurn appends incremental codex events once and updates response text', () => {

@@ -23,6 +23,7 @@ export {
   createCodexSession,
   deleteCodexSession,
   getTaskGitDiff,
+  listCodexRunEvents,
   listCodexDirectoryTree,
   searchCodexDirectories,
   listTaskCodexRuns,

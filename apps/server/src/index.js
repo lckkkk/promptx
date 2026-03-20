@@ -837,6 +837,20 @@ app.post('/api/codex/runs/:runId/stop', async (request, reply) => {
   })
 })
 
+app.get('/api/codex/runs/:runId/events', async (request, reply) => {
+  const runRecord = getCodexRunById(request.params.runId)
+  if (!runRecord) {
+    return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+  }
+
+  return {
+    items: listCodexRunEvents(request.params.runId, {
+      afterSeq: request.query?.afterSeq,
+      limit: request.query?.limit,
+    }) || [],
+  }
+})
+
 app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
   const runRecord = getCodexRunById(request.params.runId)
   if (!runRecord) {

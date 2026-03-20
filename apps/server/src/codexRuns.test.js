@@ -48,6 +48,7 @@ test('listTaskCodexRunsWithOptions omits events by default and can include them 
     assert.equal(summaryRuns?.length, 1)
     assert.equal(summaryRuns[0].eventCount, 2)
     assert.equal(summaryRuns[0].lastEventSeq, 2)
+    assert.equal(summaryRuns[0].eventsIncluded, false)
     assert.deepEqual(summaryRuns[0].events, [])
     assert.deepEqual(summaryRuns[0].promptBlocks, [
       { type: 'text', content: '请看这张图', meta: {} },
@@ -58,6 +59,7 @@ test('listTaskCodexRunsWithOptions omits events by default and can include them 
     assert.equal(detailedRuns?.length, 1)
     assert.equal(detailedRuns[0].eventCount, 2)
     assert.equal(detailedRuns[0].lastEventSeq, 2)
+    assert.equal(detailedRuns[0].eventsIncluded, true)
     assert.deepEqual(detailedRuns[0].events.map((item) => item.seq), [1, 2])
   } finally {
     process.chdir(originalCwd)

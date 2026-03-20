@@ -4,6 +4,7 @@ import {
   createCodexSession,
   createTaskCodexRun,
   deleteCodexSession,
+  listCodexRunEvents,
   listCodexSessions,
   listCodexWorkspaces,
   listTaskCodexRuns,
@@ -129,6 +130,39 @@ function createTurnSummaryState() {
     latestActivity: '',
     latestDetail: '',
   }
+}
+
+function findTurnByRunId(turnList = [], runId = '') {
+  const normalizedRunId = String(runId || '').trim()
+  if (!normalizedRunId) {
+    return null
+  }
+
+  return (Array.isArray(turnList) ? turnList : []).find((turn) => turn?.runId === normalizedRunId) || null
+}
+
+export function applyRunEventsPayloadToTurns(turnList, runId, payload, nextLogId, mergeSession) {
+  const activeTurn = findTurnByRunId(turnList, runId)
+  if (!activeTurn) {
+    return null
+  }
+
+  activeTurn.events = []
+  activeTurn.lastEventSeq = 0
+  activeTurn.summary = createTurnSummaryState()
+
+  ;(payload?.items || []).forEach((event) => {
+    applyRunEventToTurn(activeTurn, event, nextLogId, mergeSession)
+  })
+
+  activeTurn.eventCount = Math.max(
+    Math.max(0, Number(activeTurn.eventCount) || 0),
+    Array.isArray(payload?.items) ? payload.items.length : 0,
+    Math.max(0, Number(activeTurn.lastEventSeq) || 0)
+  )
+  activeTurn.eventsLoaded = true
+  activeTurn.eventsLoading = false
+  return activeTurn
 }
 
 export function getTurnAgentEngine(turn = {}) {
@@ -939,6 +973,9 @@ function createBaseTurn(run = {}, nextTurnId) {
     startedAt: run.startedAt || run.createdAt || '',
     finishedAt: run.finishedAt || '',
     events: [],
+    eventCount: Math.max(0, Number(run.eventCount) || (Array.isArray(run.events) ? run.events.length : 0)),
+    eventsLoaded: Boolean(run.eventsIncluded),
+    eventsLoading: false,
     responseMessage: '',
     errorMessage: '',
     lastEventSeq: 0,
@@ -1149,6 +1186,14 @@ export function applyRunEventToTurn(turn, event = {}, nextLogId, mergeSession = 
   if (nextSeq) {
     turn.lastEventSeq = nextSeq
   }
+  turn.eventCount = Math.max(
+    Math.max(0, Number(turn.eventCount) || 0),
+    nextSeq,
+    Array.isArray(turn.events) ? turn.events.length : 0
+  )
+  if (nextSeq || (Array.isArray(turn.events) && turn.events.length)) {
+    turn.eventsLoaded = true
+  }
 
   return true
 }
@@ -1194,6 +1239,7 @@ export function useCodexSessionPanel(props, emit) {
   let unsubscribeTaskRunEvents = null
   let serverSyncTimer = null
   let stickToBottom = true
+  const runEventLoadPromises = new Map()
   let pendingServerSync = {
     sessions: false,
     runs: false,
@@ -1412,6 +1458,107 @@ export function useCodexSessionPanel(props, emit) {
     sendingStartedAt.value = 0
   }
 
+  function cloneTurnSummaryState(summary = null) {
+    return summary ? { ...summary } : createTurnSummaryState()
+  }
+
+  function preserveTurnEventsState(nextTurn, previousTurn = null) {
+    if (!previousTurn?.runId || nextTurn.eventsLoaded || !previousTurn.eventsLoaded) {
+      if (runEventLoadPromises.has(nextTurn.runId)) {
+        nextTurn.eventsLoading = true
+      }
+      return nextTurn
+    }
+
+    const previousCoverage = Math.max(
+      Math.max(0, Number(previousTurn.lastEventSeq) || 0),
+      Math.max(0, Number(previousTurn.eventCount) || 0),
+      Array.isArray(previousTurn.events) ? previousTurn.events.length : 0
+    )
+    const nextCoverage = Math.max(0, Number(nextTurn.eventCount) || 0)
+    if (previousCoverage < nextCoverage) {
+      if (runEventLoadPromises.has(nextTurn.runId)) {
+        nextTurn.eventsLoading = true
+      }
+      return nextTurn
+    }
+
+    nextTurn.events = Array.isArray(previousTurn.events) ? [...previousTurn.events] : []
+    nextTurn.eventCount = Math.max(
+      Math.max(0, Number(nextTurn.eventCount) || 0),
+      Math.max(0, Number(previousTurn.eventCount) || 0),
+      nextTurn.events.length
+    )
+    nextTurn.eventsLoaded = true
+    nextTurn.eventsLoading = runEventLoadPromises.has(nextTurn.runId)
+    nextTurn.lastEventSeq = Math.max(0, Number(previousTurn.lastEventSeq) || 0)
+    nextTurn.summary = cloneTurnSummaryState(previousTurn.summary)
+    return nextTurn
+  }
+
+  function setTurnEventsLoading(runId, loading) {
+    const activeTurn = findTurnByRunId(turns.value, runId)
+    if (!activeTurn) {
+      return null
+    }
+
+    activeTurn.eventsLoading = Boolean(loading)
+    turns.value = [...turns.value]
+    return activeTurn
+  }
+
+  async function loadTurnEvents(turn, options = {}) {
+    const runId = String(turn?.runId || '').trim()
+    const { force = false } = options
+    if (!runId) {
+      return []
+    }
+
+    const currentTurn = findTurnByRunId(turns.value, runId) || turn
+    if (currentTurn?.eventsLoaded && !force) {
+      return currentTurn.events
+    }
+
+    if (runEventLoadPromises.has(runId)) {
+      return runEventLoadPromises.get(runId)
+    }
+
+    setTurnEventsLoading(runId, true)
+
+    const requestPromise = (async () => {
+      try {
+        const payload = await listCodexRunEvents(runId, {
+          limit: 5000,
+        })
+        const appliedTurn = applyRunEventsPayloadToTurns(
+          turns.value,
+          runId,
+          payload,
+          nextLogIdValue,
+          (session) => {
+            mergeSession(session, { preserveRunning: true })
+          }
+        )
+
+        if (!appliedTurn) {
+          return Array.isArray(currentTurn?.events) ? currentTurn.events : []
+        }
+
+        turns.value = [...turns.value]
+        return appliedTurn.events
+      } catch (err) {
+        sessionError.value = err.message
+        throw err
+      } finally {
+        setTurnEventsLoading(runId, false)
+        runEventLoadPromises.delete(runId)
+      }
+    })()
+
+    runEventLoadPromises.set(runId, requestPromise)
+    return requestPromise
+  }
+
   function applyIncomingRunEvent(runId, event) {
     const normalizedRunId = String(runId || '').trim()
     if (!normalizedRunId || !event) {
@@ -1458,6 +1605,11 @@ export function useCodexSessionPanel(props, emit) {
 
   function rebuildTurns(runs = []) {
     const nextSessions = [...sessions.value]
+    const previousTurnsByRunId = new Map(
+      turns.value
+        .filter((turn) => String(turn?.runId || '').trim())
+        .map((turn) => [String(turn.runId || '').trim(), turn])
+    )
     const mergeRunSession = (session) => {
       if (!session?.id) {
         return
@@ -1475,7 +1627,10 @@ export function useCodexSessionPanel(props, emit) {
     logId = 0
     turns.value = [...(runs || [])]
       .reverse()
-      .map((run) => createTurnFromRun(run, nextTurnIdValue, nextLogIdValue, mergeRunSession))
+      .map((run) => {
+        const nextTurn = createTurnFromRun(run, nextTurnIdValue, nextLogIdValue, mergeRunSession)
+        return preserveTurnEventsState(nextTurn, previousTurnsByRunId.get(String(run?.id || '').trim()) || null)
+      })
     sessions.value = nextSessions
     syncRunningStateFromTurns()
   }
@@ -1494,21 +1649,25 @@ export function useCodexSessionPanel(props, emit) {
     runsLoadPromise = (async () => {
       try {
         const payload = await listTaskCodexRuns(taskSlug, {
-          limit: 20,
-          includeEvents: true,
+          limit: 30,
         })
         const items = payload.items || []
         const fingerprint = JSON.stringify(items.map((item) => ({
           id: item.id,
           status: item.status,
           updatedAt: item.updatedAt,
-          eventCount: Array.isArray(item.events) ? item.events.length : 0,
+          eventCount: Math.max(0, Number(item.eventCount) || 0),
         })))
         const shouldScroll = scrollToLatest || (lastRunFingerprint && fingerprint !== lastRunFingerprint)
 
         rebuildTurns(items)
         lastRunFingerprint = fingerprint
         updatePollingState()
+
+        const latestTurn = turns.value.at(-1) || null
+        if (latestTurn?.runId && !latestTurn.eventsLoaded) {
+          loadTurnEvents(latestTurn).catch(() => {})
+        }
 
         if (shouldScroll) {
           scheduleScrollToBottom()
@@ -1918,6 +2077,7 @@ export function useCodexSessionPanel(props, emit) {
   watch(
     () => props.taskSlug,
     () => {
+      runEventLoadPromises.clear()
       turns.value = []
       currentRunningRunId.value = ''
       lastRunFingerprint = ''
@@ -2025,6 +2185,7 @@ export function useCodexSessionPanel(props, emit) {
     handleSelectSession,
     handleSend,
     handleUpdateSession,
+    loadTurnEvents,
     hasTurnSummary,
     helperText,
     loading,

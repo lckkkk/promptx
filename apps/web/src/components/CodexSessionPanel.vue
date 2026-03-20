@@ -84,6 +84,7 @@ const {
   handleTranscriptScroll,
   handleUpdateSession,
   helperText,
+  loadTurnEvents,
   loading,
   managerBusy,
   openManager,
@@ -114,7 +115,6 @@ const PROMPT_COLLAPSE_MAX_CHARS = 320
 const RESPONSE_COLLAPSE_MAX_LINES = 10
 const RESPONSE_COLLAPSE_MAX_CHARS = 400
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
-const latestTurnId = computed(() => turns.value.at(-1)?.id || '')
 const renderedResponseCache = new Map()
 const previewPromptImageUrl = ref('')
 
@@ -129,18 +129,20 @@ function exceedsCollapseThreshold(content, maxLines, maxChars) {
 }
 
 function shouldCollapseTurn(turn) {
-  return turn?.status !== 'running' && (turn?.events?.length || 0) > 3
+  return turn?.status !== 'running'
+    && !isLatestTurn(turn)
+    && getTurnEventCount(turn) > 3
 }
 
 function shouldCollapsePrompt(turn) {
   return turn?.status !== 'running'
-    && turn?.id !== latestTurnId.value
+    && !isLatestTurn(turn)
     && canCollapsePrompt(turn)
 }
 
 function shouldCollapseResponse(turn) {
   return !turn?.errorMessage
-    && turn?.id !== latestTurnId.value
+    && !isLatestTurn(turn)
     && canCollapseResponse(turn)
 }
 
@@ -161,7 +163,7 @@ function getResponseCacheKey(turn) {
 }
 
 function syncCollapsedTurns(nextTurns = []) {
-  const validIds = new Set((nextTurns || []).map((turn) => turn.id).filter(Boolean))
+  const validIds = new Set((nextTurns || []).map((turn) => getTurnEventCollapseKey(turn)).filter(Boolean))
   const validResponseCacheKeys = new Set((nextTurns || []).map((turn) => getResponseCacheKey(turn)).filter(Boolean))
   collapsedTurnMap.value = Object.fromEntries(
     Object.entries(collapsedTurnMap.value).filter(([id]) => validIds.has(id))
@@ -178,74 +180,129 @@ function syncCollapsedTurns(nextTurns = []) {
       renderedResponseCache.delete(key)
     }
   }
+
+  const latestTurn = (nextTurns || []).at(-1) || null
+  const latestKey = getTurnEventCollapseKey(latestTurn)
+  if (latestKey) {
+    if (!Object.prototype.hasOwnProperty.call(collapsedTurnMap.value, latestKey)) {
+      collapsedTurnMap.value = {
+        ...collapsedTurnMap.value,
+        [latestKey]: false,
+      }
+    }
+    if (!Object.prototype.hasOwnProperty.call(collapsedPromptMap.value, latestKey)) {
+      collapsedPromptMap.value = {
+        ...collapsedPromptMap.value,
+        [latestKey]: false,
+      }
+    }
+    if (!Object.prototype.hasOwnProperty.call(collapsedResponseMap.value, latestKey)) {
+      collapsedResponseMap.value = {
+        ...collapsedResponseMap.value,
+        [latestKey]: false,
+      }
+    }
+  }
+}
+
+function getTurnEventCollapseKey(turn) {
+  return String(turn?.runId || turn?.id || '').trim()
+}
+
+function isLatestTurn(turn) {
+  const key = getTurnEventCollapseKey(turn)
+  return Boolean(key) && key === getTurnEventCollapseKey(turns.value.at(-1))
 }
 
 function isTurnEventsCollapsed(turn) {
-  if (!turn?.id) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key) {
     return false
   }
 
-  if (Object.prototype.hasOwnProperty.call(collapsedTurnMap.value, turn.id)) {
-    return Boolean(collapsedTurnMap.value[turn.id])
+  if (Object.prototype.hasOwnProperty.call(collapsedTurnMap.value, key)) {
+    return Boolean(collapsedTurnMap.value[key])
   }
 
   return shouldCollapseTurn(turn)
 }
 
-function toggleTurnEvents(turn) {
-  if (!turn?.id) {
+function getTurnEventCount(turn) {
+  return Math.max(
+    Math.max(0, Number(turn?.eventCount) || 0),
+    Array.isArray(turn?.events) ? turn.events.length : 0
+  )
+}
+
+function hasTurnEventHistory(turn) {
+  return getTurnEventCount(turn) > 0
+}
+
+async function toggleTurnEvents(turn) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key) {
     return
   }
 
+  const nextCollapsed = !isTurnEventsCollapsed(turn)
+
   collapsedTurnMap.value = {
     ...collapsedTurnMap.value,
-    [turn.id]: !isTurnEventsCollapsed(turn),
+    [key]: nextCollapsed,
+  }
+
+  if (!nextCollapsed && hasTurnEventHistory(turn) && !turn.eventsLoaded && !turn.eventsLoading) {
+    await loadTurnEvents(turn).catch(() => {})
   }
 }
 
 function isPromptCollapsed(turn) {
-  if (!turn?.id) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key) {
     return false
   }
 
-  if (Object.prototype.hasOwnProperty.call(collapsedPromptMap.value, turn.id)) {
-    return Boolean(collapsedPromptMap.value[turn.id])
+  if (Object.prototype.hasOwnProperty.call(collapsedPromptMap.value, key)) {
+    return Boolean(collapsedPromptMap.value[key])
   }
 
   return shouldCollapsePrompt(turn)
 }
 
 function togglePrompt(turn) {
-  if (!turn?.id || !canCollapsePrompt(turn)) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key || !canCollapsePrompt(turn)) {
     return
   }
 
   collapsedPromptMap.value = {
     ...collapsedPromptMap.value,
-    [turn.id]: !isPromptCollapsed(turn),
+    [key]: !isPromptCollapsed(turn),
   }
 }
 
 function isResponseCollapsed(turn) {
-  if (!turn?.id) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key) {
     return false
   }
 
-  if (Object.prototype.hasOwnProperty.call(collapsedResponseMap.value, turn.id)) {
-    return Boolean(collapsedResponseMap.value[turn.id])
+  if (Object.prototype.hasOwnProperty.call(collapsedResponseMap.value, key)) {
+    return Boolean(collapsedResponseMap.value[key])
   }
 
   return shouldCollapseResponse(turn)
 }
 
 function toggleResponse(turn) {
-  if (!turn?.id || !canCollapseResponse(turn)) {
+  const key = getTurnEventCollapseKey(turn)
+  if (!key || !canCollapseResponse(turn)) {
     return
   }
 
   collapsedResponseMap.value = {
     ...collapsedResponseMap.value,
-    [turn.id]: !isResponseCollapsed(turn),
+    [key]: !isResponseCollapsed(turn),
   }
 }
 
@@ -472,19 +529,24 @@ defineExpose({
                 <span>执行过程</span>
                 <div class="flex items-center gap-2">
                   <button
-                    v-if="turn.events.length"
+                    v-if="hasTurnEventHistory(turn)"
                     type="button"
                     class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    :disabled="turn.eventsLoading"
                     @click="toggleTurnEvents(turn)"
                   >
-                    <ChevronDown v-if="isTurnEventsCollapsed(turn)" class="h-3 w-3" />
+                    <LoaderCircle v-if="turn.eventsLoading" class="h-3 w-3 animate-spin" />
+                    <ChevronDown v-else-if="isTurnEventsCollapsed(turn)" class="h-3 w-3" />
                     <ChevronUp v-else class="h-3 w-3" />
-                    <span>{{ isTurnEventsCollapsed(turn) ? `展开 (${turn.events.length})` : '收起' }}</span>
+                    <span>{{ turn.eventsLoading ? '加载中...' : isTurnEventsCollapsed(turn) ? `展开 (${getTurnEventCount(turn)})` : '收起' }}</span>
                   </button>
                   <span>{{ getProcessStatus(turn) }}</span>
                 </div>
               </div>
-              <div v-if="turn.events.length && !isTurnEventsCollapsed(turn)" class="mt-3 space-y-3">
+              <div v-if="turn.eventsLoading && !turn.events.length" class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70">
+                正在加载执行过程...
+              </div>
+              <div v-else-if="turn.events.length && !isTurnEventsCollapsed(turn)" class="mt-3 space-y-3">
                 <div
                   v-for="item in turn.events"
                   :key="item.id"
@@ -501,12 +563,12 @@ defineExpose({
                 </div>
               </div>
               <div
-                v-else-if="turn.events.length"
+                v-else-if="hasTurnEventHistory(turn)"
                 class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
               >
-                已折叠 {{ turn.events.length }} 条过程日志
+                {{ turn.eventsLoaded ? `已折叠 ${getTurnEventCount(turn)} 条过程日志` : `共 ${getTurnEventCount(turn)} 条过程日志，展开后加载` }}
               </div>
-              <p v-else class="mt-3 text-xs text-current/80">正在等待 {{ getTurnAgentLabel(turn) }} 返回事件...</p>
+              <p v-else class="mt-3 text-xs text-current/80">{{ turn.status === 'running' ? `正在等待 ${getTurnAgentLabel(turn)} 返回事件...` : '本轮没有记录执行过程。' }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
                 class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"

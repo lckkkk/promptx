@@ -72,7 +72,7 @@ function toCodexRunEvent(row) {
   }
 }
 
-function toCodexRun(row, events = []) {
+function toCodexRun(row, events = null) {
   if (!row) {
     return null
   }
@@ -94,7 +94,8 @@ function toCodexRun(row, events = []) {
     completed: TERMINAL_RUN_STATUSES.has(String(row.status || '')),
     eventCount: Math.max(0, Number(row.event_count) || 0),
     lastEventSeq: Math.max(0, Number(row.last_event_seq) || 0),
-    events,
+    events: Array.isArray(events) ? events : [],
+    eventsIncluded: Array.isArray(events),
   }
 }
 
@@ -228,7 +229,7 @@ export function getCodexRunById(runId, options = {}) {
   }
 
   if (!options.withEvents) {
-    return toCodexRun(row)
+    return toCodexRun(row, null)
   }
 
   const events = loadEventsForRunIds([row.id]).get(row.id) || []
@@ -291,8 +292,8 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
 
   const eventsByRunId = includeEvents
     ? loadEventsForRunIds(rows.map((row) => row.id))
-    : new Map()
-  return rows.map((row) => toCodexRun(row, eventsByRunId.get(row.id) || []))
+    : null
+  return rows.map((row) => toCodexRun(row, includeEvents ? (eventsByRunId.get(row.id) || []) : null))
 }
 
 export function listCodexRunEvents(runId, options = {}) {

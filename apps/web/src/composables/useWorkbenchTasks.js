@@ -987,10 +987,12 @@ export function useWorkbenchTasks(options = {}) {
       }
     }
 
+    const latestRunningTaskSlug = tasks.value.find((task) => Boolean(task?.running))?.slug || ''
     const persistedSlug = getPersistedActiveTaskSlug()
-    const initialSlug = tasks.value.some((task) => task.slug === persistedSlug)
-      ? persistedSlug
-      : tasks.value[0].slug
+    const initialSlug = latestRunningTaskSlug
+      || (tasks.value.some((task) => task.slug === persistedSlug)
+        ? persistedSlug
+        : tasks.value[0].slug)
 
     await loadTask(initialSlug, { focusEditor: true, force: true })
   }

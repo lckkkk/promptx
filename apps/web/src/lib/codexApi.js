@@ -143,6 +143,24 @@ export function listTaskCodexRuns(taskSlug, options = {}) {
   })
 }
 
+export function listCodexRunEvents(runId, options = {}) {
+  const params = new URLSearchParams()
+  const afterSeq = Math.max(0, Number(options.afterSeq) || 0)
+  const limit = Math.max(1, Number(options.limit) || 5000)
+
+  if (afterSeq > 0) {
+    params.set('afterSeq', String(afterSeq))
+  }
+  if (limit > 0) {
+    params.set('limit', String(limit))
+  }
+
+  const query = params.toString()
+  return request(`/api/codex/runs/${encodeURIComponent(runId)}/events${query ? `?${query}` : ''}`, {
+    cache: 'no-store',
+  })
+}
+
 export function getTaskGitDiff(taskSlug, options = {}) {
   const params = new URLSearchParams()
   const scope = String(options.scope || 'workspace').trim()
