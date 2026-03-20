@@ -1238,6 +1238,8 @@ export function useCodexSessionPanel(props, emit) {
   let lastFallbackSessionPollAt = 0
   let unsubscribeTaskRunEvents = null
   let serverSyncTimer = null
+  let pendingScrollJobId = 0
+  let pendingScrollFrameIds = []
   let stickToBottom = true
   const runEventLoadPromises = new Map()
   let pendingServerSync = {
@@ -1296,6 +1298,23 @@ export function useCodexSessionPanel(props, emit) {
     }
   }
 
+  function clearPendingScrollFrames() {
+    if (typeof window === 'undefined' || !pendingScrollFrameIds.length) {
+      pendingScrollFrameIds = []
+      return
+    }
+
+    pendingScrollFrameIds.forEach((frameId) => {
+      window.cancelAnimationFrame(frameId)
+    })
+    pendingScrollFrameIds = []
+  }
+
+  function cancelScheduledScrollToBottom() {
+    pendingScrollJobId += 1
+    clearPendingScrollFrames()
+  }
+
   function flushServerSync() {
     clearServerSyncTimer()
 
@@ -1343,7 +1362,12 @@ export function useCodexSessionPanel(props, emit) {
   }
 
   function handleTranscriptScroll() {
-    stickToBottom = isTranscriptNearBottom()
+    const nextStickToBottom = isTranscriptNearBottom()
+    if (!nextStickToBottom) {
+      cancelScheduledScrollToBottom()
+    }
+
+    stickToBottom = nextStickToBottom
     if (stickToBottom) {
       hasNewerMessages.value = false
     }
@@ -1356,8 +1380,12 @@ export function useCodexSessionPanel(props, emit) {
       hasNewerMessages.value = false
     }
 
+    cancelScheduledScrollToBottom()
+    const jobId = pendingScrollJobId
+
     nextTick(() => {
-      if (!transcriptRef.value) {
+      const element = transcriptRef.value
+      if (!element || jobId !== pendingScrollJobId) {
         return
       }
       if (!force && !stickToBottom) {
@@ -1366,19 +1394,22 @@ export function useCodexSessionPanel(props, emit) {
       }
 
       const run = () => {
-        if (!transcriptRef.value) {
+        const currentElement = transcriptRef.value
+        if (!currentElement || jobId !== pendingScrollJobId) {
           return
         }
-        transcriptRef.value.scrollTop = transcriptRef.value.scrollHeight
+        currentElement.scrollTop = currentElement.scrollHeight
         stickToBottom = true
         hasNewerMessages.value = false
       }
 
       run()
-      requestAnimationFrame(() => {
+      const firstFrameId = requestAnimationFrame(() => {
         run()
-        requestAnimationFrame(run)
+        const secondFrameId = requestAnimationFrame(run)
+        pendingScrollFrameIds = [secondFrameId]
       })
+      pendingScrollFrameIds = [firstFrameId]
     })
   }
 
@@ -1545,6 +1576,9 @@ export function useCodexSessionPanel(props, emit) {
         }
 
         turns.value = [...turns.value]
+        if (props.active && turns.value.at(-1)?.runId === runId) {
+          scheduleScrollToBottom()
+        }
         return appliedTurn.events
       } catch (err) {
         sessionError.value = err.message
@@ -2096,6 +2130,7 @@ export function useCodexSessionPanel(props, emit) {
     clearSendingTimer()
     clearRunPollTimer()
     clearServerSyncTimer()
+    cancelScheduledScrollToBottom()
     unsubscribeTaskRunEvents?.()
   })
 
