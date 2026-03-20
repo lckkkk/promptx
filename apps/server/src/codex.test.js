@@ -271,11 +271,11 @@ test('streamPromptToCodexSession handles a tail event without newline', async ()
       assert.equal(result.threadId, 'thread-new-123')
       assert.deepEqual(seenThreadIds, ['thread-new-123'])
       assert.deepEqual(
-        events.filter((event) => event.type === 'codex').map((event) => event.event.type),
+        events.filter((event) => event.type === 'agent_event').map((event) => event.event.type),
         ['thread.started', 'item.completed']
       )
       assert.equal(
-        events.find((event) => event.type === 'codex' && event.event.type === 'item.completed')?.event?.item?.text,
+        events.find((event) => event.type === 'agent_event' && event.event.type === 'item.completed')?.event?.item?.text,
         'stream tail message'
       )
       assert.equal(events.at(-1)?.type, 'completed')
@@ -439,7 +439,7 @@ test('streamPromptToCodexSession repairs garbled command output', async () => {
 
       assert.equal(streamResult.message, '获取测试数据')
       assert.equal(
-        events.find((event) => event.type === 'codex' && event.event.type === 'item.completed')?.event?.item?.aggregated_output,
+        events.find((event) => event.type === 'agent_event' && event.event.type === 'item.completed')?.event?.item?.aggregated_output,
         '获取测试数据'
       )
     }

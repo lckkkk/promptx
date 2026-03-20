@@ -1,3 +1,8 @@
+import {
+  createSessionEnvelopeEvent,
+  createSessionUpdatedEnvelopeEvent,
+  createStoppedEnvelopeEvent,
+} from '../../../packages/shared/src/index.js'
 import { getPromptxCodexSessionById, updatePromptxCodexSession } from './codexSessions.js'
 import { appendCodexRunEvent, updateCodexRun } from './codexRuns.js'
 import { assertAgentRunner } from './agents/index.js'
@@ -109,10 +114,7 @@ export function createAgentRunRuntime(options = {}) {
       return event
     }
 
-    persistRunEvent({
-      type: 'session',
-      session: decorateSession(session),
-    })
+    persistRunEvent(createSessionEnvelopeEvent(decorateSession(session)))
 
     const stream = runner.streamSessionPrompt(session, runRecord.prompt, {
       onEvent(payload) {
@@ -125,10 +127,7 @@ export function createAgentRunRuntime(options = {}) {
         })
 
         if (updatedSession) {
-          persistRunEvent({
-            type: 'session.updated',
-            session: decorateSession(updatedSession),
-          })
+          persistRunEvent(createSessionUpdatedEnvelopeEvent(decorateSession(updatedSession)))
           onSessionChanged({
             sessionId: session.id,
           })
@@ -170,10 +169,7 @@ export function createAgentRunRuntime(options = {}) {
       })
       .catch((error) => {
         if (stopRequested) {
-          persistRunEvent({
-            type: 'stopped',
-            message: '执行已手动停止。',
-          })
+          persistRunEvent(createStoppedEnvelopeEvent('执行已手动停止。'))
           const nextRun = updateCodexRun(runId, {
             status: 'stopped',
             responseMessage: '',

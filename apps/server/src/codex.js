@@ -5,7 +5,14 @@ import { createRequire } from 'node:module'
 import { execFileSync, spawn } from 'node:child_process'
 import iconv from 'iconv-lite'
 import initSqlJs from 'sql.js'
-import { AGENT_RUN_EVENT_TYPES } from '../../../packages/shared/src/index.js'
+import {
+  AGENT_RUN_EVENT_TYPES,
+  createAgentEventEnvelopeEvent,
+  createCompletedEnvelopeEvent,
+  createStatusEnvelopeEvent,
+  createStderrEnvelopeEvent,
+  createStdoutEnvelopeEvent,
+} from '../../../packages/shared/src/index.js'
 
 const CODEX_BIN = process.env.CODEX_BIN || 'codex'
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex')
@@ -450,13 +457,12 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     }
   }
 
-  emit({
-    type: 'status',
+  emit(createStatusEnvelopeEvent({
     stage: session.codexThreadId ? 'resuming' : 'starting',
     message: session.codexThreadId
       ? '已连接 PromptX 项目，正在继续这轮执行。'
       : '已创建 PromptX 项目，正在启动第一轮执行。',
-  })
+  }))
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString()
@@ -469,17 +475,11 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
       const event = parseJsonLine(line)
       if (event) {
         trackThreadId(event, rememberThreadId)
-        emit({
-          type: 'codex',
-          event: sanitizeCodexPayload(event),
-        })
+        emit(createAgentEventEnvelopeEvent(sanitizeCodexPayload(event)))
         continue
       }
 
-      emit({
-        type: 'stdout',
-        text: repairPossibleMojibake(line),
-      })
+      emit(createStdoutEnvelopeEvent(repairPossibleMojibake(line)))
     }
   })
 
@@ -491,10 +491,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
     stderrBuffer = rest
 
     for (const line of lines) {
-      emit({
-        type: 'stderr',
-        text: repairPossibleMojibake(line),
-      })
+      emit(createStderrEnvelopeEvent(repairPossibleMojibake(line)))
     }
   })
 
@@ -514,23 +511,14 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
         const event = parseJsonLine(line)
         if (event) {
           trackThreadId(event, rememberThreadId)
-          emit({
-            type: 'codex',
-            event: sanitizeCodexPayload(event),
-          })
+          emit(createAgentEventEnvelopeEvent(sanitizeCodexPayload(event)))
         } else {
-          emit({
-            type: 'stdout',
-            text: repairPossibleMojibake(line),
-          })
+          emit(createStdoutEnvelopeEvent(repairPossibleMojibake(line)))
         }
       })
 
       stderrTail.forEach((line) => {
-        emit({
-          type: 'stderr',
-          text: repairPossibleMojibake(line),
-        })
+        emit(createStderrEnvelopeEvent(repairPossibleMojibake(line)))
       })
 
       if (fs.existsSync(outputFile)) {
@@ -546,10 +534,7 @@ export function streamPromptToCodexSession(sessionInput, prompt, callbacks = {})
         return
       }
 
-      emit({
-        type: 'completed',
-        message: finalMessage,
-      })
+      emit(createCompletedEnvelopeEvent(finalMessage))
 
       resolve({
         sessionId: session.id,

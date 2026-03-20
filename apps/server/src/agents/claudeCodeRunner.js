@@ -4,9 +4,14 @@ import { execFileSync, spawn } from 'node:child_process'
 import {
   AGENT_ENGINES,
   AGENT_RUN_ITEM_TYPES,
+  createAgentEventEnvelopeEvent,
+  createCompletedEnvelopeEvent,
   createErrorEvent,
   createItemCompletedEvent,
   createItemStartedEvent,
+  createStatusEnvelopeEvent,
+  createStderrEnvelopeEvent,
+  createStdoutEnvelopeEvent,
   createThreadStartedEvent,
   createTurnCompletedEvent,
   getAgentEngineLabel,
@@ -398,6 +403,21 @@ function createExecArgs(session, prompt) {
   return args
 }
 
+function createClaudeRunStatusEvent(session = {}) {
+  const hasExistingThread = Boolean(
+    String(session?.engineSessionId || session?.engineThreadId || session?.codexThreadId || '').trim()
+  )
+
+  return {
+    ...createStatusEnvelopeEvent({
+      stage: hasExistingThread ? 'resuming' : 'starting',
+      message: hasExistingThread
+        ? '已连接 PromptX 项目，正在继续这轮执行。'
+        : '已创建 PromptX 项目，正在启动第一轮执行。',
+    }),
+  }
+}
+
 export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks = {}) {
   const session = sessionInput && typeof sessionInput === 'object' ? sessionInput : null
   const normalizedPrompt = String(prompt || '').trim()
@@ -413,6 +433,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
   const onThreadStarted = typeof callbacks.onThreadStarted === 'function' ? callbacks.onThreadStarted : () => {}
 
   const child = createClaudeSpawn(createExecArgs(session, normalizedPrompt), session.cwd)
+  onEvent(createClaudeRunStatusEvent(session))
 
   let stdoutBuffer = ''
   let stderrBuffer = ''
@@ -434,8 +455,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
     const event = parseJsonLine(line)
     if (!event) {
       onEvent({
-        type: 'stdout',
-        text: line,
+        ...createStdoutEnvelopeEvent(line),
       })
       return
     }
@@ -447,10 +467,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
 
     const normalizedEvents = normalizeClaudeEvents(event, normalizationState)
     normalizedEvents.forEach((normalizedEvent) => {
-      onEvent({
-        type: 'codex',
-        event: normalizedEvent,
-      })
+      onEvent(createAgentEventEnvelopeEvent(normalizedEvent))
     })
 
     if (String(event?.type || '').trim().toLowerCase() === 'result') {
@@ -471,10 +488,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
     stderrBuffer = rest
     lines.forEach((line) => {
       lastStderrLine = line
-      onEvent({
-        type: 'stderr',
-        text: line,
-      })
+      onEvent(createStderrEnvelopeEvent(line))
     })
   })
 
@@ -487,10 +501,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
       flushBufferedText(stdoutBuffer).forEach(emitClaudeJsonLine)
       flushBufferedText(stderrBuffer).forEach((line) => {
         lastStderrLine = line
-        onEvent({
-          type: 'stderr',
-          text: line,
-        })
+        onEvent(createStderrEnvelopeEvent(line))
       })
 
       if (code !== 0) {
@@ -499,10 +510,7 @@ export function streamPromptToClaudeCodeSession(sessionInput, prompt, callbacks 
         return
       }
 
-      onEvent({
-        type: 'completed',
-        message: finalMessage,
-      })
+      onEvent(createCompletedEnvelopeEvent(finalMessage))
 
       resolve({
         sessionId: session.id,

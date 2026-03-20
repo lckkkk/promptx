@@ -348,7 +348,7 @@ test('applyRunEventToTurn appends incremental codex events once and updates resp
   const applied = applyRunEventToTurn(turn, {
     seq: 3,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -362,7 +362,7 @@ test('applyRunEventToTurn appends incremental codex events once and updates resp
   const duplicate = applyRunEventToTurn(turn, {
     seq: 3,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -378,6 +378,35 @@ test('applyRunEventToTurn appends incremental codex events once and updates resp
   assert.equal(turn.responseMessage, 'incremental reply')
   assert.equal(turn.events.length, 1)
   assert.equal(turn.lastEventSeq, 3)
+})
+
+test('applyRunEventToTurn 兼容旧的 codex 包络事件类型', () => {
+  let turnId = 0
+  let logId = 0
+
+  const turn = createTurnFromRun({
+    id: 'run-legacy-codex',
+    prompt: 'hello',
+    status: 'running',
+    events: [],
+  }, () => ++turnId, () => ++logId, () => {})
+
+  applyRunEventToTurn(turn, {
+    seq: 1,
+    payload: {
+      type: 'codex',
+      event: {
+        type: 'item.completed',
+        item: {
+          type: 'agent_message',
+          text: 'legacy reply',
+        },
+      },
+    },
+  }, () => ++logId, () => {})
+
+  assert.equal(turn.responseMessage, 'legacy reply')
+  assert.equal(turn.events.length, 1)
 })
 
 test('applyRunEventToTurn formats classified errors with clearer details', () => {
@@ -418,7 +447,7 @@ test('applyRunEventToTurn marks codex turn.failed as error with extracted detail
   applyRunEventToTurn(turn, {
     seq: 1,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'turn.failed',
         error: {
@@ -447,7 +476,7 @@ test('applyRunEventToTurn keeps reconnecting events collapsed and leaves run run
   applyRunEventToTurn(turn, {
     seq: 1,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'error',
         message: 'Reconnecting... 1/5 (stream disconnected before completion: error sending request for url (https://api.codexzh.com/v1/responses))',
@@ -458,7 +487,7 @@ test('applyRunEventToTurn keeps reconnecting events collapsed and leaves run run
   applyRunEventToTurn(turn, {
     seq: 2,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'error',
         message: 'Reconnecting... 2/5 (stream disconnected before completion: error sending request for url (https://api.codexzh.com/v1/responses))',
@@ -486,7 +515,7 @@ test('applyRunEventToTurn builds turn summary for search command file and agents
   applyRunEventToTurn(turn, {
     seq: 1,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -500,7 +529,7 @@ test('applyRunEventToTurn builds turn summary for search command file and agents
   applyRunEventToTurn(turn, {
     seq: 2,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -516,7 +545,7 @@ test('applyRunEventToTurn builds turn summary for search command file and agents
   applyRunEventToTurn(turn, {
     seq: 3,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -533,7 +562,7 @@ test('applyRunEventToTurn builds turn summary for search command file and agents
   applyRunEventToTurn(turn, {
     seq: 4,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {
@@ -576,7 +605,7 @@ test('applyRunEventToTurn reports waiting agent status in turn summary', () => {
   applyRunEventToTurn(turn, {
     seq: 1,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.started',
         item: {
@@ -605,7 +634,7 @@ test('applyRunEventToTurn stores latest summary detail for commands and searches
   applyRunEventToTurn(turn, {
     seq: 1,
     payload: {
-      type: 'codex',
+      type: 'agent_event',
       event: {
         type: 'item.completed',
         item: {

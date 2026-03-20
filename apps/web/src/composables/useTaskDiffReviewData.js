@@ -386,7 +386,7 @@ export function useTaskDiffReviewData(props) {
 
     const payload = await listTaskCodexRuns(props.taskSlug, {
       limit: 20,
-      includeEvents: false,
+      events: 'none',
     })
     runs.value = payload.items || []
     runsLoadedTaskSlug = props.taskSlug

@@ -1,3 +1,4 @@
+import { normalizeCodexRunEventsMode } from '../../../../packages/shared/src/index.js'
 import { getApiBase, request } from './request.js'
 
 const API_BASE = getApiBase()
@@ -128,18 +129,12 @@ export function updateTaskCodexSession(taskSlug, sessionId) {
 export function listTaskCodexRuns(taskSlug, options = {}) {
   const params = new URLSearchParams()
   const limit = Number(options.limit || 20)
-  const includeEvents = Boolean(options.includeEvents)
-  const includeLatestEvents = Boolean(options.includeLatestEvents)
+  const events = normalizeCodexRunEventsMode(options.events, options)
 
   if (Number.isFinite(limit) && limit > 0) {
     params.set('limit', String(limit))
   }
-  if (includeEvents) {
-    params.set('includeEvents', 'true')
-  }
-  if (includeLatestEvents) {
-    params.set('includeLatestEvents', 'true')
-  }
+  params.set('events', events)
 
   const query = params.toString()
   return request(`/api/tasks/${encodeURIComponent(taskSlug)}/codex-runs${query ? `?${query}` : ''}`, {

@@ -1,5 +1,10 @@
 import { nanoid } from 'nanoid'
-import { BLOCK_TYPES, clampText } from '../../../packages/shared/src/index.js'
+import {
+  BLOCK_TYPES,
+  CODEX_RUN_EVENTS_MODES,
+  clampText,
+  normalizeCodexRunEventsMode,
+} from '../../../packages/shared/src/index.js'
 import { all, get, run, transaction } from './db.js'
 import { getPromptxCodexSessionById } from './codexSessions.js'
 import { captureRunGitBaseline, captureRunGitFinalSnapshot, captureTaskGitBaseline } from './gitDiff.js'
@@ -247,8 +252,9 @@ export function listTaskCodexRunsWithOptions(taskSlug, options = {}) {
   }
 
   flushPendingRunEvents()
-  const includeEvents = Boolean(options.includeEvents)
-  const includeLatestEvents = !includeEvents && Boolean(options.includeLatestEvents)
+  const eventsMode = normalizeCodexRunEventsMode(options.events, options)
+  const includeEvents = eventsMode === CODEX_RUN_EVENTS_MODES.ALL
+  const includeLatestEvents = eventsMode === CODEX_RUN_EVENTS_MODES.LATEST
   const limit = Math.max(1, Number(options.limit) || 20)
   const rows = all(
     `SELECT

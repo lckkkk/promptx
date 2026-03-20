@@ -289,7 +289,7 @@ export function useCodexRunHistory(options = {}) {
       try {
         const payload = await listTaskCodexRuns(taskSlug, {
           limit: 30,
-          includeLatestEvents: true,
+          events: 'latest',
         })
         const items = payload.items || []
         const fingerprint = JSON.stringify(items.map((item) => ({

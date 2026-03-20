@@ -7,7 +7,12 @@ import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { Jimp } from 'jimp'
 import { nanoid } from 'nanoid'
-import { AGENT_ENGINE_OPTIONS, EXPIRY_OPTIONS, VISIBILITY_OPTIONS } from '../../../packages/shared/src/index.js'
+import {
+  AGENT_ENGINE_OPTIONS,
+  EXPIRY_OPTIONS,
+  VISIBILITY_OPTIONS,
+  normalizeCodexRunEventsMode,
+} from '../../../packages/shared/src/index.js'
 import {
   buildTaskExports,
   canEditTask,
@@ -520,12 +525,15 @@ app.get('/api/tasks/:slug/codex-runs', async (request, reply) => {
 
   const includeEvents = String(request.query?.includeEvents || '').trim() === 'true'
   const includeLatestEvents = String(request.query?.includeLatestEvents || '').trim() === 'true'
+  const events = normalizeCodexRunEventsMode(request.query?.events, {
+    includeEvents,
+    includeLatestEvents,
+  })
 
   return {
     items: listTaskCodexRunsWithOptions(request.params.slug, {
       limit: request.query?.limit,
-      includeEvents,
-      includeLatestEvents,
+      events,
     }),
   }
 })

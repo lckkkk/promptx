@@ -1,6 +1,8 @@
 import {
+  AGENT_RUN_ENVELOPE_EVENT_TYPES,
   AGENT_RUN_EVENT_TYPES,
   AGENT_RUN_ITEM_TYPES,
+  normalizeAgentRunEnvelopeEventType,
 } from '@promptx/shared'
 import { resolveAssetUrl } from '../lib/api.js'
 import { getAgentEngineLabel, normalizeAgentEngine } from '../lib/agentEngines.js'
@@ -996,7 +998,9 @@ function upsertRetryingEvent(turn, entry, nextLogId) {
 }
 
 export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSession = () => {}) {
-  if (payload.type === 'session') {
+  const envelopeType = normalizeAgentRunEnvelopeEventType(payload.type)
+
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.SESSION) {
     mergeSession(payload.session)
     turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
@@ -1006,7 +1010,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'session.updated') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.SESSION_UPDATED) {
     mergeSession(payload.session)
     turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
@@ -1016,7 +1020,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'status') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STATUS) {
     if (payload.stage === 'starting' || payload.stage === 'resuming') {
       return
     }
@@ -1028,7 +1032,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'stderr') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STDERR) {
     const issue = classifyCodexIssue(payload.text, turn.engine)
     appendTurnEvent(turn, {
       kind: 'error',
@@ -1038,7 +1042,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'stdout') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STDOUT) {
     appendTurnEvent(turn, {
       kind: 'command',
       title: 'stdout',
@@ -1047,7 +1051,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'codex') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.AGENT_EVENT) {
     syncTurnSummaryFromCodexEvent(turn, payload.event)
     const formattedEvent = formatCodexEvent(payload.event, getTurnAgentLabel(turn), turn.engine)
     if (String(formattedEvent.title || '').startsWith('网络异常，正在重试')) {
@@ -1068,7 +1072,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'completed') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.COMPLETED) {
     appendTurnEvent(turn, {
       kind: 'result',
       title: '本轮执行结束',
@@ -1080,7 +1084,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'stopped') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STOPPED) {
     appendTurnEvent(turn, {
       title: payload.message || '执行已手动停止',
       detail: '',
@@ -1088,7 +1092,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     return
   }
 
-  if (payload.type === 'error') {
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.ERROR) {
     const issue = classifyCodexIssue(payload.message, turn.engine)
     appendTurnEvent(turn, {
       kind: 'error',
@@ -1150,14 +1154,16 @@ export function applyRunEventToTurn(turn, event = {}, nextLogId, mergeSession = 
   const payload = event?.payload || {}
   applyRunPayloadToTurn(turn, payload, nextLogId, mergeSession)
 
-  if (payload.type === 'completed') {
+  const envelopeType = normalizeAgentRunEnvelopeEventType(payload.type)
+
+  if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.COMPLETED) {
     turn.status = 'completed'
     turn.finishedAt = new Date().toISOString()
-  } else if (payload.type === 'stopped') {
+  } else if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STOPPED) {
     turn.status = 'stopped'
     turn.errorMessage = ''
     turn.finishedAt = new Date().toISOString()
-  } else if (payload.type === 'error') {
+  } else if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.ERROR) {
     turn.status = 'error'
     turn.errorMessage = formatCodexIssueMessage(String(payload.message || turn.errorMessage || `${getTurnAgentLabel(turn)} 执行失败`), turn.engine)
     turn.finishedAt = new Date().toISOString()
