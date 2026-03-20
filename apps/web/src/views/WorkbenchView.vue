@@ -505,14 +505,14 @@ const mobileDetailHeaderListeners = {
         v-on="taskListPanelListeners"
       />
 
-      <div v-else class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div v-else class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
         <WorkbenchMobileDetailHeader
           v-bind="mobileDetailHeaderProps"
           v-on="mobileDetailHeaderListeners"
         />
 
-        <section class="panel shrink-0 overflow-hidden">
-          <div class="theme-divider border-b px-3 py-3">
+        <section class="panel workbench-mobile-tabs-panel shrink-0 overflow-hidden">
+          <div class="workbench-panel-header workbench-mobile-tabs theme-divider border-b px-3 py-3">
             <div class="grid grid-cols-2 gap-2">
               <button
                 type="button"

@@ -226,7 +226,7 @@ defineExpose({
       @select-session="handleSelectSession"
     />
 
-    <div class="theme-divider border-b bg-[var(--theme-appPanelMuted)] p-3">
+    <div class="workbench-panel-header theme-divider border-b bg-[var(--theme-appPanelMuted)] p-3">
       <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-0 shrink-0">
@@ -291,14 +291,14 @@ defineExpose({
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-[var(--theme-promptBorder)] bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
+            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-[var(--theme-promptBorder)] bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
               <div class="flex items-center justify-between gap-3 text-xs opacity-75">
                 <span>本轮提示词</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="canCollapsePrompt(turn)"
                     type="button"
-                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="togglePrompt(turn)"
                   >
                     <ChevronDown v-if="isPromptCollapsed(turn)" class="h-3 w-3" />
@@ -321,7 +321,7 @@ defineExpose({
                     >{{ item.content }}</pre>
                     <div
                       v-else
-                      class="overflow-hidden rounded-sm border border-dashed border-[var(--theme-promptBorder)]/70 bg-white/40"
+                      class="transcript-card__media overflow-hidden rounded-sm border border-dashed border-[var(--theme-promptBorder)]/70 bg-white/40"
                     >
                       <div class="flex items-center gap-2 border-b border-dashed border-[var(--theme-promptBorder)]/60 px-3 py-2 text-xs opacity-80">
                         <ImageIcon class="h-3.5 w-3.5" />
@@ -357,14 +357,14 @@ defineExpose({
           </div>
 
           <div class="flex justify-start">
-            <div class="min-w-0 w-full max-w-[94%] rounded-sm border border-dashed px-4 py-3" :class="getProcessCardClass(turn)">
+            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm border border-dashed px-4 py-3" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span>执行过程</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="hasTurnEventHistory(turn)"
                     type="button"
-                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     :disabled="turn.eventsLoading"
                     @click="toggleTurnEvents(turn)"
                   >
@@ -376,14 +376,14 @@ defineExpose({
                   <span>{{ getProcessStatus(turn) }}</span>
                 </div>
               </div>
-              <div v-if="turn.eventsLoading && !turn.events.length" class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70">
+              <div v-if="turn.eventsLoading && !turn.events.length" class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70">
                 正在加载执行过程...
               </div>
               <div v-else-if="turn.events.length && !isTurnEventsCollapsed(turn)" class="mt-3 space-y-3">
                 <div
                   v-for="item in turn.events"
                   :key="item.id"
-                  class="rounded-sm border border-dashed px-3 py-2"
+                  class="transcript-event-card rounded-sm border border-dashed px-3 py-2"
                   :class="{
                     'border-[var(--theme-borderMuted)] bg-[var(--theme-appPanelStrong)]': item.kind === 'info' || item.kind === 'command',
                     'theme-status-warning': item.kind === 'todo',
@@ -397,14 +397,14 @@ defineExpose({
               </div>
               <div
                 v-else-if="hasTurnEventHistory(turn)"
-                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
+                class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
               >
                 {{ turn.eventsLoaded ? `已折叠 ${getTurnEventCount(turn)} 条过程日志` : `共 ${getTurnEventCount(turn)} 条过程日志，展开后加载` }}
               </div>
               <p v-else class="mt-3 text-xs text-current/80">{{ turn.status === 'running' ? `正在等待 ${getTurnAgentLabel(turn)} 返回事件...` : '本轮没有记录执行过程。' }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
-                class="mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
+                class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
@@ -418,7 +418,7 @@ defineExpose({
                   <span
                     v-for="item in getDisplayTurnSummaryItems(turn)"
                     :key="item.key"
-                    class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1"
+                    class="transcript-card__pill inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1"
                   >
                     <span class="opacity-75">{{ item.label }}</span>
                     <span class="font-medium">{{ item.value }}</span>
@@ -428,7 +428,7 @@ defineExpose({
                   <button
                     v-if="diffSupported && turn.runId"
                     type="button"
-                    class="shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                    class="transcript-card__toggle shrink-0 inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     @click="openTurnDiff(turn)"
                   >
                     <FileDiff class="h-3 w-3" />
@@ -441,7 +441,7 @@ defineExpose({
 
           <div v-if="shouldShowResponse(turn)" class="flex justify-start">
             <div
-              class="min-w-0 w-full max-w-[92%] rounded-sm border border-dashed px-4 py-3 text-sm leading-7"
+              class="transcript-card transcript-card--response min-w-0 w-full max-w-[92%] rounded-sm border border-dashed px-4 py-3 text-sm leading-7"
               :class="turn.errorMessage
                 ? 'border-[var(--theme-danger)] bg-[var(--theme-dangerSoft)] text-[var(--theme-dangerText)]'
                 : 'border-[var(--theme-responseBorder)] bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
@@ -451,7 +451,7 @@ defineExpose({
                 <button
                   v-if="canCollapseResponse(turn)"
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
+                  class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                   @click="toggleResponse(turn)"
                 >
                   <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />

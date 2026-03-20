@@ -168,7 +168,7 @@ onBeforeUnmount(() => {
   <div ref="rootRef" class="relative min-w-0">
     <button
       type="button"
-      class="flex w-full items-center gap-3 rounded-sm border px-3 py-2 text-left transition focus:outline-none focus:ring-2"
+      class="workbench-select-trigger flex w-full items-center gap-3 rounded-sm border px-3 py-2 text-left transition focus:outline-none focus:ring-2"
       :class="disabled
         ? 'cursor-not-allowed border-[color-mix(in_srgb,var(--theme-borderDefault)_88%,var(--theme-textMuted))] bg-[color-mix(in_srgb,var(--theme-appPanelMuted)_82%,var(--theme-appBg))] text-[var(--theme-textMuted)]'
         : 'border-[var(--theme-inputBorder)] bg-[var(--theme-inputBg)] text-[var(--theme-textPrimary)] hover:border-[var(--theme-borderStrong)] focus:border-[var(--theme-borderStrong)] focus:ring-[var(--theme-focusRing)]'"
@@ -202,7 +202,7 @@ onBeforeUnmount(() => {
       <div
         v-if="open"
         ref="panelRef"
-        class="theme-popover fixed z-[70] flex overflow-hidden rounded-sm border"
+        class="workbench-select-panel theme-popover fixed z-[70] flex overflow-hidden rounded-sm border"
         :style="panelStyle"
       >
         <div class="flex min-h-0 w-full flex-col">
@@ -224,7 +224,7 @@ onBeforeUnmount(() => {
               >
                 <button
                   type="button"
-                  class="theme-filter-idle w-full rounded-sm border border-dashed px-3 py-2 text-left text-sm"
+                  class="workbench-select-option theme-filter-idle w-full rounded-sm border border-dashed px-3 py-2 text-left text-sm"
                   @click="selectOption(option)"
                 >
                   {{ String(getOptionValue(option) ?? '') }}

@@ -69,11 +69,11 @@ const emit = defineEmits([
 
 function getTaskCardClass(task) {
   if (task.slug === props.currentTaskSlug) {
-    return 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
+    return 'workbench-task-card--active border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)] shadow-md shadow-[color-mix(in_srgb,var(--theme-accent)_18%,transparent)]'
   }
 
   if (task.sending) {
-    return 'border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
+    return 'workbench-task-card--running border-[var(--theme-warning)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
   }
 
   return 'border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:bg-[var(--theme-appPanelHover)]'
@@ -81,6 +81,29 @@ function getTaskCardClass(task) {
 
 function getTaskRunningBadgeClass() {
   return 'border-[var(--theme-warning)] bg-[var(--theme-warningSoft)] text-[var(--theme-warningText)]'
+}
+
+function formatTaskUpdatedAt(task) {
+  const value = new Date(task.updatedAt)
+  if (Number.isNaN(value.getTime())) {
+    return ''
+  }
+
+  return props.mobile
+    ? value.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    : value.toLocaleString('zh-CN')
+}
+
+function shouldShowWorkspaceBadge(task) {
+  if (!task?.workspaceDiffSummary?.supported || !task?.workspaceDiffSummary?.fileCount) {
+    return false
+  }
+
+  if (!props.mobile) {
+    return true
+  }
+
+  return task.slug === props.currentTaskSlug || Boolean(task.sending)
 }
 
 function getTaskWorkspaceBadgeClass(task) {
@@ -92,7 +115,7 @@ function getTaskWorkspaceBadgeClass(task) {
 
 <template>
   <aside class="panel flex h-full min-h-0 flex-col overflow-hidden">
-    <div class="theme-divider border-b px-4 py-4">
+    <div class="workbench-panel-header theme-divider border-b px-4 py-4" :class="mobile ? 'workbench-mobile-header px-3 py-3' : ''">
       <div class="flex items-center justify-between gap-3">
         <div class="flex min-h-8 items-center">
           <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
@@ -125,12 +148,12 @@ function getTaskWorkspaceBadgeClass(task) {
         正在加载任务...
       </div>
 
-      <div v-else class="space-y-2">
+      <div v-else class="space-y-2" :class="mobile ? 'space-y-1.5' : ''">
         <article
           v-for="task in tasks"
           :key="task.slug"
-          class="group relative cursor-default rounded-sm border px-3 py-3 transition"
-          :class="getTaskCardClass(task)"
+          class="workbench-task-card group relative cursor-default rounded-sm border px-3 py-3 transition"
+          :class="[getTaskCardClass(task), mobile ? 'workbench-task-card--mobile px-3 py-2.5' : '']"
           @click="emit('select-task', task.slug)"
         >
           <span
@@ -165,7 +188,7 @@ function getTaskWorkspaceBadgeClass(task) {
               <span
                 v-if="task.sending"
                 class="inline-flex items-center gap-1.5 rounded-sm border border-dashed px-1.5 py-0.5"
-                :class="getTaskRunningBadgeClass()"
+                :class="[getTaskRunningBadgeClass(), mobile ? 'text-[9px] tracking-[0.14em]' : '']"
               >
                 <span class="task-loading-dots" aria-hidden="true">
                   <span class="task-loading-dots__dot"></span>
@@ -176,14 +199,14 @@ function getTaskWorkspaceBadgeClass(task) {
               </span>
             </div>
           </div>
-          <div class="mt-2 truncate text-xs opacity-80">{{ task.lastPromptPreview || '还没有发送记录' }}</div>
-          <div class="mt-2 flex items-center justify-between gap-3">
-            <div class="min-w-0 text-[11px] opacity-70">{{ new Date(task.updatedAt).toLocaleString('zh-CN') }}</div>
-            <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80">
+          <div class="workbench-task-card__preview mt-2 truncate text-xs opacity-80" :class="mobile ? 'mt-1.5 text-[11px]' : ''">{{ task.lastPromptPreview || '还没有发送记录' }}</div>
+          <div class="mt-2 flex items-center justify-between gap-3" :class="mobile ? 'mt-1.5' : ''">
+            <div class="min-w-0 text-[11px] opacity-70" :class="mobile ? 'text-[10px] opacity-60' : ''">{{ formatTaskUpdatedAt(task) }}</div>
+            <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80" :class="mobile ? 'tracking-[0.12em]' : ''">
               <span
-                v-if="task.workspaceDiffSummary?.supported && task.workspaceDiffSummary?.fileCount"
+                v-if="shouldShowWorkspaceBadge(task)"
                 class="inline-flex items-center gap-1 rounded-sm border border-dashed px-1.5 py-0.5"
-                :class="getTaskWorkspaceBadgeClass(task)"
+                :class="[getTaskWorkspaceBadgeClass(task), mobile ? 'text-[9px]' : '']"
               >
                 <span>{{ task.workspaceDiffSummary?.fileCount }} 文件</span>
               </span>

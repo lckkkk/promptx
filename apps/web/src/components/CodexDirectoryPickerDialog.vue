@@ -528,7 +528,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[60] flex items-end justify-center bg-black/45 px-0 py-0 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
+      class="theme-modal-backdrop fixed inset-0 z-[60] flex items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
       @click.self="!(treeLoading || searchLoading) && emit('close')"
     >
       <section class="panel flex h-full w-full max-w-4xl flex-col overflow-hidden sm:h-auto sm:max-h-[86vh]">

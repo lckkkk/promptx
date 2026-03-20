@@ -228,11 +228,11 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
+      class="theme-modal-backdrop fixed inset-0 z-[70] flex items-center justify-center px-4 py-6"
       @click.self="emit('close')"
     >
-      <section class="panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-[42rem] sm:max-h-[88vh]">
-        <div class="theme-divider flex items-start justify-between gap-4 border-b px-5 py-4">
+      <section class="panel settings-dialog-panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-[42rem] sm:max-h-[88vh]">
+        <div class="theme-divider settings-dialog-header flex items-start justify-between gap-4 border-b px-5 py-4">
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <Settings2 class="h-4 w-4" />
@@ -249,14 +249,14 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="min-h-0 flex flex-1 flex-col sm:flex-row">
-          <aside class="theme-divider border-b px-3 py-3 sm:w-60 sm:shrink-0 sm:border-b-0 sm:border-r sm:px-4 sm:py-4">
-            <nav class="flex gap-2 overflow-x-auto sm:flex-col sm:overflow-visible">
+        <div class="settings-dialog-body min-h-0 flex flex-1 flex-col sm:flex-row">
+          <aside class="theme-divider settings-dialog-nav border-b px-3 py-3 sm:w-60 sm:shrink-0 sm:border-b-0 sm:border-r sm:px-4 sm:py-4">
+            <nav class="settings-nav flex gap-2 overflow-x-auto sm:flex-col sm:overflow-visible">
               <button
                 v-for="section in settingsSections"
                 :key="section.id"
                 type="button"
-                class="flex min-w-0 items-start gap-3 rounded-sm border px-3 py-3 text-left transition sm:w-full"
+                class="settings-nav__item flex min-w-0 items-start gap-3 rounded-sm border px-3 py-3 text-left transition sm:w-full"
                 :class="activeSection === section.id
                   ? 'border-[var(--theme-accent)] bg-[var(--theme-accentSoft)] text-[var(--theme-textPrimary)]'
                   : 'border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] hover:border-[var(--theme-borderStrong)] hover:bg-[var(--theme-appPanelStrong)]'"
@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
             </nav>
           </aside>
 
-          <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <section
               v-if="activeSection === 'theme'"
               class="space-y-4"
@@ -281,7 +281,7 @@ onBeforeUnmount(() => {
                 <p class="theme-muted-text mt-1 text-xs leading-5">这里先放界面主题，后面如果有排版、字号等偏好，也继续归到这一类。</p>
               </div>
 
-              <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+              <section class="settings-section-card rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
                 <ThemeToggle />
               </section>
             </section>
@@ -305,8 +305,8 @@ onBeforeUnmount(() => {
                 </span>
               </div>
 
-              <section class="space-y-4 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
-                <label class="flex items-center justify-between gap-3 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] px-3 py-2">
+              <section class="settings-section-card space-y-4 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+                <label class="settings-form-card flex items-center justify-between gap-3 rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelStrong)] px-3 py-2">
                   <div>
                     <div class="text-sm font-medium text-[var(--theme-textPrimary)]">启用远程访问</div>
                     <p class="theme-muted-text mt-1 text-xs">关闭后，本机会主动断开当前 Relay 连接。</p>
@@ -366,7 +366,7 @@ onBeforeUnmount(() => {
                   </label>
                 </div>
 
-                <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="settings-form-footer flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0 space-y-1">
                     <p
                       v-if="relayManagedByEnv"
@@ -421,7 +421,7 @@ onBeforeUnmount(() => {
                 <p class="theme-muted-text mt-1 text-xs leading-5">这里先放版本信息，后面像更新日志、环境说明也可以继续往这里放。</p>
               </div>
 
-              <section class="rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
+              <section class="settings-section-card rounded-sm border border-dashed border-[var(--theme-borderDefault)] bg-[var(--theme-appPanelMuted)] px-4 py-4">
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <div class="theme-heading text-sm font-medium">版本信息</div>

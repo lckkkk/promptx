@@ -8,6 +8,8 @@ const markdown = new MarkdownIt({
 })
 
 const defaultLinkOpenRule = markdown.renderer.rules.link_open
+const defaultTableOpenRule = markdown.renderer.rules.table_open
+const defaultTableCloseRule = markdown.renderer.rules.table_close
 
 markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
@@ -19,6 +21,22 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   }
 
   return self.renderToken(tokens, idx, options)
+}
+
+markdown.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+  const rendered = typeof defaultTableOpenRule === 'function'
+    ? defaultTableOpenRule(tokens, idx, options, env, self)
+    : self.renderToken(tokens, idx, options)
+
+  return `<div class="codex-table-wrap">${rendered}`
+}
+
+markdown.renderer.rules.table_close = (tokens, idx, options, env, self) => {
+  const rendered = typeof defaultTableCloseRule === 'function'
+    ? defaultTableCloseRule(tokens, idx, options, env, self)
+    : self.renderToken(tokens, idx, options)
+
+  return `${rendered}</div>`
 }
 
 export function renderCodexMarkdown(value = '') {

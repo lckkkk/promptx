@@ -22,7 +22,7 @@ defineProps({
       >
         <div
           v-if="message"
-          class="theme-status-success flex max-w-md items-center gap-2 rounded-sm border px-4 py-2 text-sm shadow-[var(--theme-shadowPanel)] backdrop-blur"
+          class="app-top-toast theme-status-success flex max-w-md items-center gap-2 rounded-sm border px-4 py-2 text-sm shadow-[var(--theme-shadowPanel)] backdrop-blur"
         >
           <CheckCircle2 class="h-4 w-4 shrink-0" />
           <span>{{ message }}</span>

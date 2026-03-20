@@ -1,5 +1,5 @@
 <script setup>
-import { Copy, SendHorizontal, Square, Upload, WandSparkles } from 'lucide-vue-next'
+import { Copy, SendHorizontal, Upload, WandSparkles } from 'lucide-vue-next'
 
 defineProps({
   isCurrentTaskSending: {
@@ -13,7 +13,6 @@ const emit = defineEmits([
   'clear-request',
   'copy-request',
   'send-request',
-  'stop-request',
 ])
 </script>
 
@@ -43,21 +42,12 @@ const emit = defineEmits([
     <span>复制</span>
   </button>
   <button
-    v-if="!isCurrentTaskSending"
     type="button"
     class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
+    :disabled="isCurrentTaskSending"
     @click="emit('send-request')"
   >
     <SendHorizontal class="h-4 w-4" />
     <span>发送</span>
-  </button>
-  <button
-    v-else
-    type="button"
-    class="tool-button inline-flex w-full items-center justify-center gap-1.5 px-2 py-2 text-xs sm:w-auto sm:gap-2 sm:px-3"
-    @click="emit('stop-request')"
-  >
-    <Square class="h-4 w-4" />
-    <span>停止</span>
   </button>
 </template>

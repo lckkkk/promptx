@@ -70,7 +70,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-black/45 px-0 py-0 backdrop-blur-sm sm:items-center sm:px-4 sm:py-6"
+      class="theme-modal-backdrop fixed inset-0 z-50 flex items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
       @click.self="emit('close')"
     >
       <section class="panel flex h-full w-full min-h-0 flex-col overflow-hidden sm:h-[min(90vh,960px)] sm:max-w-[min(96vw,1560px)]">

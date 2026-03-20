@@ -34,7 +34,6 @@ const emit = defineEmits([
   'clear-request',
   'copy-request',
   'send-request',
-  'stop-request',
 ])
 
 const blockEditorRef = ref(null)
@@ -113,7 +112,6 @@ defineExpose({
         @clear-request="emit('clear-request')"
         @copy-request="emit('copy-request')"
         @send-request="emit('send-request')"
-        @stop-request="emit('stop-request')"
       />
     </template>
   </BlockEditor>

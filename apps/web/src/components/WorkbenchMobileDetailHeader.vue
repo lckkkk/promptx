@@ -34,8 +34,8 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <section class="panel shrink-0 overflow-hidden">
-    <div class="theme-divider border-b px-4 py-3">
+  <section class="panel workbench-mobile-header-panel shrink-0 overflow-hidden">
+    <div class="workbench-panel-header workbench-mobile-header theme-divider border-b px-4 py-3">
       <div class="flex items-center gap-3">
         <button
           type="button"

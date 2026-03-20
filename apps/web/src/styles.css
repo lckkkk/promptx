@@ -59,6 +59,14 @@
   --theme-codeBorder: #dbd1c3;
   --theme-shadowPanel: 0 14px 38px rgba(53, 38, 22, 0.08);
   --theme-shadowPopover: 0 18px 48px rgba(43, 30, 18, 0.16);
+  --theme-shellGradient: linear-gradient(180deg, #f1eee8 0%, #f1eee8 100%);
+  --theme-backdropBlur: 0px;
+  --theme-backdropSaturate: 100%;
+  --theme-panelHighlight: rgba(255, 255, 255, 0);
+  --theme-panelChrome: rgba(255, 255, 255, 0);
+  --theme-buttonHighlight: rgba(255, 255, 255, 0);
+  --theme-inputHighlight: rgba(255, 255, 255, 0);
+  --theme-modalBackdrop: rgba(0, 0, 0, 0.45);
 }
 
 :root.dark {
@@ -72,7 +80,9 @@ body,
 }
 
 body {
-  background: var(--theme-appBg);
+  background-color: var(--theme-appBg);
+  background-image: var(--theme-shellGradient);
+  background-attachment: fixed;
   color: var(--theme-textPrimary);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -86,9 +96,18 @@ body {
 
 @layer components {
   .app-shell {
-    @apply flex h-dvh min-h-screen flex-col transition-colors;
+    @apply relative flex h-dvh min-h-screen flex-col transition-colors;
     background: var(--theme-appBg);
     color: var(--theme-textPrimary);
+  }
+
+  .app-main {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-stage {
+    position: relative;
   }
 
   .panel {
@@ -222,7 +241,7 @@ body {
     padding: 0.9rem 1rem;
   }
 
-  .codex-markdown > :first-child:is(pre, p, ul, ol, blockquote, h1, h2, h3, h4) {
+  .codex-markdown > :first-child:is(pre, p, ul, ol, blockquote, h1, h2, h3, h4, .codex-table-wrap) {
     margin-top: 0;
   }
 
@@ -239,19 +258,23 @@ body {
     word-break: normal;
   }
 
-  .codex-markdown table {
-    display: block;
-    width: max-content;
-    min-width: 100%;
-    max-width: 100%;
+  .codex-table-wrap {
+    width: 100%;
     margin: 0.85rem 0 0;
     overflow-x: auto;
     border: 1px solid color-mix(in srgb, var(--theme-borderDefault) 88%, transparent);
     border-radius: 0.5rem;
-    border-collapse: separate;
-    border-spacing: 0;
     background: color-mix(in srgb, var(--theme-appPanelStrong) 94%, white 6%);
     box-shadow: inset 0 1px 0 color-mix(in srgb, white 20%, transparent);
+  }
+
+  .codex-markdown table {
+    width: 100%;
+    min-width: max-content;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: transparent;
   }
 
   .codex-markdown thead {
@@ -342,6 +365,11 @@ body {
     border-color: var(--theme-borderDefault);
     background: var(--theme-appPanelStrong);
     box-shadow: var(--theme-shadowPopover);
+  }
+
+  .theme-modal-backdrop {
+    background: var(--theme-modalBackdrop);
+    backdrop-filter: blur(8px) saturate(120%);
   }
 
   .theme-option {
@@ -453,6 +481,606 @@ body {
     border-color: color-mix(in srgb, var(--theme-danger) 28%, var(--theme-borderDefault));
     background: color-mix(in srgb, var(--theme-dangerSoft) 72%, var(--theme-appPanel) 28%);
     color: var(--theme-dangerText);
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-shell::before,
+  :root[data-theme='promptx-glass-light'] .app-shell::after {
+    content: '';
+    pointer-events: none;
+    position: fixed;
+    inset: auto;
+    z-index: 0;
+    border-radius: 9999px;
+    filter: blur(18px);
+    opacity: 0.8;
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-shell::before {
+    top: -3rem;
+    right: -2rem;
+    width: 18rem;
+    height: 18rem;
+    background:
+      radial-gradient(circle, rgba(255, 255, 255, 0.82) 0%, rgba(208, 236, 226, 0.48) 44%, transparent 76%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-shell::after {
+    left: -4rem;
+    bottom: -5rem;
+    width: 22rem;
+    height: 22rem;
+    background:
+      radial-gradient(circle, rgba(245, 223, 196, 0.42) 0%, rgba(245, 223, 196, 0.18) 36%, transparent 72%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-stage::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: 1rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 18%, transparent 82%, rgba(103, 132, 119, 0.08)),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.14), transparent 28%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-stage > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  :root[data-theme='promptx-glass-light'] .panel,
+  :root[data-theme='promptx-glass-light'] .dashed-panel,
+  :root[data-theme='promptx-glass-light'] .theme-popover,
+  :root[data-theme='promptx-glass-light'] .tool-button,
+  :root[data-theme='promptx-glass-light'] .tool-input,
+  :root[data-theme='promptx-glass-light'] .theme-empty-state,
+  :root[data-theme='promptx-glass-light'] .theme-option,
+  :root[data-theme='promptx-glass-light'] .theme-filter-idle,
+  :root[data-theme='promptx-glass-light'] .theme-filter-active,
+  :root[data-theme='promptx-glass-light'] .theme-status-success,
+  :root[data-theme='promptx-glass-light'] .theme-status-warning,
+  :root[data-theme='promptx-glass-light'] .theme-status-danger,
+  :root[data-theme='promptx-glass-light'] .theme-status-info,
+  :root[data-theme='promptx-glass-light'] .theme-status-neutral {
+    backdrop-filter: blur(var(--theme-backdropBlur)) saturate(var(--theme-backdropSaturate));
+  }
+
+  :root[data-theme='promptx-glass-light'] .panel,
+  :root[data-theme='promptx-glass-light'] .theme-popover {
+    border-color: color-mix(in srgb, var(--theme-borderDefault) 52%, white 48%);
+    border-radius: 0.65rem;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-appPanelStrong) 76%, transparent), color-mix(in srgb, var(--theme-appPanel) 88%, transparent)),
+      var(--theme-appPanel);
+    box-shadow:
+      var(--theme-shadowPanel),
+      inset 0 1px 0 var(--theme-panelHighlight),
+      inset 0 -1px 0 color-mix(in srgb, var(--theme-panelChrome) 82%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .dashed-panel,
+  :root[data-theme='promptx-glass-light'] .theme-empty-state {
+    border-color: color-mix(in srgb, var(--theme-borderStrong) 62%, white 38%);
+    border-radius: 0.65rem;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-appPanelMuted) 82%, transparent), color-mix(in srgb, var(--theme-appPanelStrong) 72%, transparent)),
+      var(--theme-appPanelMuted);
+    box-shadow:
+      inset 0 1px 0 var(--theme-panelHighlight),
+      inset 0 -1px 0 color-mix(in srgb, var(--theme-panelChrome) 72%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-button {
+    border-color: color-mix(in srgb, var(--theme-buttonBorder) 72%, white 28%);
+    border-radius: 0.5rem;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-buttonHighlight) 100%, transparent), color-mix(in srgb, var(--theme-buttonBg) 96%, transparent)),
+      var(--theme-buttonBg);
+    box-shadow:
+      0 12px 28px rgba(91, 113, 102, 0.1),
+      inset 0 1px 0 var(--theme-buttonHighlight);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-button:hover {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-buttonHighlight) 100%, transparent), color-mix(in srgb, var(--theme-buttonHover) 96%, transparent)),
+      var(--theme-buttonHover);
+    box-shadow:
+      0 14px 30px rgba(91, 113, 102, 0.14),
+      inset 0 1px 0 color-mix(in srgb, white 78%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-button-primary {
+    border-color: color-mix(in srgb, var(--theme-primaryBorder) 78%, white 22%);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 16%, var(--theme-primaryBg)), var(--theme-primaryBg)),
+      var(--theme-primaryBg);
+    box-shadow:
+      0 18px 34px rgba(47, 123, 104, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-button-primary:hover {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 18%, var(--theme-primaryHover)), var(--theme-primaryHover)),
+      var(--theme-primaryHover);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-input {
+    border-color: color-mix(in srgb, var(--theme-inputBorder) 76%, white 24%);
+    border-radius: 0.5rem;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--theme-inputHighlight) 100%, transparent), color-mix(in srgb, var(--theme-inputBg) 94%, transparent)),
+      var(--theme-inputBg);
+    box-shadow:
+      inset 0 1px 0 var(--theme-inputHighlight),
+      0 10px 24px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .tool-input:focus {
+    box-shadow:
+      inset 0 1px 0 var(--theme-inputHighlight),
+      0 0 0 1px color-mix(in srgb, var(--theme-accent) 22%, transparent),
+      0 14px 30px rgba(91, 113, 102, 0.1);
+  }
+
+  :root[data-theme='promptx-glass-light'] .theme-option-idle:hover,
+  :root[data-theme='promptx-glass-light'] .theme-filter-idle:hover {
+    background: color-mix(in srgb, var(--theme-appPanelStrong) 78%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .theme-toggle-current {
+    border-color: color-mix(in srgb, var(--theme-borderStrong) 56%, white 44%);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(245, 249, 247, 0.6)),
+      var(--theme-appPanelStrong);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      0 12px 26px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .theme-toggle-card {
+    border-radius: 0.7rem;
+    padding-top: 0.85rem;
+    padding-bottom: 0.85rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .theme-toggle-card__preview > span {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 10px 22px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-nav {
+    gap: 0.7rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-nav__item,
+  :root[data-theme='promptx-glass-light'] .settings-section-card,
+  :root[data-theme='promptx-glass-light'] .workbench-task-card {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.56),
+      0 14px 26px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-nav__item {
+    border-radius: 0.7rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-section-card {
+    border-radius: 0.8rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.12)),
+      var(--theme-appPanelMuted);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-select-trigger {
+    border-radius: 0.5rem;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.68),
+      0 10px 24px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-select-panel {
+    border-radius: 0.7rem;
+    box-shadow:
+      var(--theme-shadowPopover),
+      inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-select-option {
+    border-radius: 0.55rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-panel-header {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08)),
+      color-mix(in srgb, var(--theme-appPanelMuted) 86%, white 14%);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card {
+    border-color: color-mix(in srgb, currentColor 6%, var(--theme-borderDefault));
+    border-radius: 0.8rem;
+    backdrop-filter: blur(calc(var(--theme-backdropBlur) * 0.72)) saturate(160%);
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background-color 180ms ease;
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.62),
+      0 18px 34px rgba(91, 113, 102, 0.12);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card--active {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.72),
+      0 20px 38px rgba(47, 123, 104, 0.14);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card--running {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.58),
+      0 18px 34px rgba(167, 119, 54, 0.1);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card__preview {
+    color: color-mix(in srgb, var(--theme-textSecondary) 90%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card--mobile {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      0 10px 20px rgba(91, 113, 102, 0.06);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card {
+    border-radius: 0.85rem;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.54),
+      0 16px 30px rgba(91, 113, 102, 0.09);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card--prompt {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+      var(--theme-promptBg);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card--process {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03)),
+      var(--theme-processBg);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card--response {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+      var(--theme-responseBg);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card__toggle,
+  :root[data-theme='promptx-glass-light'] .transcript-card__pill {
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card__subtle,
+  :root[data-theme='promptx-glass-light'] .transcript-card__media,
+  :root[data-theme='promptx-glass-light'] .transcript-event-card {
+    border-radius: 0.7rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown {
+    color: color-mix(in srgb, currentColor 96%, transparent);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown :is(h1, h2, h3, h4) {
+    letter-spacing: 0.01em;
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown blockquote {
+    border-left-color: color-mix(in srgb, var(--theme-accent) 28%, white 72%);
+    border-left-width: 3px;
+    border-radius: 0 0.6rem 0.6rem 0;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04)),
+      color-mix(in srgb, var(--theme-accentSoft) 58%, transparent);
+    padding: 0.75rem 0.9rem 0.75rem 1rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown :not(pre) > code {
+    border-color: color-mix(in srgb, var(--theme-codeBorder) 70%, white 30%);
+    border-radius: 0.42rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08)),
+      color-mix(in srgb, var(--theme-codeBg) 92%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown pre {
+    border-color: color-mix(in srgb, var(--theme-codeBorder) 72%, white 28%);
+    border-radius: 0.75rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04)),
+      color-mix(in srgb, var(--theme-codeBg) 94%, var(--theme-appPanelStrong) 6%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      0 12px 24px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-table-wrap {
+    border-color: color-mix(in srgb, var(--theme-borderDefault) 72%, white 28%);
+    border-radius: 0.75rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.06)),
+      color-mix(in srgb, var(--theme-appPanelStrong) 96%, white 4%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      0 12px 24px rgba(91, 113, 102, 0.06);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown table {
+    background: transparent;
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown thead {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+      color-mix(in srgb, var(--theme-appPanelMuted) 72%, var(--theme-accentSoft) 28%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown tbody tr:nth-child(even) {
+    background: color-mix(in srgb, rgba(255, 255, 255, 0.28) 62%, var(--theme-appPanelMuted));
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-top-toast {
+    border-radius: 0.75rem;
+    box-shadow:
+      0 18px 36px rgba(47, 123, 104, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-dialog-panel {
+    box-shadow:
+      0 24px 56px rgba(64, 82, 74, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.46);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-dialog-header,
+  :root[data-theme='promptx-glass-light'] .settings-dialog-nav {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.08)),
+      color-mix(in srgb, var(--theme-appPanelMuted) 88%, white 12%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-form-card {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay {
+    background:
+      radial-gradient(circle at 20% 16%, rgba(255, 255, 255, 0.1), transparent 28%),
+      linear-gradient(180deg, rgba(14, 18, 17, 0.82), rgba(17, 24, 22, 0.92));
+    backdrop-filter: blur(10px) saturate(140%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay__button {
+    color: #effaf5;
+    border-color: rgba(255, 255, 255, 0.16);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05)),
+      rgba(31, 45, 39, 0.52);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 12px 22px rgba(0, 0, 0, 0.18);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay__button:hover {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06)),
+      rgba(40, 58, 50, 0.64);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay__image {
+    border-radius: 0.9rem;
+    box-shadow:
+      0 28px 64px rgba(0, 0, 0, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  :root[data-theme='promptx-glass-light'] .theme-option-active,
+  :root[data-theme='promptx-glass-light'] .theme-filter-active {
+    border-color: color-mix(in srgb, var(--theme-accent) 36%, white 64%);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 42%, var(--theme-accentSoft)), color-mix(in srgb, var(--theme-accentSoft) 88%, transparent)),
+      var(--theme-accentSoft);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white 82%, transparent),
+      0 10px 24px rgba(47, 123, 104, 0.08);
+  }
+}
+
+@media (max-width: 640px) {
+  .workbench-mobile-header,
+  .workbench-mobile-tabs,
+  .workbench-mobile-header-panel,
+  .workbench-mobile-tabs-panel,
+  .workbench-mobile-header-panel .panel,
+  .workbench-mobile-tabs-panel .panel {
+    border-radius: 0.75rem;
+  }
+
+  .workbench-mobile-header {
+    padding: 0.7rem 0.85rem;
+  }
+
+  .workbench-mobile-tabs {
+    padding: 0.55rem 0.7rem;
+  }
+
+  .workbench-mobile-tabs .tool-button {
+    min-height: 2.25rem;
+    font-size: 0.8125rem;
+  }
+
+  .workbench-mobile-header .tool-button,
+  .workbench-mobile-header .theme-icon-button,
+  .workbench-mobile-header input,
+  .workbench-mobile-header button {
+    min-height: 2.1rem;
+  }
+
+  .workbench-mobile-header input,
+  .workbench-mobile-header button[type='button'] {
+    font-size: 0.875rem;
+  }
+
+  .settings-dialog-panel {
+    height: min(100dvh - 1rem, 52rem);
+    border-radius: 0.9rem;
+  }
+
+  .settings-dialog-header {
+    padding: 0.85rem 0.95rem;
+  }
+
+  .settings-dialog-nav {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .settings-dialog-body {
+    min-height: 0;
+  }
+
+  .settings-dialog-content {
+    padding: 0.85rem 0.9rem 1rem;
+  }
+
+  .settings-nav {
+    gap: 0.45rem;
+    padding-bottom: 0.1rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .settings-nav__item {
+    min-width: 5.5rem;
+    flex: 0 0 auto;
+    padding: 0.7rem 0.8rem;
+    gap: 0.5rem;
+    scroll-snap-align: start;
+  }
+
+  .settings-nav__item .text-sm {
+    font-size: 0.8125rem;
+  }
+
+  .settings-section-card,
+  .settings-form-card {
+    border-radius: 0.7rem;
+  }
+
+  .settings-form-footer {
+    align-items: stretch;
+  }
+
+  .settings-form-footer .tool-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-shell::before {
+    width: 12rem;
+    height: 12rem;
+    top: -2rem;
+    right: -2rem;
+    opacity: 0.66;
+  }
+
+  :root[data-theme='promptx-glass-light'] .app-shell::after {
+    width: 14rem;
+    height: 14rem;
+    left: -3rem;
+    bottom: -3rem;
+    opacity: 0.58;
+  }
+
+  :root[data-theme='promptx-glass-light'] .panel,
+  :root[data-theme='promptx-glass-light'] .dashed-panel,
+  :root[data-theme='promptx-glass-light'] .theme-popover,
+  :root[data-theme='promptx-glass-light'] .tool-button,
+  :root[data-theme='promptx-glass-light'] .tool-input,
+  :root[data-theme='promptx-glass-light'] .theme-status-success,
+  :root[data-theme='promptx-glass-light'] .theme-status-warning,
+  :root[data-theme='promptx-glass-light'] .theme-status-danger,
+  :root[data-theme='promptx-glass-light'] .theme-status-info,
+  :root[data-theme='promptx-glass-light'] .theme-status-neutral,
+  :root[data-theme='promptx-glass-light'] .workbench-task-card,
+  :root[data-theme='promptx-glass-light'] .transcript-card {
+    backdrop-filter: blur(10px) saturate(145%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.46),
+      0 10px 20px rgba(91, 113, 102, 0.06);
+  }
+
+  :root[data-theme='promptx-glass-light'] .workbench-task-card:hover {
+    transform: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.52),
+      0 12px 24px rgba(91, 113, 102, 0.08);
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card {
+    border-radius: 0.7rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .transcript-card__subtle,
+  :root[data-theme='promptx-glass-light'] .transcript-card__media,
+  :root[data-theme='promptx-glass-light'] .transcript-event-card,
+  :root[data-theme='promptx-glass-light'] .workbench-select-panel,
+  :root[data-theme='promptx-glass-light'] .settings-section-card {
+    border-radius: 0.6rem;
+  }
+
+  :root[data-theme='promptx-glass-light'] .codex-markdown pre,
+  :root[data-theme='promptx-glass-light'] .codex-table-wrap,
+  :root[data-theme='promptx-glass-light'] .codex-markdown blockquote {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay {
+    backdrop-filter: blur(6px) saturate(125%);
+  }
+
+  :root[data-theme='promptx-glass-light'] .image-preview-overlay__button {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      0 8px 16px rgba(0, 0, 0, 0.14);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-dialog-panel {
+    box-shadow:
+      0 18px 36px rgba(64, 82, 74, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  }
+
+  :root[data-theme='promptx-glass-light'] .settings-dialog-header,
+  :root[data-theme='promptx-glass-light'] .settings-dialog-nav,
+  :root[data-theme='promptx-glass-light'] .workbench-mobile-header,
+  :root[data-theme='promptx-glass-light'] .workbench-mobile-tabs {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.06)),
+      color-mix(in srgb, var(--theme-appPanelMuted) 90%, white 10%);
   }
 }
 
