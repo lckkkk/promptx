@@ -1550,6 +1550,254 @@ body {
       linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.06)),
       color-mix(in srgb, var(--theme-appPanelMuted) 90%, white 10%);
   }
+
+  :root[data-theme='promptx-ink-landscape'] .panel,
+  :root[data-theme='promptx-ink-landscape'] .dashed-panel,
+  :root[data-theme='promptx-ink-landscape'] .theme-popover,
+  :root[data-theme='promptx-ink-landscape'] .tool-button,
+  :root[data-theme='promptx-ink-landscape'] .tool-input,
+  :root[data-theme='promptx-ink-landscape'] .theme-empty-state,
+  :root[data-theme='promptx-ink-landscape'] .theme-option,
+  :root[data-theme='promptx-ink-landscape'] .theme-filter-idle,
+  :root[data-theme='promptx-ink-landscape'] .theme-filter-active,
+  :root[data-theme='promptx-ink-landscape'] .theme-status-success,
+  :root[data-theme='promptx-ink-landscape'] .theme-status-warning,
+  :root[data-theme='promptx-ink-landscape'] .theme-status-danger,
+  :root[data-theme='promptx-ink-landscape'] .theme-status-info,
+  :root[data-theme='promptx-ink-landscape'] .theme-status-neutral {
+    backdrop-filter: blur(var(--theme-backdropBlur)) saturate(var(--theme-backdropSaturate));
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-shell::before,
+  :root[data-theme='promptx-ink-landscape'] .app-shell::after,
+  :root[data-theme='promptx-ink-landscape'] .app-stage::after {
+    content: '';
+    pointer-events: none;
+    position: fixed;
+    z-index: 0;
+    inset: auto;
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-shell::before {
+    top: 1rem;
+    right: -2rem;
+    width: min(40rem, 52vw);
+    height: 14rem;
+    background:
+      radial-gradient(ellipse at 26% 58%, rgba(88, 105, 114, 0.2) 0%, rgba(88, 105, 114, 0.11) 26%, transparent 60%),
+      radial-gradient(ellipse at 74% 46%, rgba(139, 151, 155, 0.12) 0%, transparent 48%);
+    filter: blur(18px);
+    opacity: 0.95;
+    clip-path: polygon(0% 82%, 14% 56%, 30% 68%, 47% 36%, 60% 54%, 74% 24%, 100% 70%, 100% 100%, 0% 100%);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-shell::after {
+    left: -4rem;
+    bottom: -2rem;
+    width: min(42rem, 54vw);
+    height: 16rem;
+    background:
+      radial-gradient(ellipse at 34% 48%, rgba(70, 84, 92, 0.12) 0%, rgba(70, 84, 92, 0.07) 26%, transparent 60%),
+      radial-gradient(ellipse at 66% 58%, rgba(132, 124, 116, 0.08) 0%, transparent 48%);
+    filter: blur(22px);
+    opacity: 0.78;
+    clip-path: polygon(0% 74%, 18% 48%, 32% 60%, 48% 34%, 60% 50%, 78% 26%, 100% 62%, 100% 100%, 0% 100%);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-stage::before {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: 1rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 14%, transparent 84%, rgba(95, 105, 108, 0.04)),
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 22px),
+      repeating-linear-gradient(0deg, rgba(78, 86, 90, 0.016) 0 1px, transparent 1px 18px);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-stage::after {
+    right: 8vw;
+    top: 5rem;
+    width: min(20rem, 24vw);
+    height: 20rem;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.06) 28%, transparent 66%);
+    filter: blur(10px);
+    opacity: 0.65;
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .app-stage > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .panel,
+  :root[data-theme='promptx-ink-landscape'] .theme-popover {
+    border-color: color-mix(in srgb, var(--theme-borderDefault) 86%, white 14%);
+    border-radius: 0.7rem;
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.38), rgba(248, 250, 248, 0.78)),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.14), transparent 34%),
+      var(--theme-appPanel);
+    box-shadow:
+      var(--theme-shadowPanel),
+      inset 0 1px 0 rgba(255, 255, 255, 0.34),
+      inset 0 -1px 0 rgba(103, 112, 116, 0.08);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .dashed-panel,
+  :root[data-theme='promptx-ink-landscape'] .theme-empty-state,
+  :root[data-theme='promptx-ink-landscape'] .theme-content-panel,
+  :root[data-theme='promptx-ink-landscape'] .theme-inline-panel,
+  :root[data-theme='promptx-ink-landscape'] .settings-section-card,
+  :root[data-theme='promptx-ink-landscape'] .settings-form-card {
+    border-color: color-mix(in srgb, var(--theme-borderStrong) 46%, white 28%);
+    border-radius: 0.7rem;
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.28), rgba(241, 244, 241, 0.76)),
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 26px),
+      var(--theme-appPanelMuted);
+    box-shadow:
+      var(--theme-shadowPanel),
+      inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .tool-button,
+  :root[data-theme='promptx-ink-landscape'] .tool-input {
+    border-color: color-mix(in srgb, var(--theme-buttonBorder) 78%, white 22%);
+    border-radius: 0.55rem;
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.3), rgba(241, 245, 243, 0.72)),
+      var(--theme-buttonBg);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 6px 18px rgba(34, 39, 41, 0.04);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .tool-button:hover,
+  :root[data-theme='promptx-ink-landscape'] .tool-input:hover {
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.4), rgba(233, 238, 236, 0.8)),
+      var(--theme-buttonHover);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .tool-button-primary {
+    border-color: color-mix(in srgb, var(--theme-primaryBorder) 84%, white 16%);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 8%, var(--theme-primaryBg)), color-mix(in srgb, black 2%, var(--theme-primaryBg))),
+      var(--theme-primaryBg);
+    box-shadow:
+      0 14px 26px rgba(38, 43, 45, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .tool-button-primary:hover {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, white 10%, var(--theme-primaryHover)), var(--theme-primaryHover)),
+      var(--theme-primaryHover);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .theme-toggle-current,
+  :root[data-theme='promptx-ink-landscape'] .theme-toggle-card,
+  :root[data-theme='promptx-ink-landscape'] .settings-nav__item,
+  :root[data-theme='promptx-ink-landscape'] .workbench-task-card,
+  :root[data-theme='promptx-ink-landscape'] .transcript-card,
+  :root[data-theme='promptx-ink-landscape'] .workbench-select-panel {
+    box-shadow:
+      0 12px 26px rgba(34, 39, 41, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .theme-toggle-current {
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.42), rgba(242, 245, 243, 0.84)),
+      var(--theme-appPanelStrong);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .theme-option-active,
+  :root[data-theme='promptx-ink-landscape'] .theme-filter-active,
+  :root[data-theme='promptx-ink-landscape'] .theme-card-selected {
+    border-color: color-mix(in srgb, var(--theme-accent) 76%, var(--theme-borderStrong));
+    background:
+      linear-gradient(180deg, rgba(244, 248, 249, 0.96), rgba(228, 235, 238, 0.98)),
+      var(--theme-accentSoft);
+    box-shadow: 0 14px 30px rgba(83, 105, 117, 0.16);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .theme-card-idle-muted,
+  :root[data-theme='promptx-ink-landscape'] .theme-card-idle-strong,
+  :root[data-theme='promptx-ink-landscape'] .theme-card-warning,
+  :root[data-theme='promptx-ink-landscape'] .workbench-task-card {
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.3), rgba(241, 244, 241, 0.82)),
+      var(--theme-appPanelMuted);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .theme-card-idle-muted:hover,
+  :root[data-theme='promptx-ink-landscape'] .theme-card-idle-strong:hover,
+  :root[data-theme='promptx-ink-landscape'] .theme-card-warning:hover,
+  :root[data-theme='promptx-ink-landscape'] .workbench-task-card:hover {
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.4), rgba(232, 238, 235, 0.88)),
+      var(--theme-appPanelHover);
+    border-color: color-mix(in srgb, var(--theme-borderStrong) 62%, white 18%);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .workbench-task-card--active {
+    background:
+      linear-gradient(180deg, rgba(243, 248, 249, 0.96), rgba(227, 235, 238, 0.98)),
+      var(--theme-accentSoft);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .workbench-panel-header,
+  :root[data-theme='promptx-ink-landscape'] .settings-dialog-header,
+  :root[data-theme='promptx-ink-landscape'] .settings-dialog-nav,
+  :root[data-theme='promptx-ink-landscape'] .workbench-mobile-header,
+  :root[data-theme='promptx-ink-landscape'] .workbench-mobile-tabs {
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.34), rgba(242, 245, 243, 0.82)),
+      var(--theme-appPanelMuted);
+    border-color: color-mix(in srgb, var(--theme-borderMuted) 76%, white 12%);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .transcript-card--prompt {
+    background:
+      linear-gradient(180deg, rgba(245, 235, 223, 0.56), rgba(238, 224, 209, 0.9)),
+      var(--theme-promptBg);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .transcript-card--process {
+    background:
+      linear-gradient(180deg, rgba(243, 246, 246, 0.5), rgba(237, 241, 241, 0.9)),
+      var(--theme-processBg);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .transcript-card--response {
+    background:
+      linear-gradient(180deg, rgba(235, 241, 243, 0.54), rgba(228, 234, 237, 0.9)),
+      var(--theme-responseBg);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .codex-markdown blockquote,
+  :root[data-theme='promptx-ink-landscape'] .codex-markdown pre,
+  :root[data-theme='promptx-ink-landscape'] .codex-table-wrap,
+  :root[data-theme='promptx-ink-landscape'] .transcript-card__subtle,
+  :root[data-theme='promptx-ink-landscape'] .transcript-card__media,
+  :root[data-theme='promptx-ink-landscape'] .transcript-event-card {
+    border-color: color-mix(in srgb, var(--theme-borderDefault) 70%, white 20%);
+    background:
+      linear-gradient(180deg, rgba(252, 253, 251, 0.36), rgba(242, 245, 243, 0.84)),
+      color-mix(in srgb, var(--theme-appPanelStrong) 72%, var(--theme-appPanelMuted) 28%);
+  }
+
+  :root[data-theme='promptx-ink-landscape'] .image-preview-overlay {
+    background:
+      radial-gradient(circle at 50% 16%, rgba(244, 247, 245, 0.12) 0%, transparent 26%),
+      rgba(18, 21, 23, 0.76);
+  }
+
 }
 
 .task-loading-dots {
