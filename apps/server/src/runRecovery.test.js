@@ -43,7 +43,7 @@ test('runRecovery 会回收失联的 active run，并按状态落到 error / sto
 
     const recovered = []
     const recovery = createRunRecoveryService({
-      staleThresholdMs: 1000,
+      staleThresholdMs: 5000,
       onRecoveredRun(runRecord) {
         recovered.push(runRecord.id)
       },
@@ -54,6 +54,14 @@ test('runRecovery 会回收失联的 active run，并按状态落到 error / sto
     assert.deepEqual(new Set(recovered), new Set(['run-1', 'run-2']))
     assert.equal(getCodexRunById('run-1')?.status, 'error')
     assert.equal(getCodexRunById('run-2')?.status, 'stop_timeout')
+
+    const diagnostics = recovery.getDiagnostics()
+    assert.equal(diagnostics.metrics.totalSweeps, 1)
+    assert.equal(diagnostics.metrics.totalRecovered, 2)
+    assert.equal(diagnostics.metrics.totalRecoveredToError, 1)
+    assert.equal(diagnostics.metrics.totalRecoveredToStopTimeout, 1)
+    assert.deepEqual(new Set(diagnostics.metrics.lastRecoveredRunIds), new Set(['run-1', 'run-2']))
+    assert.equal(diagnostics.config.staleThresholdMs, 5000)
   } finally {
     process.chdir(originalCwd)
     if (typeof originalDataDir === 'string') {

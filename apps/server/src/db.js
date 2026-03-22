@@ -6,6 +6,8 @@ import { ensurePromptxStorageReady } from './appPaths.js'
 const SCHEMA_VERSION = 1
 const { dataDir } = ensurePromptxStorageReady()
 const dbPath = path.join(dataDir, 'promptx.sqlite')
+const dbWalPath = `${dbPath}-wal`
+const dbShmPath = `${dbPath}-shm`
 
 fs.mkdirSync(dataDir, { recursive: true })
 
@@ -436,6 +438,58 @@ export function transaction(callback) {
 
     throw error
   }
+}
+
+function getFileSizeBytes(targetPath = '') {
+  try {
+    return fs.statSync(targetPath).size
+  } catch {
+    return 0
+  }
+}
+
+export function getDatabaseFileStats() {
+  return {
+    dbPath,
+    walPath: dbWalPath,
+    shmPath: dbShmPath,
+    dbSizeBytes: getFileSizeBytes(dbPath),
+    walSizeBytes: getFileSizeBytes(dbWalPath),
+    shmSizeBytes: getFileSizeBytes(dbShmPath),
+  }
+}
+
+export function runDatabaseMaintenance(options = {}) {
+  if (transactionDepth > 0) {
+    throw new Error('数据库维护不能在事务中执行。')
+  }
+
+  const startedAt = new Date().toISOString()
+  const startedMs = Date.now()
+  const before = getDatabaseFileStats()
+  const optimizeResult = db.pragma('optimize')
+  const checkpointResult = db.pragma('wal_checkpoint(TRUNCATE)')
+  const shouldVacuum = Boolean(options.vacuum)
+
+  if (shouldVacuum) {
+    db.exec('VACUUM')
+  }
+
+  const after = getDatabaseFileStats()
+  return {
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    durationMs: Date.now() - startedMs,
+    vacuumed: shouldVacuum,
+    optimizeResult,
+    checkpointResult,
+    before,
+    after,
+  }
+}
+
+export function closeDatabaseForTesting() {
+  closeDatabase(db)
 }
 
 process.once('exit', () => {

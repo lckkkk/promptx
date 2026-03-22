@@ -25,6 +25,18 @@ export function createRunRecoveryService(options = {}) {
   const startupGraceMs = Math.max(1000, Number(options.startupGraceMs) || DEFAULT_STARTUP_GRACE_MS)
   const staleThresholdMs = Math.max(5000, Number(options.staleThresholdMs) || DEFAULT_STALE_THRESHOLD_MS)
   const sweepIntervalMs = Math.max(1000, Number(options.sweepIntervalMs) || DEFAULT_SWEEP_INTERVAL_MS)
+  const metrics = {
+    totalSweeps: 0,
+    totalRecovered: 0,
+    totalRecoveredToError: 0,
+    totalRecoveredToStopTimeout: 0,
+    totalSweepErrors: 0,
+    lastSweepStartedAt: '',
+    lastSweepFinishedAt: '',
+    lastSweepDurationMs: 0,
+    lastRecoveredRunIds: [],
+    lastSweepErrorMessage: '',
+  }
 
   let startupTimer = null
   let sweepTimer = null
@@ -65,6 +77,12 @@ export function createRunRecoveryService(options = {}) {
       sessionId: nextRun.sessionId,
     })
     onRecoveredRun(nextRun)
+    metrics.totalRecovered += 1
+    if (nextRun.status === 'stop_timeout') {
+      metrics.totalRecoveredToStopTimeout += 1
+    } else if (nextRun.status === 'error') {
+      metrics.totalRecoveredToError += 1
+    }
     return nextRun
   }
 
@@ -74,13 +92,26 @@ export function createRunRecoveryService(options = {}) {
     }
 
     sweeping = true
+    metrics.totalSweeps += 1
+    metrics.lastSweepStartedAt = new Date().toISOString()
     try {
       const staleRuns = listStaleActiveCodexRuns(staleThresholdMs)
-      return staleRuns.map((runRecord) => recoverRun(runRecord)).filter(Boolean)
+      const recoveredRuns = staleRuns.map((runRecord) => recoverRun(runRecord)).filter(Boolean)
+      metrics.lastSweepErrorMessage = ''
+      metrics.lastRecoveredRunIds = recoveredRuns.map((item) => item.id)
+      return recoveredRuns
     } catch (error) {
+      metrics.totalSweepErrors += 1
+      metrics.lastSweepErrorMessage = String(error?.message || error || '').trim()
+      metrics.lastRecoveredRunIds = []
       logger.error?.(error, '[run-recovery] stale run sweep failed')
       return []
     } finally {
+      metrics.lastSweepFinishedAt = new Date().toISOString()
+      metrics.lastSweepDurationMs = Math.max(
+        0,
+        Date.parse(metrics.lastSweepFinishedAt) - Date.parse(metrics.lastSweepStartedAt || metrics.lastSweepFinishedAt)
+      )
       sweeping = false
     }
   }
@@ -112,5 +143,19 @@ export function createRunRecoveryService(options = {}) {
     start,
     stop,
     sweep,
+    getDiagnostics() {
+      return {
+        sweeping,
+        config: {
+          startupGraceMs,
+          staleThresholdMs,
+          sweepIntervalMs,
+        },
+        metrics: {
+          ...metrics,
+          lastRecoveredRunIds: [...metrics.lastRecoveredRunIds],
+        },
+      }
+    },
   }
 }

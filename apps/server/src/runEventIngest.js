@@ -2,6 +2,7 @@ import { normalizeAgentRunEnvelopeEventType } from '../../../packages/shared/src
 import {
   appendCodexRunEventsBatch,
   getCodexRunById,
+  isTerminalRunStatus,
   updateCodexRunFromRunnerStatus,
 } from './codexRuns.js'
 import { updatePromptxCodexSession } from './codexSessions.js'
@@ -120,6 +121,18 @@ export function createRunEventIngestService(options = {}) {
       }
 
       const previousRun = getCodexRunById(runId)
+      if (payload.session && typeof payload.session === 'object') {
+        const nextSession = syncSessionFromEnvelope(payload.session)
+        if (nextSession?.id) {
+          broadcastServerEvent('sessions.changed', {
+            sessionId: nextSession.id,
+          })
+        }
+      }
+
+      if (previousRun && isTerminalRunStatus(previousRun.status)) {
+        return previousRun
+      }
 
       const updatedRun = updateCodexRunFromRunnerStatus(runId, {
         status: payload.status,
@@ -132,15 +145,6 @@ export function createRunEventIngestService(options = {}) {
 
       if (!updatedRun) {
         return null
-      }
-
-      if (payload.session && typeof payload.session === 'object') {
-        const nextSession = syncSessionFromEnvelope(payload.session)
-        if (nextSession?.id) {
-          broadcastServerEvent('sessions.changed', {
-            sessionId: nextSession.id,
-          })
-        }
       }
 
       const shouldNotify = !previousRun

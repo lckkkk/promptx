@@ -4,6 +4,7 @@ import {
   createStoppedEnvelopeEvent,
 } from '../../../packages/shared/src/index.js'
 import { assertAgentRunner } from './engines/index.js'
+import { getChildStopDiagnostics } from './processControl.js'
 
 const EVENT_FLUSH_INTERVAL_MS = Math.max(50, Number(process.env.PROMPTX_RUNNER_EVENT_FLUSH_MS) || 250)
 const HEARTBEAT_INTERVAL_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_HEARTBEAT_MS) || 3000)
@@ -13,6 +14,7 @@ const STOPPING_HEARTBEAT_INTERVAL_MS = Math.max(
 )
 const DEFAULT_STOP_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_MS) || 10000)
 const STOP_TIMEOUT_BUFFER_MS = Math.max(500, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_BUFFER_MS) || 2000)
+const DEFAULT_MAX_CONCURRENT_RUNS = Math.max(1, Number(process.env.PROMPTX_RUNNER_MAX_CONCURRENT_RUNS) || 2)
 const RUNNER_ID = String(process.env.PROMPTX_RUNNER_ID || 'local-runner').trim() || 'local-runner'
 
 function nowIso() {
@@ -37,6 +39,7 @@ function normalizeSession(payload = {}) {
 }
 
 function createRunSnapshot(context = {}) {
+  const stopControl = getChildStopDiagnostics(context.child)
   return {
     runId: context.runId,
     taskSlug: context.taskSlug,
@@ -45,18 +48,67 @@ function createRunSnapshot(context = {}) {
     status: context.status,
     pid: Number(context.child?.pid || context.pid || 0) || 0,
     stopRequested: Boolean(context.stopRequestedAt),
+    stopRequestedAt: context.stopRequestedAt || '',
+    stopReason: String(context.stopReason || '').trim(),
+    stopStage: String(context.stopStage || '').trim(),
+    stopTimeoutPhase: String(context.stopTimeoutPhase || '').trim(),
+    stopCancelErrorMessage: String(context.stopCancelErrorMessage || '').trim(),
     startedAt: context.startedAt || '',
     finishedAt: context.finishedAt || '',
     lastHeartbeatAt: context.lastHeartbeatAt || '',
     lastSeq: Math.max(0, Number(context.lastSeq) || 0),
+    eventFlushFailureCount: Math.max(0, Number(context.eventFlushFailureCount) || 0),
+    stopControl,
   }
+}
+
+export function classifyStopTimeoutPhase(context = {}) {
+  if (!context?.stopRequestedAt) {
+    return 'runner_timeout_without_stop_request'
+  }
+
+  if (String(context.stopStage || '').trim() === 'cancel_failed') {
+    return 'runner_timeout_before_cancel'
+  }
+
+  const stopControl = getChildStopDiagnostics(context.child)
+  if (stopControl.exitObservedAt) {
+    return 'runner_finalize_after_exit'
+  }
+  if (stopControl.forceKillAttemptedAt) {
+    return 'os_kill_slow'
+  }
+  if (stopControl.gracefulSignalAt) {
+    return 'cli_not_exiting'
+  }
+  return 'runner_timeout_before_cancel'
+}
+
+function classifyStoppedErrorReason(context = {}) {
+  if (!context?.stopRequestedAt) {
+    return 'user_requested_after_error'
+  }
+
+  const stopControl = getChildStopDiagnostics(context.child)
+  if (
+    stopControl.gracefulSignalAt
+    || stopControl.forceKillAttemptedAt
+    || stopControl.exitObservedAt
+    || String(context.stopStage || '').trim() === 'cancel_signaled'
+  ) {
+    return 'user_requested'
+  }
+
+  return 'user_requested_after_error'
 }
 
 export function createRunManager(options = {}) {
   const serverClient = options.serverClient
   const logger = options.logger || console
   const resolveRunner = typeof options.resolveRunner === 'function' ? options.resolveRunner : assertAgentRunner
+  const maxConcurrentRuns = Math.max(1, Number(options.maxConcurrentRuns) || DEFAULT_MAX_CONCURRENT_RUNS)
   const activeRuns = new Map()
+  const queuedRunIds = []
   const startedAt = nowIso()
   const metrics = {
     totalStarted: 0,
@@ -64,6 +116,38 @@ export function createRunManager(options = {}) {
     totalErrored: 0,
     totalStopped: 0,
     totalStopTimeout: 0,
+    eventFlushFailureCount: 0,
+    lastEventFlushFailureAt: '',
+    lastEventFlushFailureMessage: '',
+    stopReasons: {
+      queued_cancelled: 0,
+      user_requested: 0,
+      user_requested_after_error: 0,
+      stop_timeout: 0,
+    },
+    stopTimeoutPhases: {
+      runner_timeout_without_stop_request: 0,
+      runner_timeout_before_cancel: 0,
+      cli_not_exiting: 0,
+      os_kill_slow: 0,
+      runner_finalize_after_exit: 0,
+    },
+  }
+
+  function recordStopReason(reason = '') {
+    const normalizedReason = String(reason || '').trim()
+    if (!normalizedReason || !Object.prototype.hasOwnProperty.call(metrics.stopReasons, normalizedReason)) {
+      return
+    }
+    metrics.stopReasons[normalizedReason] += 1
+  }
+
+  function recordStopTimeoutPhase(phase = '') {
+    const normalizedPhase = String(phase || '').trim()
+    if (!normalizedPhase || !Object.prototype.hasOwnProperty.call(metrics.stopTimeoutPhases, normalizedPhase)) {
+      return
+    }
+    metrics.stopTimeoutPhases[normalizedPhase] += 1
   }
 
   async function postStatus(context, payload = {}) {
@@ -100,6 +184,38 @@ export function createRunManager(options = {}) {
     scheduleFlush(context)
   }
 
+  function isQueuedRunStatus(status = '') {
+    return String(status || '').trim() === 'queued'
+  }
+
+  function countsTowardConcurrency(context) {
+    if (!context || context.finalized) {
+      return false
+    }
+    const status = String(context.status || '').trim()
+    return status === 'starting' || status === 'running' || status === 'stopping'
+  }
+
+  function getRunningSlotCount() {
+    return [...activeRuns.values()].reduce((count, context) => count + (countsTowardConcurrency(context) ? 1 : 0), 0)
+  }
+
+  function enqueueRun(context) {
+    if (!context?.runId) {
+      return
+    }
+    if (!queuedRunIds.includes(context.runId)) {
+      queuedRunIds.push(context.runId)
+    }
+  }
+
+  function dequeueRun(runId = '') {
+    const index = queuedRunIds.indexOf(String(runId || '').trim())
+    if (index >= 0) {
+      queuedRunIds.splice(index, 1)
+    }
+  }
+
   async function flushEvents(context, force = false) {
     if (!context) {
       return 0
@@ -130,6 +246,12 @@ export function createRunManager(options = {}) {
       return pendingItems.length
     } catch (error) {
       context.eventBuffer.unshift(...pendingItems)
+      context.eventFlushFailureCount = Math.max(0, Number(context.eventFlushFailureCount) || 0) + 1
+      context.lastEventFlushFailureAt = nowIso()
+      context.lastEventFlushFailureMessage = String(error?.message || error || '').trim()
+      metrics.eventFlushFailureCount += 1
+      metrics.lastEventFlushFailureAt = context.lastEventFlushFailureAt
+      metrics.lastEventFlushFailureMessage = context.lastEventFlushFailureMessage
       logger.error?.(error, 'runner event flush failed')
       if (!context.finalized) {
         scheduleFlush(context)
@@ -204,6 +326,9 @@ export function createRunManager(options = {}) {
     context.finalized = true
     context.status = String(nextStatus || context.status || 'completed').trim() || 'completed'
     context.finishedAt = payload.finishedAt || nowIso()
+    context.stopReason = String(payload.stopReason || context.stopReason || '').trim()
+    context.stopStage = String(payload.stopStage || context.stopStage || '').trim()
+    context.stopTimeoutPhase = String(payload.stopTimeoutPhase || context.stopTimeoutPhase || '').trim()
 
     if (context.status === 'completed') {
       metrics.totalCompleted += 1
@@ -213,6 +338,12 @@ export function createRunManager(options = {}) {
       metrics.totalStopped += 1
     } else if (context.status === 'stop_timeout') {
       metrics.totalStopTimeout += 1
+    }
+    if (context.status === 'stopped' || context.status === 'stop_timeout') {
+      recordStopReason(context.stopReason || (context.status === 'stop_timeout' ? 'stop_timeout' : ''))
+    }
+    if (context.status === 'stop_timeout') {
+      recordStopTimeoutPhase(context.stopTimeoutPhase)
     }
 
     stopHeartbeat(context)
@@ -238,6 +369,10 @@ export function createRunManager(options = {}) {
     })
 
     activeRuns.delete(context.runId)
+    dequeueRun(context.runId)
+    drainQueuedRuns().catch((error) => {
+      logger.error?.(error, 'runner queue drain failed')
+    })
     return createRunSnapshot(context)
   }
 
@@ -245,6 +380,8 @@ export function createRunManager(options = {}) {
     if (context.stopRequestedAt) {
       await finalizeRun(context, 'stopped', {
         responseMessage: String(result?.message || '').trim(),
+        stopReason: 'user_requested',
+        stopStage: 'completed_after_stop',
         event: createStoppedEnvelopeEvent('执行已手动停止'),
       })
       return
@@ -258,7 +395,12 @@ export function createRunManager(options = {}) {
 
   async function handleStreamError(context, error) {
     if (context.stopRequestedAt) {
+      const stopReason = classifyStoppedErrorReason(context)
       await finalizeRun(context, 'stopped', {
+        stopReason,
+        stopStage: stopReason === 'user_requested'
+          ? 'terminated_after_stop_signal'
+          : 'errored_after_stop',
         event: createStoppedEnvelopeEvent('执行已手动停止'),
       })
       return
@@ -310,6 +452,7 @@ export function createRunManager(options = {}) {
       context.pid = Number(stream.child?.pid || 0) || 0
       context.startedAt = nowIso()
       context.status = 'running'
+      context.stopStage = context.stopRequestedAt ? 'stop_pending_before_stream_ready' : ''
 
       startHeartbeat(context)
       await postStatus(context, {
@@ -319,10 +462,13 @@ export function createRunManager(options = {}) {
 
       if (context.stopRequestedAt) {
         try {
+          context.stopStage = 'cancel_signaled'
           stream.cancel({
             graceMs: context.stopGraceMs,
           })
-        } catch {
+        } catch (error) {
+          context.stopStage = 'cancel_failed'
+          context.stopCancelErrorMessage = String(error?.message || error || '').trim()
           // Ignore cancel failures here; stop timeout will handle the rest.
         }
       }
@@ -334,13 +480,57 @@ export function createRunManager(options = {}) {
     }
   }
 
+  async function startQueuedRun(context) {
+    if (!context || context.finalized || !isQueuedRunStatus(context.status) || context.launching) {
+      return false
+    }
+
+    context.launching = true
+    dequeueRun(context.runId)
+    context.status = 'starting'
+    metrics.totalStarted += 1
+    await postStatus(context, {
+      session: context.session,
+    })
+    executeRun(context).catch((error) => {
+      logger.error?.(error, 'runner execute failed unexpectedly')
+    }).finally(() => {
+      context.launching = false
+    })
+    return true
+  }
+
+  async function drainQueuedRuns() {
+    while (getRunningSlotCount() < maxConcurrentRuns) {
+      const nextRunId = queuedRunIds[0]
+      if (!nextRunId) {
+        return
+      }
+
+      const nextContext = activeRuns.get(nextRunId)
+      if (!nextContext || nextContext.finalized || !isQueuedRunStatus(nextContext.status)) {
+        dequeueRun(nextRunId)
+        continue
+      }
+
+      const started = await startQueuedRun(nextContext)
+      if (!started) {
+        dequeueRun(nextRunId)
+      }
+    }
+  }
+
   function ensureStopTimeout(context, stopTimeoutMs) {
     if (context.stopTimeoutTimer) {
       return
     }
 
     context.stopTimeoutTimer = setTimeout(() => {
+      const stopTimeoutPhase = classifyStopTimeoutPhase(context)
       finalizeRun(context, 'stop_timeout', {
+        stopReason: 'stop_timeout',
+        stopStage: 'stop_timeout',
+        stopTimeoutPhase,
         errorMessage: '停止超时，runner 未能在限定时间内完成回收。',
       }).catch(() => {})
     }, stopTimeoutMs)
@@ -357,15 +547,32 @@ export function createRunManager(options = {}) {
         runnerId: RUNNER_ID,
         startedAt,
         activeRunCount: activeRuns.size,
+        runningRunCount: getRunningSlotCount(),
+        queuedRunCount: queuedRunIds.length,
         activeRuns: [...activeRuns.values()].map((context) => ({
           ...createRunSnapshot(context),
           cwd: String(context.session?.cwd || '').trim(),
           title: String(context.session?.title || '').trim(),
         })),
+        queuedRuns: queuedRunIds
+          .map((runId) => activeRuns.get(runId))
+          .filter(Boolean)
+          .map((context) => ({
+            ...createRunSnapshot(context),
+            cwd: String(context.session?.cwd || '').trim(),
+            title: String(context.session?.title || '').trim(),
+          })),
         metrics: {
           ...metrics,
+          stopReasons: {
+            ...metrics.stopReasons,
+          },
+          stopTimeoutPhases: {
+            ...metrics.stopTimeoutPhases,
+          },
         },
         config: {
+          maxConcurrentRuns,
           eventFlushIntervalMs: EVENT_FLUSH_INTERVAL_MS,
           heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
           stoppingHeartbeatIntervalMs: STOPPING_HEARTBEAT_INTERVAL_MS,
@@ -396,7 +603,7 @@ export function createRunManager(options = {}) {
         promptBlocks: Array.isArray(payload.promptBlocks) ? payload.promptBlocks : [],
         engine: String(payload.engine || session.engine || 'codex').trim() || 'codex',
         session,
-        status: 'starting',
+        status: 'queued',
         startedAt: '',
         finishedAt: '',
         stopRequestedAt: '',
@@ -409,19 +616,25 @@ export function createRunManager(options = {}) {
         stopProgressTimer: null,
         stopTimeoutTimer: null,
         stopGraceMs: 0,
+        stopReason: '',
+        stopStage: '',
+        stopTimeoutPhase: '',
+        stopCancelErrorMessage: '',
         finalized: false,
+        launching: false,
         child: null,
         stream: null,
+        eventFlushFailureCount: 0,
+        lastEventFlushFailureAt: '',
+        lastEventFlushFailureMessage: '',
       }
 
       activeRuns.set(runId, context)
-      metrics.totalStarted += 1
+      enqueueRun(context)
       await postStatus(context, {
         session: context.session,
       })
-      executeRun(context).catch((error) => {
-        logger.error?.(error, 'runner execute failed unexpectedly')
-      })
+      await drainQueuedRuns()
       return createRunSnapshot(context)
     },
     async stopRun(runId = '', options = {}) {
@@ -439,6 +652,18 @@ export function createRunManager(options = {}) {
       }
 
       context.stopRequestedAt = nowIso()
+      context.stopStage = 'stop_requested'
+
+      if (isQueuedRunStatus(context.status)) {
+        return finalizeRun(context, 'stopped', {
+          stopReason: 'queued_cancelled',
+          stopStage: 'cancelled_before_start',
+          responseMessage: '执行在启动前已取消。',
+          finishedAt: nowIso(),
+          event: createStoppedEnvelopeEvent('执行在启动前已取消。'),
+        })
+      }
+
       context.status = 'stopping'
       await postStatus(context, {
         stopRequestedAt: context.stopRequestedAt,
@@ -451,10 +676,13 @@ export function createRunManager(options = {}) {
       ensureStopTimeout(context, stopTimeoutMs)
 
       try {
+        context.stopStage = 'cancel_signaled'
         context.stream?.cancel?.({
           graceMs: stopGraceMs,
         })
-      } catch {
+      } catch (error) {
+        context.stopStage = 'cancel_failed'
+        context.stopCancelErrorMessage = String(error?.message || error || '').trim()
         // Ignore runner cancel failures and rely on timeout handling.
       }
 

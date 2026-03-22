@@ -565,6 +565,7 @@ app.get('/api/diagnostics/git-diff-worker', async () => ({
 app.get('/api/diagnostics/runtime', async () => ({
   runner: await fetchRunnerDiagnostics(),
   gitDiffWorker: getGitDiffWorkerDiagnostics(),
+  recovery: runRecoveryService.getDiagnostics(),
   maintenance: maintenanceService.getDiagnostics(),
 }))
 

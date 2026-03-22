@@ -105,6 +105,25 @@ test('runEventIngest 会写入事件、同步 session 更新并推进 run 状态
     assert.ok(broadcasts.some((item) => item.type === 'run.event' && item.runId === 'run-1'))
     assert.ok(broadcasts.some((item) => item.type === 'runs.changed' && item.runId === 'run-1'))
     assert.ok(broadcasts.some((item) => item.type === 'sessions.changed' && item.sessionId === 'session-1'))
+
+    const lateHeartbeatAt = new Date(Date.now() + 1000).toISOString()
+    const staleRun = ingest.ingestStatus({
+      runId: 'run-1',
+      status: 'running',
+      responseMessage: 'should-be-ignored',
+      heartbeatAt: lateHeartbeatAt,
+      session: {
+        id: 'session-1',
+        codexThreadId: 'thread-1',
+        engineThreadId: 'thread-1',
+        updatedAt: lateHeartbeatAt,
+      },
+    })
+
+    const storedRunAfterLateHeartbeat = getCodexRunById('run-1')
+    assert.equal(staleRun?.status, 'completed')
+    assert.equal(storedRunAfterLateHeartbeat?.status, 'completed')
+    assert.equal(storedRunAfterLateHeartbeat?.responseMessage, 'done')
   } finally {
     process.chdir(originalCwd)
     if (typeof originalDataDir === 'string') {

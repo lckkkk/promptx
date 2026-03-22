@@ -14,6 +14,14 @@ import { assertAgentRunner } from './agents/index.js'
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'starting', 'running', 'stopping'])
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted', 'stop_timeout'])
 const EVENT_FLUSH_DELAY_MS = 180
+const DEFAULT_RUN_EVENT_RETENTION_MS = Math.max(
+  60 * 60 * 1000,
+  Number(process.env.PROMPTX_CODEX_RUN_EVENT_RETENTION_MS) || 14 * 24 * 60 * 60 * 1000
+)
+const DEFAULT_MAX_EVENTS_PER_RUN = Math.max(
+  50,
+  Number(process.env.PROMPTX_CODEX_RUN_EVENTS_MAX_PER_RUN) || 2000
+)
 
 const pendingRunEventsByRunId = new Map()
 let pendingRunEventsFlushTimer = null
@@ -737,6 +745,90 @@ export function deleteTaskCodexRuns(taskSlug) {
   })
 
   return { ok: true }
+}
+
+export function pruneCodexRunEvents(options = {}) {
+  flushPendingRunEvents()
+
+  const retentionMs = Math.max(60 * 1000, Number(options.retentionMs) || DEFAULT_RUN_EVENT_RETENTION_MS)
+  const maxEventsPerRun = Math.max(1, Number(options.maxEventsPerRun) || DEFAULT_MAX_EVENTS_PER_RUN)
+  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now())
+  const cutoffIso = new Date(now.getTime() - retentionMs).toISOString()
+  const terminalStatuses = [...TERMINAL_RUN_STATUSES]
+  const statusPlaceholders = terminalStatuses.map(() => '?').join(', ')
+
+  const staleRows = all(
+    `SELECT events.id
+     FROM codex_run_events AS events
+     INNER JOIN codex_runs AS runs
+       ON runs.id = events.run_id
+     WHERE runs.status IN (${statusPlaceholders})
+       AND COALESCE(NULLIF(runs.finished_at, ''), runs.updated_at, runs.created_at) <= ?`,
+    [...terminalStatuses, cutoffIso]
+  )
+
+  let removedByRetention = 0
+  if (staleRows.length) {
+    transaction(() => {
+      staleRows.forEach((row) => {
+        run('DELETE FROM codex_run_events WHERE id = ?', [row.id])
+        removedByRetention += 1
+      })
+    })
+  }
+
+  const cappedRunRows = all(
+    `SELECT events.run_id AS runId, MAX(events.seq) AS maxSeq, COUNT(events.id) AS eventCount
+     FROM codex_run_events AS events
+     INNER JOIN codex_runs AS runs
+       ON runs.id = events.run_id
+     WHERE runs.status IN (${statusPlaceholders})
+     GROUP BY events.run_id
+     HAVING COUNT(events.id) > ?`,
+    [...terminalStatuses, maxEventsPerRun]
+  )
+
+  let removedByCount = 0
+  transaction(() => {
+    cappedRunRows.forEach((row) => {
+      const maxSeq = Math.max(0, Number(row.maxSeq) || 0)
+      const minSeqToKeep = Math.max(1, maxSeq - maxEventsPerRun + 1)
+      const deleteCount = Math.max(
+        0,
+        Number(
+          get(
+            `SELECT COUNT(*) AS count
+             FROM codex_run_events
+             WHERE run_id = ?
+               AND seq < ?`,
+            [row.runId, minSeqToKeep]
+          )?.count
+        ) || 0
+      )
+      if (!deleteCount) {
+        return
+      }
+      run(
+        `DELETE FROM codex_run_events
+         WHERE run_id = ?
+           AND seq < ?`,
+        [row.runId, minSeqToKeep]
+      )
+      removedByCount += deleteCount
+    })
+  })
+
+  const remainingEvents = get('SELECT COUNT(*) AS count FROM codex_run_events')?.count || 0
+  return {
+    retentionMs,
+    maxEventsPerRun,
+    cutoffIso,
+    removedByRetention,
+    removedByCount,
+    removedTotal: removedByRetention + removedByCount,
+    remainingEvents: Math.max(0, Number(remainingEvents) || 0),
+    touchedRuns: cappedRunRows.length,
+  }
 }
 
 export function markRunningCodexRunsInterrupted(message = '服务已重启，之前的执行已中断。') {
