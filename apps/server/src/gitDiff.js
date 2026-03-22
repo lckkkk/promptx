@@ -1188,6 +1188,63 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
   return payload
 }
 
+export function getWorkspaceGitDiffStatusSummaryByCwd(cwd = '') {
+  const repoRoot = resolveGitRepoRoot(cwd)
+  if (!repoRoot) {
+    return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
+  }
+
+  const branch = resolveGitBranchLabel(repoRoot)
+  const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
+  const cacheKey = JSON.stringify([
+    'workspace-status-summary',
+    repoRoot,
+    branch,
+    workspaceStatusSignature,
+  ])
+  const cachedReview = getCachedValue(diffReviewCache, cacheKey, DIFF_REVIEW_CACHE_TTL_MS, 'reviewMisses', {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope: 'workspace-status-summary',
+      repo: path.basename(repoRoot),
+    },
+  })
+  if (cachedReview) {
+    gitDiffCacheMetrics.reviewHits += 1
+    return cachedReview
+  }
+
+  const { entries } = listGitChangeEntries(repoRoot)
+  const payload = {
+    supported: true,
+    scope: 'workspace',
+    runId: '',
+    repoRoot,
+    branch,
+    baseline: null,
+    warnings: [],
+    baselineCreatedAt: '',
+    summary: {
+      fileCount: entries.size,
+      additions: 0,
+      deletions: 0,
+      statsComplete: false,
+    },
+    files: [],
+  }
+  setCachedValue(diffReviewCache, cacheKey, payload, DIFF_REVIEW_CACHE_MAX_ENTRIES, {
+    channel: 'review',
+    cacheName: 'diff-review',
+    debugMeta: {
+      scope: 'workspace-status-summary',
+      repo: path.basename(repoRoot),
+      fileCount: entries.size,
+    },
+  })
+  return payload
+}
+
 export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   if (!normalizedTaskSlug) {

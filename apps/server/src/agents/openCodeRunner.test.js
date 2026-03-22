@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   createOpenCodeNormalizationState,
+  extractOpenCodeErrorMessage,
   extractOpenCodeSessionId,
   extractOpenCodeText,
   extractOpenCodeUsage,
@@ -147,4 +148,20 @@ test('normalizeOpenCodeEvent maps step_finish stop to turn completion with usage
     output_tokens: 12,
     cached_input_tokens: 256,
   })
+})
+
+test('extractOpenCodeErrorMessage reads nested API errors', () => {
+  assert.equal(
+    extractOpenCodeErrorMessage({
+      type: 'error',
+      error: {
+        name: 'APIError',
+        data: {
+          message: 'openai_error',
+          responseBody: '{"error":{"message":"bad gateway"}}',
+        },
+      },
+    }),
+    'openai_error'
+  )
 })

@@ -7,6 +7,8 @@ import {
 import { resolveAssetUrl } from '../lib/api.js'
 import { getAgentEngineLabel, normalizeAgentEngine } from '../lib/agentEngines.js'
 
+const ACTIVE_TURN_STATUSES = new Set(['queued', 'starting', 'running', 'stopping'])
+
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? timestamp : 0
@@ -153,6 +155,10 @@ export function getTurnAgentEngine(turn = {}) {
 
 export function getTurnAgentLabel(turn = {}) {
   return getAgentEngineLabel(getTurnAgentEngine(turn))
+}
+
+export function isTurnActiveStatus(status = '') {
+  return ACTIVE_TURN_STATUSES.has(String(status || '').trim())
 }
 
 function getAgentCliCommand(engine = 'codex') {
@@ -454,7 +460,7 @@ function getTurnElapsedSeconds(turn = {}, options = {}) {
     return 0
   }
 
-  if (turn.status === 'running') {
+  if (isTurnActiveStatus(turn.status)) {
     if (
       options.currentRunningRunId
       && String(options.currentRunningRunId) === String(turn.runId || '')
@@ -515,7 +521,7 @@ export function getTurnSummaryStatus(turn = {}) {
     return `最近：${summary.latestActivity}`
   }
 
-  if (turn.status === 'running') {
+  if (isTurnActiveStatus(turn.status)) {
     return `当前：正在等待 ${getTurnAgentLabel(turn)} 返回更多事件`
   }
 
@@ -900,6 +906,15 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
 }
 
 export function getProcessStatus(turn) {
+  if (turn.status === 'queued') {
+    return '排队中'
+  }
+  if (turn.status === 'starting') {
+    return '启动中'
+  }
+  if (turn.status === 'stopping') {
+    return '停止中'
+  }
   if (turn.status === 'running') {
     return '进行中'
   }
@@ -911,6 +926,9 @@ export function getProcessStatus(turn) {
   }
   if (turn.status === 'stopped') {
     return '已停止'
+  }
+  if (turn.status === 'stop_timeout') {
+    return '停止超时'
   }
   return '已完成'
 }

@@ -4,6 +4,7 @@ import {
   applyRunEventsPayloadToTurns,
   createTurnFromRun,
   findTurnByRunId,
+  isTurnActiveStatus,
 } from './codexSessionPanelTurns.js'
 
 const FALLBACK_RUN_POLL_INTERVAL_MS = 1800
@@ -81,7 +82,7 @@ export function useCodexRunHistory(options = {}) {
   }
 
   function syncRunningStateFromTurns() {
-    const runningTurn = [...turns.value].reverse().find((turn) => turn.status === 'running') || null
+    const runningTurn = [...turns.value].reverse().find((turn) => isTurnActiveStatus(turn.status)) || null
 
     currentRunningRunId.value = runningTurn?.runId || ''
     sending.value = Boolean(runningTurn)

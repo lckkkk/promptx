@@ -28,9 +28,12 @@ import {
   updateTask,
 } from './repository.js'
 import {
-  getTaskGitDiffReview,
-  getWorkspaceGitDiffReviewByCwd,
+  getWorkspaceGitDiffStatusSummaryByCwd,
 } from './gitDiff.js'
+import {
+  getGitDiffWorkerDiagnostics,
+  getTaskGitDiffReviewInSubprocess,
+} from './gitDiffClient.js'
 import {
   createPromptxCodexSession,
   deletePromptxCodexSession,
@@ -44,14 +47,13 @@ import {
   getCodexRunById,
   getRunningCodexRunBySessionId,
   getRunningCodexRunByTaskSlug,
+  isActiveRunStatus,
   listCodexRunEvents,
   listRunningCodexSessionIds,
   listRunningCodexTaskSlugs,
   listTaskCodexRunsWithOptions,
-  markInterruptedCodexRuns,
-  updateCodexRun,
+  updateCodexRunFromRunnerStatus,
 } from './codexRuns.js'
-import { createAgentRunRuntime } from './codexRunRuntime.js'
 import { listAvailableAgentEngines, listKnownWorkspacesByEngine } from './agents/index.js'
 import { importPdfBlocks } from './pdf.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
@@ -66,6 +68,11 @@ import { createRelayClient } from './relayClient.js'
 import { getRelayConfigForClient, isRelayConfigManagedByEnv, writeStoredRelayConfig } from './relayConfig.js'
 import { createSseHub } from './sseHub.js'
 import { createTaskAutomationService } from './taskAutomation.js'
+import { createRunnerClient } from './runnerClient.js'
+import { assertInternalRequest } from './internalAuth.js'
+import { createRunEventIngestService } from './runEventIngest.js'
+import { createRunRecoveryService } from './runRecovery.js'
+import { createMaintenanceService } from './maintenance.js'
 
 const app = Fastify({ logger: true })
 const port = Number(process.env.PORT || 3000)
@@ -95,6 +102,7 @@ const relayClient = createRelayClient({
   localBaseUrl: process.env.PROMPTX_RELAY_LOCAL_BASE_URL || `http://127.0.0.1:${port}`,
   ...relayConfig,
 })
+const runnerClient = createRunnerClient()
 
 let lastExpiredPurgeAt = 0
 const sseHub = createSseHub()
@@ -108,6 +116,10 @@ const publicServerBaseUrl = String(
 function broadcastServerEvent(type, payload = {}) {
   sseHub.broadcast(type, payload)
 }
+
+const runEventIngestService = createRunEventIngestService({
+  broadcastServerEvent,
+})
 
 function updateTaskAutomationRuntimeWithBroadcast(taskSlug, patch = {}) {
   const task = updateTaskAutomationRuntime(taskSlug, patch)
@@ -177,6 +189,7 @@ function createEmptyWorkspaceDiffSummary() {
     fileCount: 0,
     additions: 0,
     deletions: 0,
+    statsComplete: false,
   }
 }
 
@@ -190,6 +203,7 @@ function toWorkspaceDiffSummary(payload = null) {
     fileCount: Math.max(0, Number(payload.summary?.fileCount) || 0),
     additions: Math.max(0, Number(payload.summary?.additions) || 0),
     deletions: Math.max(0, Number(payload.summary?.deletions) || 0),
+    statsComplete: Boolean(payload.summary?.statsComplete),
   }
 }
 
@@ -209,7 +223,7 @@ function attachTaskWorkspaceDiffSummaries(items = []) {
     const session = getPromptxCodexSessionById(sessionId)
     const workspaceKey = String(session?.cwd || sessionId).trim()
     if (!summaryByWorkspaceKey.has(workspaceKey)) {
-      const payload = session?.cwd ? getWorkspaceGitDiffReviewByCwd(session.cwd) : null
+      const payload = session?.cwd ? getWorkspaceGitDiffStatusSummaryByCwd(session.cwd) : null
       summaryByWorkspaceKey.set(workspaceKey, toWorkspaceDiffSummary(payload))
     }
 
@@ -240,7 +254,7 @@ function buildTaskDetailUrl(taskSlug = '', options = {}) {
   return `${publicServerBaseUrl || localServerBaseUrl}/?task=${encodeURIComponent(normalizedSlug)}`
 }
 
-function startTaskRunForTask({ taskSlug = '', sessionId = '', prompt = '', promptBlocks = [] } = {}) {
+async function startTaskRunForTask({ taskSlug = '', sessionId = '', prompt = '', promptBlocks = [] } = {}) {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   const normalizedSessionId = String(sessionId || '').trim()
   const normalizedPrompt = String(prompt || '').trim()
@@ -275,10 +289,44 @@ function startTaskRunForTask({ taskSlug = '', sessionId = '', prompt = '', promp
     sessionId: normalizedSessionId,
     prompt: normalizedPrompt,
     promptBlocks: Array.isArray(promptBlocks) ? promptBlocks : [],
+    status: 'queued',
   })
 
   updateTaskCodexSession(normalizedTaskSlug, normalizedSessionId)
-  codexRunRuntime.start(runRecord)
+
+  try {
+    await runnerClient.startRun({
+      runId: runRecord.id,
+      taskSlug: normalizedTaskSlug,
+      sessionId: normalizedSessionId,
+      engine: session.engine,
+      prompt: normalizedPrompt,
+      promptBlocks: Array.isArray(promptBlocks) ? promptBlocks : [],
+      cwd: session.cwd,
+      title: session.title,
+      codexThreadId: session.codexThreadId,
+      engineSessionId: session.engineSessionId,
+      engineThreadId: session.engineThreadId,
+      engineMeta: session.engineMeta,
+      sessionCreatedAt: session.createdAt,
+      sessionUpdatedAt: session.updatedAt,
+    })
+    updateCodexRunFromRunnerStatus(runRecord.id, {
+      status: 'starting',
+      startedAt: new Date().toISOString(),
+    })
+  } catch (error) {
+    const failedRun = updateCodexRunFromRunnerStatus(runRecord.id, {
+      status: 'error',
+      errorMessage: error.message || 'Runner 启动失败。',
+      finishedAt: new Date().toISOString(),
+    })
+    broadcastServerEvent('runs.changed', {
+      taskSlug: normalizedTaskSlug,
+      runId: failedRun?.id || runRecord.id,
+    })
+    throw error
+  }
 
   broadcastServerEvent('tasks.changed', {
     taskSlug: normalizedTaskSlug,
@@ -298,32 +346,6 @@ function startTaskRunForTask({ taskSlug = '', sessionId = '', prompt = '', promp
   }
 }
 
-const codexRunRuntime = createAgentRunRuntime({
-  decorateSession: decorateCodexSession,
-  onRunEvent({ taskSlug, runId, event }) {
-    broadcastServerEvent('run.event', {
-      taskSlug,
-      runId,
-      event,
-    })
-  },
-  onRunUpdated({ taskSlug, runId }) {
-    broadcastServerEvent('runs.changed', {
-      taskSlug,
-      runId,
-    })
-    const run = getCodexRunById(runId)
-    if (run?.completed) {
-      taskAutomationService.notifyRun(taskSlug, runId).catch(() => {})
-    }
-  },
-  onSessionChanged({ sessionId }) {
-    broadcastServerEvent('sessions.changed', {
-      sessionId,
-    })
-  },
-})
-
 const taskAutomationService = createTaskAutomationService({
   logger: app.log,
   getRunningCodexRunByTaskSlug,
@@ -335,6 +357,35 @@ const taskAutomationService = createTaskAutomationService({
   getRunById: getCodexRunById,
   detailUrlBuilder: buildTaskDetailUrl,
 })
+
+const runRecoveryService = createRunRecoveryService({
+  logger: app.log,
+  broadcastServerEvent,
+  onRecoveredRun(run) {
+    taskAutomationService.notifyRun(run.taskSlug, run.id).catch(() => {})
+  },
+})
+const maintenanceService = createMaintenanceService({
+  logger: app.log,
+  tmpDir,
+})
+
+async function fetchRunnerDiagnostics() {
+  try {
+    const payload = await runnerClient.getDiagnostics()
+    return {
+      ok: true,
+      baseUrl: runnerClient.baseUrl,
+      runner: payload.runner || null,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      baseUrl: runnerClient.baseUrl,
+      message: String(error?.message || error || '无法读取 runner diagnostics'),
+    }
+  }
+}
 
 function buildServerAccessUrls(hostname, currentPort) {
   const normalizedHost = String(hostname || '').trim()
@@ -462,6 +513,40 @@ if (hasBuiltWebApp) {
 
 app.get('/health', async () => ({ ok: true }))
 
+app.post('/internal/runner-events', async (request, reply) => {
+  try {
+    assertInternalRequest(request.headers)
+    return runEventIngestService.ingestEvents(request.body?.items || [])
+  } catch (error) {
+    return reply.code(error.statusCode || 400).send({
+      message: error.message || 'Runner 事件写入失败。',
+    })
+  }
+})
+
+app.post('/internal/runner-status', async (request, reply) => {
+  try {
+    assertInternalRequest(request.headers)
+    const run = runEventIngestService.ingestStatus(request.body || {})
+    if (!run) {
+      return reply.code(404).send({ message: '没有找到对应的运行记录。' })
+    }
+
+    if (run.completed) {
+      taskAutomationService.notifyRun(run.taskSlug, run.id).catch(() => {})
+    }
+
+    return {
+      ok: true,
+      run,
+    }
+  } catch (error) {
+    return reply.code(error.statusCode || 400).send({
+      message: error.message || 'Runner 状态写入失败。',
+    })
+  }
+})
+
 app.get('/api/meta', async () => ({
   version: promptxVersion,
   expiryOptions: EXPIRY_OPTIONS,
@@ -471,6 +556,20 @@ app.get('/api/meta', async () => ({
 
 app.get('/api/relay/status', async () => ({
   relay: relayClient.getStatus(),
+}))
+
+app.get('/api/diagnostics/git-diff-worker', async () => ({
+  gitDiffWorker: getGitDiffWorkerDiagnostics(),
+}))
+
+app.get('/api/diagnostics/runtime', async () => ({
+  runner: await fetchRunnerDiagnostics(),
+  gitDiffWorker: getGitDiffWorkerDiagnostics(),
+  maintenance: maintenanceService.getDiagnostics(),
+}))
+
+app.post('/api/diagnostics/maintenance/run', async () => ({
+  maintenance: maintenanceService.runCleanup(),
 }))
 
 app.get('/api/relay/config', async () => ({
@@ -678,19 +777,28 @@ app.get('/api/tasks/:slug/git-diff', async (request, reply) => {
     return reply.code(400).send({ message: '无效的 diff 范围。' })
   }
 
-  return getTaskGitDiffReview(request.params.slug, {
-    scope,
-    runId: request.query?.runId,
-    filePath: request.query?.filePath,
-    includeFiles: String(request.query?.includeFiles || '').trim() !== 'false',
-    includeStats: String(request.query?.includeStats || '').trim() !== 'false',
-  })
+  try {
+    return await getTaskGitDiffReviewInSubprocess(request.params.slug, {
+      scope,
+      runId: request.query?.runId,
+      filePath: request.query?.filePath,
+      includeFiles: String(request.query?.includeFiles || '').trim() !== 'false',
+      includeStats: String(request.query?.includeStats || '').trim() !== 'false',
+    })
+  } catch (error) {
+    if (error?.statusCode) {
+      return reply.code(error.statusCode).send({
+        message: String(error?.message || 'git diff 计算失败。'),
+      })
+    }
+    throw error
+  }
 })
 
 app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
   purgeExpiredContent()
   try {
-    const payload = startTaskRunForTask({
+    const payload = await startTaskRunForTask({
       taskSlug: request.params.slug,
       sessionId: request.body?.sessionId,
       prompt: request.body?.prompt,
@@ -699,6 +807,10 @@ app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
     return reply.code(201).send(payload)
   } catch (error) {
     const message = String(error?.message || '')
+    if (error?.statusCode) {
+      const statusCode = error.statusCode >= 500 ? 503 : error.statusCode
+      return reply.code(statusCode).send({ message })
+    }
     if (message.includes('请先选择') || message.includes('没有可发送')) {
       return reply.code(400).send({ message })
     }
@@ -918,27 +1030,38 @@ app.post('/api/codex/runs/:runId/stop', async (request, reply) => {
     return reply.code(404).send({ message: '没有找到对应的执行记录。' })
   }
 
-  if (runRecord.status !== 'running') {
+  if (!isActiveRunStatus(runRecord.status) || runRecord.status === 'stopping') {
     return { run: runRecord }
   }
 
-  const controller = codexRunRuntime.getController(request.params.runId)
-  if (!controller) {
-    const stoppedRun = updateCodexRun(request.params.runId, {
-      status: 'stopped',
+  const stoppingRun = updateCodexRunFromRunnerStatus(request.params.runId, {
+    status: 'stopping',
+  })
+
+  broadcastServerEvent('runs.changed', {
+    taskSlug: stoppingRun?.taskSlug,
+    runId: request.params.runId,
+  })
+  broadcastServerEvent('sessions.changed', {
+    sessionId: stoppingRun?.sessionId,
+  })
+
+  runnerClient.stopRun(request.params.runId, {
+    reason: String(request.body?.reason || 'user_requested').trim() || 'user_requested',
+    forceAfterMs: request.body?.forceAfterMs,
+  }).catch((error) => {
+    app.log.error(error)
+    const erroredRun = updateCodexRunFromRunnerStatus(request.params.runId, {
+      status: 'error',
+      errorMessage: error.message || 'Runner 停止请求失败。',
       finishedAt: new Date().toISOString(),
     })
     broadcastServerEvent('runs.changed', {
-      taskSlug: stoppedRun?.taskSlug,
+      taskSlug: erroredRun?.taskSlug || stoppingRun?.taskSlug,
       runId: request.params.runId,
     })
-    broadcastServerEvent('sessions.changed', {
-      sessionId: stoppedRun?.sessionId,
-    })
-    return { run: stoppedRun }
-  }
+  })
 
-  controller.cancel()
   return reply.code(202).send({
     run: getCodexRunById(request.params.runId),
   })
@@ -981,62 +1104,68 @@ app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
 
   const writeMessage = (payload) => {
     if (reply.raw.destroyed || reply.raw.writableEnded) {
-      return
+      return false
     }
 
     try {
-      reply.raw.write(`${JSON.stringify(payload)}
-`)
+      reply.raw.write(`${JSON.stringify(payload)}\n`)
+      return true
     } catch {
-      // Ignore write failures after the client disconnects.
+      return false
     }
   }
 
+  let lastSentSeq = Math.max(0, Number(request.query?.afterSeq) || 0)
+  let pollTimer = null
+
   const closeStream = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
     if (!reply.raw.destroyed && !reply.raw.writableEnded) {
       reply.raw.end()
     }
   }
 
-  writeMessage({
-    type: 'run',
-    run: runRecord,
-  })
+  const flushRunState = () => {
+    const latestRun = getCodexRunById(request.params.runId)
+    if (!latestRun) {
+      closeStream()
+      return
+    }
 
-  const afterSeq = Math.max(0, Number(request.query?.afterSeq) || 0)
-  const existingEvents = listCodexRunEvents(request.params.runId, {
-    afterSeq,
-  }) || []
-
-  existingEvents.forEach((event) => {
-    writeMessage({
-      type: 'event',
-      event,
-    })
-  })
-
-  const latestRun = getCodexRunById(request.params.runId)
-  if (!latestRun || latestRun.status !== 'running' || !codexRunRuntime.getController(request.params.runId)) {
     writeMessage({
       type: 'run',
-      run: latestRun || runRecord,
+      run: latestRun,
     })
-    closeStream()
-    return
-  }
 
-  const unsubscribe = codexRunRuntime.subscribe(request.params.runId, (payload) => {
-    writeMessage(payload)
-    if (payload.type === 'close') {
+    const batchLimit = 500
+    const nextEvents = listCodexRunEvents(request.params.runId, {
+      afterSeq: lastSentSeq,
+      limit: batchLimit,
+    }) || []
+
+    nextEvents.forEach((event) => {
+      lastSentSeq = Math.max(lastSentSeq, Number(event.seq) || 0)
+      writeMessage({
+        type: 'event',
+        event,
+      })
+    })
+
+    if (!isActiveRunStatus(latestRun.status) && nextEvents.length < batchLimit) {
       closeStream()
     }
-  })
-
-  const handleAbort = () => {
-    unsubscribe()
   }
 
-  reply.raw.on('close', handleAbort)
+  flushRunState()
+  if (!reply.raw.destroyed && !reply.raw.writableEnded && isActiveRunStatus(getCodexRunById(request.params.runId)?.status)) {
+    pollTimer = setInterval(flushRunState, 350)
+    pollTimer.unref?.()
+  }
+
+  reply.raw.on('close', closeStream)
 })
 
 app.get('/api/tasks/:slug/raw', async (request, reply) => {
@@ -1067,7 +1196,6 @@ app.setErrorHandler((error, request, reply) => {
   reply.code(error.statusCode || 500).send({ message })
 })
 
-markInterruptedCodexRuns()
 purgeExpiredContent(true)
 
 app.listen({ port, host }).then(() => {
@@ -1075,7 +1203,9 @@ app.listen({ port, host }).then(() => {
   buildServerAccessUrls(host, port).forEach((message) => {
     app.log.info(message)
   })
+  runRecoveryService.start()
   taskAutomationService.start()
+  maintenanceService.start()
   relayClient.start()
 })
 

@@ -401,7 +401,7 @@ defineExpose({
               >
                 {{ turn.eventsLoaded ? `已折叠 ${getTurnEventCount(turn)} 条过程日志` : `共 ${getTurnEventCount(turn)} 条过程日志，展开后加载` }}
               </div>
-              <p v-else class="mt-3 text-xs text-current/80">{{ turn.status === 'running' ? `正在等待 ${getTurnAgentLabel(turn)} 返回事件...` : '本轮没有记录执行过程。' }}</p>
+              <p v-else class="mt-3 text-xs text-current/80">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? `正在等待 ${getTurnAgentLabel(turn)} 返回事件...` : '本轮没有记录执行过程。' }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
                 class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"

@@ -96,3 +96,65 @@ test('listTaskCodexRunsWithOptions 支持 events=none|latest|all，并兼容旧�
     }
   }
 })
+
+test('listStaleActiveCodexRuns 会把最近事件视为运行活跃信号', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-codex-stale-'))
+  const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+  fs.mkdirSync(dataDir, { recursive: true })
+  process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
+
+  try {
+    const { run } = await import('./db.js')
+    const {
+      appendCodexRunEvent,
+      listStaleActiveCodexRuns,
+    } = await import(`./codexRuns.js?test=${Date.now() + 1}`)
+
+    const suffix = Date.now().toString(36)
+    const staleAt = new Date(Date.now() - 60_000).toISOString()
+    const now = new Date().toISOString()
+    const taskSlug = `task-${suffix}`
+    const sessionId = `session-${suffix}`
+    const activeRunId = `run-active-${suffix}`
+    const staleRunId = `run-stale-${suffix}`
+
+    run(
+      `INSERT INTO tasks (slug, edit_token, title, auto_title, last_prompt_preview, codex_session_id, visibility, expires_at, created_at, updated_at)
+       VALUES (?, ?, '', '', '', ?, 'private', NULL, ?, ?)`,
+      [taskSlug, `token-${suffix}`, sessionId, now, now]
+    )
+    run(
+      `INSERT INTO codex_sessions (id, title, cwd, codex_thread_id, created_at, updated_at)
+       VALUES (?, ?, ?, '', ?, ?)`,
+      [sessionId, 'Session 1', tempDir, now, now]
+    )
+    run(
+      `INSERT INTO codex_runs (id, task_slug, session_id, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at)
+       VALUES (?, ?, ?, ?, '[]', 'running', '', '', ?, ?, ?, NULL)`,
+      [activeRunId, taskSlug, sessionId, 'hello', staleAt, staleAt, staleAt]
+    )
+    run(
+      `INSERT INTO codex_runs (id, task_slug, session_id, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at)
+       VALUES (?, ?, ?, ?, '[]', 'running', '', '', ?, ?, ?, NULL)`,
+      [staleRunId, taskSlug, sessionId, 'hello again', staleAt, staleAt, staleAt]
+    )
+
+    appendCodexRunEvent(activeRunId, {
+      type: 'stdout',
+      text: 'heartbeat',
+    }, 1)
+
+    const staleRuns = listStaleActiveCodexRuns(1000)
+    assert.deepEqual(staleRuns.map((item) => item.id), [staleRunId])
+  } finally {
+    process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
+  }
+})

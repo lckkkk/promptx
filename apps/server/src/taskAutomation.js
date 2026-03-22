@@ -206,10 +206,10 @@ function shouldNotifyRun(task = {}, run = {}) {
   }
 
   if (trigger === TASK_NOTIFICATION_TRIGGERS.ERROR) {
-    return status === 'error'
+    return status === 'error' || status === 'stop_timeout'
   }
 
-  return ['completed', 'error', 'stopped', 'interrupted'].includes(status)
+  return ['completed', 'error', 'stopped', 'interrupted', 'stop_timeout'].includes(status)
 }
 
 function summarizeRunMessage(run = {}) {

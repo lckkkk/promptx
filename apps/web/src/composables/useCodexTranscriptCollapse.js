@@ -1,4 +1,5 @@
 import { ref, watch } from 'vue'
+import { isTurnActiveStatus } from './codexSessionPanelTurns.js'
 
 const PROMPT_COLLAPSE_MAX_LINES = 8
 const PROMPT_COLLAPSE_MAX_CHARS = 320
@@ -39,7 +40,7 @@ export function useCodexTranscriptCollapse(options = {}) {
   }
 
   function shouldCollapseTurn(turn) {
-    return turn?.status !== 'running'
+    return !isTurnActiveStatus(turn?.status)
       && !isLatestTurn(turn)
       && getTurnEventCount(turn) > 3
   }
@@ -49,7 +50,7 @@ export function useCodexTranscriptCollapse(options = {}) {
   }
 
   function shouldCollapsePrompt(turn) {
-    return turn?.status !== 'running'
+    return !isTurnActiveStatus(turn?.status)
       && !isLatestTurn(turn)
       && canCollapsePrompt(turn)
   }

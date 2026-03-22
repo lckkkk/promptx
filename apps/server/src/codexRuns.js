@@ -11,7 +11,8 @@ import { captureRunGitBaseline, captureRunGitFinalSnapshot, captureTaskGitBaseli
 import { getTaskBySlug, updateTaskCodexSession } from './repository.js'
 import { assertAgentRunner } from './agents/index.js'
 
-const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted'])
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'starting', 'running', 'stopping'])
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'error', 'stopped', 'interrupted', 'stop_timeout'])
 const EVENT_FLUSH_DELAY_MS = 180
 
 const pendingRunEventsByRunId = new Map()
@@ -226,6 +227,10 @@ export function isTerminalRunStatus(status = '') {
   return TERMINAL_RUN_STATUSES.has(String(status || '').trim())
 }
 
+export function isActiveRunStatus(status = '') {
+  return ACTIVE_RUN_STATUSES.has(String(status || '').trim())
+}
+
 export function getCodexRunById(runId, options = {}) {
   flushPendingRunEvents(runId)
   const row = getRunRowById(runId)
@@ -337,6 +342,7 @@ export function createCodexRun(input = {}) {
   const sessionId = String(input.sessionId || '').trim()
   const prompt = String(input.prompt || '').trim()
   const promptBlocks = normalizePromptBlocks(input.promptBlocks)
+  const initialStatus = String(input.status || 'queued').trim() || 'queued'
 
   if (!taskSlug) {
     throw new Error('缺少任务。')
@@ -361,6 +367,7 @@ export function createCodexRun(input = {}) {
 
   const now = new Date().toISOString()
   const runId = `pxcr_${nanoid(12)}`
+  const startedAt = initialStatus === 'queued' ? null : now
 
   transaction(() => {
     run(
@@ -368,8 +375,8 @@ export function createCodexRun(input = {}) {
          id, task_slug, session_id, engine, prompt, prompt_blocks_json, status,
          response_message, error_message, created_at, updated_at, started_at, finished_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, 'running', '', '', ?, ?, ?, NULL)`,
-      [runId, task.slug, session.id, session.engine || 'codex', prompt, JSON.stringify(promptBlocks), now, now, now]
+       VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, NULL)`,
+      [runId, task.slug, session.id, session.engine || 'codex', prompt, JSON.stringify(promptBlocks), initialStatus, now, now, startedAt]
     )
   })
 
@@ -438,6 +445,69 @@ export function appendCodexRunEvent(runId, payloadOrSeq = {}, maybeSeqOrPayload 
   }
 }
 
+export function appendCodexRunEventAutoSeq(runId, payload = {}) {
+  const existingEvents = listCodexRunEvents(runId, { limit: 5000 }) || []
+  const nextSeq = existingEvents.length
+    ? Math.max(...existingEvents.map((item) => Number(item.seq) || 0)) + 1
+    : 1
+
+  return appendCodexRunEvent(runId, payload, nextSeq)
+}
+
+export function appendCodexRunEventsBatch(runId, items = []) {
+  const targetRun = getRunRowById(runId)
+  if (!targetRun) {
+    return null
+  }
+
+  flushPendingRunEvents(targetRun.id)
+
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const seq = Math.max(1, Number(item?.seq) || 0)
+      if (!seq) {
+        return null
+      }
+
+      const payload = item?.payload && typeof item.payload === 'object'
+        ? item.payload
+        : { type: 'event', message: String(item?.payload || '') }
+      const eventType = String(item?.type || payload.type || '').trim() || 'event'
+      const createdAt = String(item?.ts || item?.createdAt || '').trim() || new Date().toISOString()
+
+      return {
+        seq,
+        eventType,
+        payloadJson: JSON.stringify(payload),
+        createdAt,
+      }
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.seq - right.seq)
+
+  if (!normalizedItems.length) {
+    return []
+  }
+
+  transaction(() => {
+    normalizedItems.forEach((item) => {
+      run(
+        `INSERT OR IGNORE INTO codex_run_events (run_id, seq, event_type, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [targetRun.id, item.seq, item.eventType, item.payloadJson, item.createdAt]
+      )
+    })
+  })
+
+  return normalizedItems.map((item) => ({
+    id: 0,
+    seq: item.seq,
+    eventType: item.eventType,
+    payload: parseEventPayload(item.payloadJson),
+    createdAt: item.createdAt,
+  }))
+}
+
 export function updateCodexRun(runId, patch = {}) {
   const existing = getRunRowById(runId)
   if (!existing) {
@@ -454,6 +524,9 @@ export function updateCodexRun(runId, patch = {}) {
   const finishedAt = Object.prototype.hasOwnProperty.call(patch, 'finishedAt')
     ? String(patch.finishedAt || '')
     : String(existing.finished_at || '')
+  const startedAt = Object.prototype.hasOwnProperty.call(patch, 'startedAt')
+    ? String(patch.startedAt || '')
+    : String(existing.started_at || '')
   const updatedAt = patch.updatedAt || new Date().toISOString()
 
   if (isTerminalRunStatus(status) || finishedAt) {
@@ -464,28 +537,78 @@ export function updateCodexRun(runId, patch = {}) {
   transaction(() => {
     run(
       `UPDATE codex_runs
-       SET status = ?, response_message = ?, error_message = ?, finished_at = ?, updated_at = ?
+       SET status = ?, response_message = ?, error_message = ?, started_at = ?, finished_at = ?, updated_at = ?
        WHERE id = ?`,
-      [status, responseMessage, errorMessage, finishedAt || null, updatedAt, existing.id]
+      [status, responseMessage, errorMessage, startedAt || null, finishedAt || null, updatedAt, existing.id]
     )
   })
 
   return getCodexRunById(existing.id, { withEvents: true })
 }
 
+export function updateCodexRunFromRunnerStatus(runId, patch = {}) {
+  const existing = getRunRowById(runId)
+  if (!existing) {
+    return null
+  }
+
+  const status = String(patch.status || '').trim()
+  const nextPatch = {
+    ...(status ? { status } : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'responseMessage')
+      ? { responseMessage: patch.responseMessage }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'errorMessage')
+      ? { errorMessage: patch.errorMessage }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'startedAt')
+      ? { startedAt: patch.startedAt }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'finishedAt')
+      ? { finishedAt: patch.finishedAt }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(patch, 'updatedAt')
+      ? { updatedAt: patch.updatedAt }
+      : {}),
+  }
+
+  if (
+    !Object.prototype.hasOwnProperty.call(nextPatch, 'startedAt')
+    && (status === 'starting' || status === 'running')
+    && !String(existing.started_at || '').trim()
+  ) {
+    nextPatch.startedAt = new Date().toISOString()
+  }
+
+  if (
+    !Object.prototype.hasOwnProperty.call(nextPatch, 'finishedAt')
+    && isTerminalRunStatus(status)
+  ) {
+    nextPatch.finishedAt = new Date().toISOString()
+  }
+
+  return updateCodexRun(existing.id, nextPatch)
+}
+
 export function listRunningCodexSessionIds() {
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   return all(
     `SELECT DISTINCT session_id
      FROM codex_runs
-     WHERE status = 'running'`
+     WHERE status IN (${placeholders})`,
+    activeStatuses
   ).map((row) => String(row.session_id || '').trim()).filter(Boolean)
 }
 
 export function listRunningCodexTaskSlugs() {
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   return all(
     `SELECT DISTINCT task_slug
      FROM codex_runs
-     WHERE status = 'running'`
+     WHERE status IN (${placeholders})`,
+    activeStatuses
   ).map((row) => String(row.task_slug || '').trim()).filter(Boolean)
 }
 
@@ -495,14 +618,16 @@ export function getRunningCodexRunBySessionId(sessionId) {
     return null
   }
 
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   const row = get(
     `SELECT id, task_slug, session_id, engine, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE session_id = ?
-       AND status = 'running'
+       AND status IN (${placeholders})
      ORDER BY created_at DESC
      LIMIT 1`,
-    [targetId]
+    [targetId, ...activeStatuses]
   )
 
   return toCodexRun(row)
@@ -514,14 +639,16 @@ export function getRunningCodexRunByTaskSlug(taskSlug) {
     return null
   }
 
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   const row = get(
     `SELECT id, task_slug, session_id, engine, prompt, prompt_blocks_json, status, response_message, error_message, created_at, updated_at, started_at, finished_at
      FROM codex_runs
      WHERE task_slug = ?
-       AND status = 'running'
+       AND status IN (${placeholders})
      ORDER BY created_at DESC
      LIMIT 1`,
-    [targetSlug]
+    [targetSlug, ...activeStatuses]
   )
 
   return toCodexRun(row)
@@ -533,16 +660,70 @@ export function hasRunningCodexRunsForTask(taskSlug) {
     return false
   }
 
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   return Boolean(
     get(
       `SELECT 1
        FROM codex_runs
        WHERE task_slug = ?
-         AND status = 'running'
+         AND status IN (${placeholders})
        LIMIT 1`,
-      [task.slug]
+      [task.slug, ...activeStatuses]
     )
   )
+}
+
+export function listStaleActiveCodexRuns(maxAgeMs = 20000, now = new Date()) {
+  flushPendingRunEvents()
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
+  const referenceTime = now instanceof Date ? now : new Date(now)
+  const cutoff = new Date(referenceTime.getTime() - Math.max(1000, Number(maxAgeMs) || 20000)).toISOString()
+  const lastActivityExpr = `CASE
+    WHEN MAX(events.created_at) IS NOT NULL AND MAX(events.created_at) > runs.updated_at
+      THEN MAX(events.created_at)
+    ELSE runs.updated_at
+  END`
+  const rows = all(
+    `SELECT
+       runs.id,
+       runs.task_slug,
+       runs.session_id,
+       runs.engine,
+       runs.prompt,
+       runs.prompt_blocks_json,
+       runs.status,
+       runs.response_message,
+       runs.error_message,
+       runs.created_at,
+       runs.updated_at,
+       runs.started_at,
+       runs.finished_at
+     FROM codex_runs AS runs
+     LEFT JOIN codex_run_events AS events
+       ON events.run_id = runs.id
+     WHERE runs.status IN (${placeholders})
+     GROUP BY
+       runs.id,
+       runs.task_slug,
+       runs.session_id,
+       runs.engine,
+       runs.prompt,
+       runs.prompt_blocks_json,
+       runs.status,
+       runs.response_message,
+       runs.error_message,
+       runs.created_at,
+       runs.updated_at,
+       runs.started_at,
+       runs.finished_at
+     HAVING ${lastActivityExpr} <= ?
+     ORDER BY ${lastActivityExpr} ASC, runs.created_at ASC`,
+    [...activeStatuses, cutoff]
+  )
+
+  return rows.map((row) => toCodexRun(row))
 }
 
 export function deleteTaskCodexRuns(taskSlug) {
@@ -559,11 +740,14 @@ export function deleteTaskCodexRuns(taskSlug) {
 }
 
 export function markRunningCodexRunsInterrupted(message = '服务已重启，之前的执行已中断。') {
+  const activeStatuses = [...ACTIVE_RUN_STATUSES]
+  const placeholders = activeStatuses.map(() => '?').join(', ')
   const runningRuns = all(
     `SELECT id
      FROM codex_runs
-     WHERE status = 'running'
-     ORDER BY created_at ASC`
+     WHERE status IN (${placeholders})
+     ORDER BY created_at ASC`,
+    activeStatuses
   )
 
   runningRuns.forEach((row) => {

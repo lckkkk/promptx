@@ -29,6 +29,7 @@ function normalizeWorkspaceDiffSummary(summary = null) {
     fileCount: Math.max(0, Number(summary.fileCount) || 0),
     additions: Math.max(0, Number(summary.additions) || 0),
     deletions: Math.max(0, Number(summary.deletions) || 0),
+    statsComplete: Boolean(summary.statsComplete),
   }
 }
 

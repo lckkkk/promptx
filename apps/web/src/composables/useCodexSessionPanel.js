@@ -270,7 +270,7 @@ export function useCodexSessionPanel(props, emit) {
   }
 
   function getProcessCardClass(turn) {
-    if (turn.status === 'error') {
+    if (turn.status === 'error' || turn.status === 'stop_timeout') {
       return 'theme-process-error'
     }
     if (turn.status === 'interrupted' || turn.status === 'stopped') {

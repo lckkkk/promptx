@@ -464,11 +464,17 @@ export function streamPromptToOpenCodeSession(sessionInput, prompt, callbacks = 
       onEvent(createAgentEventEnvelopeEvent(normalizedEvent))
     })
 
-    if (String(event?.type || '').trim().toLowerCase() === 'text') {
+    const eventType = String(event?.type || '').trim().toLowerCase()
+
+    if (eventType === 'text') {
       const text = extractOpenCodeText(event)
       if (text) {
         finalMessage = `${finalMessage}${finalMessage ? '\n' : ''}${text}`
       }
+    }
+
+    if (eventType === 'error') {
+      lastErrorMessage = extractOpenCodeErrorMessage(event) || lastErrorMessage
     }
   }
 
@@ -520,8 +526,8 @@ export function streamPromptToOpenCodeSession(sessionInput, prompt, callbacks = 
   return {
     child,
     result,
-    cancel() {
-      forceStopChildProcess(child)
+    cancel(options = {}) {
+      forceStopChildProcess(child, options)
     },
   }
 }

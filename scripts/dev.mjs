@@ -1,8 +1,9 @@
-import { execFileSync, spawn } from 'node:child_process'
+﻿import { execFileSync, spawn } from 'node:child_process'
 import process from 'node:process'
 import path from 'node:path'
 
 const DEFAULT_SERVER_PORT = 3001
+const DEFAULT_RUNNER_PORT = 3002
 const DEFAULT_WEB_PORT = 5174
 const DEFAULT_HOST = '127.0.0.1'
 
@@ -72,6 +73,10 @@ async function main() {
     1,
     Number(process.env.PORT || process.env.PROMPTX_SERVER_PORT) || DEFAULT_SERVER_PORT
   )
+  const runnerPort = Math.max(
+    1,
+    Number(process.env.RUNNER_PORT || process.env.PROMPTX_RUNNER_PORT) || DEFAULT_RUNNER_PORT
+  )
   const webPort = Math.max(
     1,
     Number(process.env.WEB_PORT || process.env.PROMPTX_WEB_PORT) || DEFAULT_WEB_PORT
@@ -79,7 +84,8 @@ async function main() {
 
   console.log(`[promptx-dev] Web:    http://${host}:${webPort}`)
   console.log(`[promptx-dev] Server: http://${host}:${serverPort}`)
-  console.log('[promptx-dev] 按 Ctrl+C 可同时停止前后端。')
+  console.log(`[promptx-dev] Runner: http://${host}:${runnerPort}`)
+  console.log('[promptx-dev] 按 Ctrl+C 可同时停止前后端和 runner。')
 
   const pnpmCommand = resolvePnpmCommand()
   const serverProcess = spawnChild(
@@ -89,6 +95,20 @@ async function main() {
       HOST: host,
       PORT: String(serverPort),
       PROMPTX_SERVER_PORT: String(serverPort),
+      PROMPTX_RUNNER_PORT: String(runnerPort),
+      PROMPTX_RUNNER_BASE_URL: `http://${host}:${runnerPort}`,
+    }
+  )
+
+  const runnerProcess = spawnChild(
+    pnpmCommand,
+    ['--filter', '@promptx/runner', 'dev'],
+    {
+      HOST: host,
+      RUNNER_PORT: String(runnerPort),
+      PROMPTX_RUNNER_PORT: String(runnerPort),
+      PROMPTX_SERVER_PORT: String(serverPort),
+      PROMPTX_SERVER_BASE_URL: `http://${host}:${serverPort}`,
     }
   )
 
@@ -102,7 +122,7 @@ async function main() {
     }
   )
 
-  const children = [serverProcess, webProcess]
+  const children = [serverProcess, runnerProcess, webProcess]
   let shuttingDown = false
 
   const shutdown = (code = 0) => {
@@ -125,6 +145,14 @@ async function main() {
       return
     }
     console.error(`[promptx-dev] 后端已退出（code=${code ?? 'null'} signal=${signal ?? 'null'}）`)
+    shutdown(Number(code) || 1)
+  })
+
+  runnerProcess.on('exit', (code, signal) => {
+    if (shuttingDown) {
+      return
+    }
+    console.error(`[promptx-dev] Runner 已退出（code=${code ?? 'null'} signal=${signal ?? 'null'}）`)
     shutdown(Number(code) || 1)
   })
 

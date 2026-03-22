@@ -41,6 +41,7 @@ test('git diff review returns task and run scoped file changes for git workspace
       getGitDiffCacheDebugSnapshot,
       getTaskGitDiffReview,
       getWorkspaceGitDiffReviewByCwd,
+      getWorkspaceGitDiffStatusSummaryByCwd,
     } = await import(`./gitDiff.js?test=${Date.now()}`)
 
     const now = new Date().toISOString()
@@ -69,6 +70,7 @@ test('git diff review returns task and run scoped file changes for git workspace
 
     const workspaceDiff = getTaskGitDiffReview('task-1', { scope: 'workspace' })
     const workspaceDiffByCwd = getWorkspaceGitDiffReviewByCwd(repoDir)
+    const workspaceStatusSummary = getWorkspaceGitDiffStatusSummaryByCwd(repoDir)
     const taskDiffFast = getTaskGitDiffReview('task-1', { scope: 'task', includeStats: false })
     const taskDiffSummaryOnly = getTaskGitDiffReview('task-1', {
       scope: 'task',
@@ -86,6 +88,15 @@ test('git diff review returns task and run scoped file changes for git workspace
     assert.deepEqual(workspaceDiff.files.map((file) => `${file.status}:${file.path}`), ['A:new-file.txt', 'M:tracked.txt'])
     assert.deepEqual(workspaceDiffByCwd.summary, workspaceDiff.summary)
     assert.deepEqual(workspaceDiffByCwd.files.map((file) => `${file.status}:${file.path}`), workspaceDiff.files.map((file) => `${file.status}:${file.path}`))
+    assert.equal(workspaceStatusSummary.supported, true)
+    assert.equal(workspaceStatusSummary.branch, branchName)
+    assert.deepEqual(workspaceStatusSummary.summary, {
+      fileCount: 2,
+      additions: 0,
+      deletions: 0,
+      statsComplete: false,
+    })
+    assert.deepEqual(workspaceStatusSummary.files, [])
 
     assert.equal(taskDiff.supported, true)
     assert.equal(taskDiff.branch, branchName)

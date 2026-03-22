@@ -52,6 +52,7 @@ test('mergeTaskSummariesWithWorkspaceDiff preserves summary for same session', (
         fileCount: 3,
         additions: 10,
         deletions: 2,
+        statsComplete: true,
       },
     },
   ], [
@@ -66,6 +67,7 @@ test('mergeTaskSummariesWithWorkspaceDiff preserves summary for same session', (
     fileCount: 3,
     additions: 10,
     deletions: 2,
+    statsComplete: true,
   })
 })
 
@@ -79,6 +81,7 @@ test('mergeTaskSummariesWithWorkspaceDiff clears summary when session changes', 
         fileCount: 3,
         additions: 10,
         deletions: 2,
+        statsComplete: true,
       },
     },
   ], [
@@ -101,6 +104,7 @@ test('mergeTaskSummariesWithWorkspaceDiff clears summary when session is removed
         fileCount: 3,
         additions: 10,
         deletions: 2,
+        statsComplete: true,
       },
     },
   ], [

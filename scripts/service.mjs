@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+﻿import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { spawn } from 'node:child_process'
@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { resolvePromptxPaths } from '../apps/server/src/appPaths.js'
 
-const DEFAULT_PORT = 3000
+const DEFAULT_SERVER_PORT = 3000
+const DEFAULT_RUNNER_PORT = 3002
 const DEFAULT_HOST = '127.0.0.1'
 const STARTUP_TIMEOUT_MS = 15_000
 const STOP_TIMEOUT_MS = 8_000
@@ -17,6 +18,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const webDistDir = path.join(rootDir, 'apps', 'web', 'dist')
 const webIndexPath = path.join(webDistDir, 'index.html')
 const serverEntryPath = path.join(rootDir, 'apps', 'server', 'src', 'index.js')
+const runnerEntryPath = path.join(rootDir, 'apps', 'runner', 'src', 'index.js')
 
 function ensureRuntimeDir() {
   const { promptxHomeDir } = resolvePromptxPaths()
@@ -29,9 +31,9 @@ function getRuntimePaths() {
   const runtimeDir = ensureRuntimeDir()
   return {
     runtimeDir,
-    pidFile: path.join(runtimeDir, 'service.pid'),
     stateFile: path.join(runtimeDir, 'service.json'),
-    logFile: path.join(runtimeDir, 'service.log'),
+    serverLogFile: path.join(runtimeDir, 'server.log'),
+    runnerLogFile: path.join(runtimeDir, 'runner.log'),
   }
 }
 
@@ -40,16 +42,6 @@ function readJsonFile(filePath) {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'))
   } catch {
     return null
-  }
-}
-
-function readPid(filePath) {
-  try {
-    const value = fs.readFileSync(filePath, 'utf8').trim()
-    const pid = Number(value)
-    return Number.isInteger(pid) && pid > 0 ? pid : 0
-  } catch {
-    return 0
   }
 }
 
@@ -67,31 +59,35 @@ function isProcessAlive(pid) {
 }
 
 function removeRuntimeFiles() {
-  const { pidFile, stateFile } = getRuntimePaths()
-  fs.rmSync(pidFile, { force: true })
+  const { stateFile } = getRuntimePaths()
   fs.rmSync(stateFile, { force: true })
 }
 
 function getServiceState() {
-  const { pidFile, stateFile, logFile } = getRuntimePaths()
-  const pid = readPid(pidFile)
+  const { stateFile, serverLogFile, runnerLogFile } = getRuntimePaths()
   const state = readJsonFile(stateFile) || {}
+  const serverPid = Number(state?.server?.pid || 0)
+  const runnerPid = Number(state?.runner?.pid || 0)
+  const serverRunning = isProcessAlive(serverPid)
+  const runnerRunning = isProcessAlive(runnerPid)
 
-  if (!isProcessAlive(pid)) {
+  if (!serverRunning && !runnerRunning) {
     removeRuntimeFiles()
     return {
       running: false,
-      pid: 0,
-      state: null,
-      logFile,
+      server: null,
+      runner: null,
+      serverLogFile,
+      runnerLogFile,
     }
   }
 
   return {
-    running: true,
-    pid,
-    state,
-    logFile,
+    running: serverRunning || runnerRunning,
+    server: serverRunning ? state.server : null,
+    runner: runnerRunning ? state.runner : null,
+    serverLogFile,
+    runnerLogFile,
   }
 }
 
@@ -99,13 +95,13 @@ function getBaseUrl(host, port) {
   return `http://${host}:${port}`
 }
 
-async function waitForHealth(baseUrl, pid) {
+async function waitForHealth(baseUrl, pid, label) {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS
   const healthUrl = `${baseUrl}/health`
 
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) {
-      throw new Error('服务进程启动后很快退出。')
+      throw new Error(`${label} 进程启动后很快退出。`)
     }
 
     try {
@@ -120,7 +116,7 @@ async function waitForHealth(baseUrl, pid) {
     await delay(POLL_INTERVAL_MS)
   }
 
-  throw new Error('等待服务启动超时。')
+  throw new Error(`等待 ${label} 启动超时。`)
 }
 
 async function checkHealth(baseUrl) {
@@ -141,90 +137,27 @@ function tailLog(filePath, maxLines = 30) {
   }
 }
 
-async function startService() {
-  if (!fs.existsSync(webIndexPath)) {
-    throw new Error('没有找到前端构建产物，请先运行 `pnpm build`。')
-  }
-
-  const existing = getServiceState()
-  if (existing.running) {
-    const host = String(existing.state?.host || DEFAULT_HOST)
-    const port = Number(existing.state?.port || DEFAULT_PORT)
-    console.log(`[promptx] 已在运行：${getBaseUrl(host, port)}（PID ${existing.pid}）`)
-    return
-  }
-
-  const { pidFile, stateFile, logFile } = getRuntimePaths()
-  const host = String(process.env.HOST || DEFAULT_HOST).trim() || DEFAULT_HOST
-  const port = Math.max(1, Number(process.env.PORT || process.env.PROMPTX_SERVER_PORT) || DEFAULT_PORT)
-  const baseUrl = getBaseUrl(host, port)
-  const startedAt = new Date().toISOString()
-
-  if (await checkHealth(baseUrl)) {
-    throw new Error(`检测到 ${baseUrl} 已有服务在运行，请先释放端口或改用其他端口。`)
-  }
-
+function spawnDetached(entryPath, env, logFile) {
   const logFd = fs.openSync(logFile, 'a')
-
-  const child = spawn(process.execPath, [serverEntryPath], {
+  const child = spawn(process.execPath, [entryPath], {
     cwd: rootDir,
     detached: true,
     stdio: ['ignore', logFd, logFd],
     windowsHide: true,
     env: {
       ...process.env,
-      HOST: host,
-      PORT: String(port),
+      ...env,
     },
   })
-
   fs.closeSync(logFd)
   child.unref()
-
-  fs.writeFileSync(pidFile, `${child.pid}\n`, 'utf8')
-  fs.writeFileSync(stateFile, JSON.stringify({
-    pid: child.pid,
-    host,
-    port,
-    startedAt,
-    logFile,
-  }, null, 2))
-
-  try {
-    await waitForHealth(baseUrl, child.pid)
-    await delay(300)
-    if (!isProcessAlive(child.pid)) {
-      throw new Error(`服务进程已退出，通常是端口 ${port} 被占用或启动参数冲突。`)
-    }
-  } catch (error) {
-    if (isProcessAlive(child.pid)) {
-      try {
-        process.kill(child.pid, 'SIGTERM')
-      } catch {
-        // Ignore shutdown failure.
-      }
-    }
-
-    removeRuntimeFiles()
-    const recentLog = tailLog(logFile)
-    throw new Error([
-      error.message || '服务启动失败。',
-      recentLog ? `最近日志：\n${recentLog}` : '',
-    ].filter(Boolean).join('\n\n'))
-  }
-
-  console.log(`[promptx] 已后台启动：${baseUrl}`)
-  console.log(`[promptx] 日志文件：${logFile}`)
+  return child
 }
 
-async function stopService() {
-  const current = getServiceState()
-  if (!current.running) {
-    console.log('[promptx] 当前没有运行中的服务。')
+async function stopPid(pid) {
+  if (!isProcessAlive(pid)) {
     return
   }
-
-  const pid = current.pid
 
   try {
     process.kill(pid, 'SIGTERM')
@@ -237,8 +170,6 @@ async function stopService() {
   const deadline = Date.now() + STOP_TIMEOUT_MS
   while (Date.now() < deadline) {
     if (!isProcessAlive(pid)) {
-      removeRuntimeFiles()
-      console.log(`[promptx] 已停止服务（PID ${pid}）。`)
       return
     }
     await delay(POLL_INTERVAL_MS)
@@ -249,9 +180,119 @@ async function stopService() {
   } catch {
     // Ignore when process already exited.
   }
+}
+
+async function startService() {
+  if (!fs.existsSync(webIndexPath)) {
+    throw new Error('没有找到前端构建产物，请先运行 `pnpm build`。')
+  }
+
+  const existing = getServiceState()
+  if (existing.running) {
+    if (existing.server && existing.runner) {
+      console.log(`[promptx] Server 已在运行：${getBaseUrl(existing.server.host, existing.server.port)}（PID ${existing.server.pid}）`)
+      console.log(`[promptx] Runner 已在运行：${getBaseUrl(existing.runner.host, existing.runner.port)}（PID ${existing.runner.pid}）`)
+      return
+    }
+
+    console.log('[promptx] 检测到服务处于半启动状态，先执行一次清理重启。')
+    await stopService()
+  }
+
+  const { stateFile, serverLogFile, runnerLogFile } = getRuntimePaths()
+  const host = String(process.env.HOST || DEFAULT_HOST).trim() || DEFAULT_HOST
+  const serverPort = Math.max(1, Number(process.env.PORT || process.env.PROMPTX_SERVER_PORT) || DEFAULT_SERVER_PORT)
+  const runnerPort = Math.max(1, Number(process.env.RUNNER_PORT || process.env.PROMPTX_RUNNER_PORT) || DEFAULT_RUNNER_PORT)
+  const serverBaseUrl = getBaseUrl(host, serverPort)
+  const runnerBaseUrl = getBaseUrl(host, runnerPort)
+  const startedAt = new Date().toISOString()
+
+  if (await checkHealth(serverBaseUrl)) {
+    throw new Error(`检测到 ${serverBaseUrl} 已有服务在运行，请先释放端口或改用其他端口。`)
+  }
+  if (await checkHealth(runnerBaseUrl)) {
+    throw new Error(`检测到 ${runnerBaseUrl} 已有 runner 在运行，请先释放端口或改用其他端口。`)
+  }
+
+  const runner = spawnDetached(runnerEntryPath, {
+    HOST: host,
+    RUNNER_PORT: String(runnerPort),
+    PROMPTX_RUNNER_PORT: String(runnerPort),
+    PROMPTX_SERVER_PORT: String(serverPort),
+    PROMPTX_SERVER_BASE_URL: serverBaseUrl,
+  }, runnerLogFile)
+
+  try {
+    await waitForHealth(runnerBaseUrl, runner.pid, 'runner')
+  } catch (error) {
+    await stopPid(runner.pid).catch(() => {})
+    removeRuntimeFiles()
+    const recentLog = tailLog(runnerLogFile)
+    throw new Error([
+      error.message || 'runner 启动失败。',
+      recentLog ? `最近 runner 日志：\n${recentLog}` : '',
+    ].filter(Boolean).join('\n\n'))
+  }
+
+  const server = spawnDetached(serverEntryPath, {
+    HOST: host,
+    PORT: String(serverPort),
+    PROMPTX_SERVER_PORT: String(serverPort),
+    PROMPTX_RUNNER_PORT: String(runnerPort),
+    PROMPTX_RUNNER_BASE_URL: runnerBaseUrl,
+  }, serverLogFile)
+
+  try {
+    await waitForHealth(serverBaseUrl, server.pid, 'server')
+    await delay(300)
+    fs.writeFileSync(stateFile, JSON.stringify({
+      startedAt,
+      server: {
+        pid: server.pid,
+        host,
+        port: serverPort,
+      },
+      runner: {
+        pid: runner.pid,
+        host,
+        port: runnerPort,
+      },
+      serverLogFile,
+      runnerLogFile,
+    }, null, 2))
+  } catch (error) {
+    await stopPid(server.pid).catch(() => {})
+    await stopPid(runner.pid).catch(() => {})
+    removeRuntimeFiles()
+    const serverLog = tailLog(serverLogFile)
+    const runnerLog = tailLog(runnerLogFile)
+    throw new Error([
+      error.message || 'server 启动失败。',
+      serverLog ? `最近 server 日志：\n${serverLog}` : '',
+      runnerLog ? `最近 runner 日志：\n${runnerLog}` : '',
+    ].filter(Boolean).join('\n\n'))
+  }
+
+  console.log(`[promptx] Server 已后台启动：${serverBaseUrl}`)
+  console.log(`[promptx] Runner 已后台启动：${runnerBaseUrl}`)
+  console.log(`[promptx] Server 日志：${serverLogFile}`)
+  console.log(`[promptx] Runner 日志：${runnerLogFile}`)
+}
+
+async function stopService() {
+  const current = getServiceState()
+  if (!current.running) {
+    console.log('[promptx] 当前没有运行中的服务。')
+    return
+  }
+
+  await Promise.all([
+    current.server?.pid ? stopPid(current.server.pid) : Promise.resolve(),
+    current.runner?.pid ? stopPid(current.runner.pid) : Promise.resolve(),
+  ])
 
   removeRuntimeFiles()
-  console.log(`[promptx] 已强制停止服务（PID ${pid}）。`)
+  console.log('[promptx] Server 和 runner 已停止。')
 }
 
 async function restartService() {
@@ -266,15 +307,19 @@ function printStatus() {
     return
   }
 
-  const host = String(current.state?.host || DEFAULT_HOST)
-  const port = Number(current.state?.port || DEFAULT_PORT)
-  const startedAt = current.state?.startedAt || ''
-  console.log(`[promptx] 运行中：${getBaseUrl(host, port)}`)
-  console.log(`[promptx] PID：${current.pid}`)
-  if (startedAt) {
-    console.log(`[promptx] 启动时间：${startedAt}`)
+  if (current.server) {
+    console.log(`[promptx] Server：${getBaseUrl(current.server.host, current.server.port)}（PID ${current.server.pid}）`)
+    console.log(`[promptx] Server 日志：${current.serverLogFile}`)
+  } else {
+    console.log('[promptx] Server：未运行')
   }
-  console.log(`[promptx] 日志文件：${current.logFile}`)
+
+  if (current.runner) {
+    console.log(`[promptx] Runner：${getBaseUrl(current.runner.host, current.runner.port)}（PID ${current.runner.pid}）`)
+    console.log(`[promptx] Runner 日志：${current.runnerLogFile}`)
+  } else {
+    console.log('[promptx] Runner：未运行')
+  }
 }
 
 async function main() {
