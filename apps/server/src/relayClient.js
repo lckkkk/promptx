@@ -9,9 +9,17 @@ import {
   sanitizeProxyHeaders,
 } from './relayProtocol.js'
 
-const DEFAULT_RECONNECT_DELAY_MS = 3_000
+const DEFAULT_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
+const DEFAULT_HEALTH_CHECK_INTERVAL_MS = 10_000
+const DEFAULT_HEARTBEAT_TIMEOUT_MS = 65_000
+const DEFAULT_SLEEP_RESUME_THRESHOLD_MS = 45_000
 const MAX_RECENT_EVENTS = 200
 const REQUEST_CANCEL_REASON = 'relay_request_cancelled'
+const NON_RETRYABLE_CLOSE_REASONS = new Set([
+  'invalid_tenant',
+  'invalid_token',
+  'invalid_device',
+])
 
 function createDisabledStatus() {
   return {
@@ -27,6 +35,9 @@ function createDisabledStatus() {
     lastCloseReason: '',
     lastError: '',
     reconnectCount: 0,
+    reconnectPaused: false,
+    reconnectPausedReason: '',
+    nextReconnectDelayMs: 0,
     recentEvents: [],
   }
 }
@@ -49,6 +60,22 @@ function normalizeCloseReason(reason = '') {
   }
 
   return reasonMap[normalized] || normalized
+}
+
+function parseCloseReason(reason = '') {
+  const rawReason = Buffer.isBuffer(reason)
+    ? reason.toString('utf8').trim()
+    : String(reason || '').trim()
+
+  return {
+    rawReason,
+    closeReason: normalizeCloseReason(rawReason),
+  }
+}
+
+function getReconnectDelayMs(reconnectCount = 0) {
+  const normalizedCount = Math.max(1, Number(reconnectCount) || 1)
+  return DEFAULT_RECONNECT_DELAYS_MS[Math.min(normalizedCount - 1, DEFAULT_RECONNECT_DELAYS_MS.length - 1)]
 }
 
 function readRelayClientConfig({
@@ -85,6 +112,11 @@ function createRelayClient({
   localBaseUrl,
   logger = console,
   appVersion = '0.0.0',
+  reconnectDelayStrategy = getReconnectDelayMs,
+  healthCheckIntervalMs = DEFAULT_HEALTH_CHECK_INTERVAL_MS,
+  heartbeatTimeoutMs = DEFAULT_HEARTBEAT_TIMEOUT_MS,
+  sleepResumeThresholdMs = DEFAULT_SLEEP_RESUME_THRESHOLD_MS,
+  getNow = () => Date.now(),
 } = {}) {
   let config = readRelayClientConfig({
     relayUrl,
@@ -104,8 +136,11 @@ function createRelayClient({
   let socket = null
   let stopped = false
   let reconnectTimer = null
+  let healthCheckTimer = null
   let requestMap = new Map()
   let authenticated = false
+  let pendingReconnectSource = ''
+  let lastHealthCheckTickAt = 0
 
   function updateStatus(patch = {}) {
     Object.assign(status, patch)
@@ -113,7 +148,7 @@ function createRelayClient({
 
   function appendRecentEvent(type, extra = {}) {
     const nextEvent = {
-      at: new Date().toISOString(),
+      at: new Date(getNow()).toISOString(),
       type: String(type || '').trim() || 'unknown',
       ...extra,
     }
@@ -161,6 +196,60 @@ function createRelayClient({
       return
     }
     logger.error?.(message)
+  }
+
+  function nowIso() {
+    return new Date(getNow()).toISOString()
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  function clearHealthCheckTimer() {
+    if (healthCheckTimer) {
+      clearInterval(healthCheckTimer)
+      healthCheckTimer = null
+    }
+  }
+
+  function resetReconnectState() {
+    updateStatus({
+      reconnectCount: 0,
+      reconnectPaused: false,
+      reconnectPausedReason: '',
+      nextReconnectDelayMs: 0,
+    })
+  }
+
+  function getHeartbeatAgeMs(now = getNow()) {
+    const lastHeartbeatAt = Date.parse(status.lastHeartbeatAt || status.lastConnectedAt || '')
+    if (!Number.isFinite(lastHeartbeatAt)) {
+      return Number.POSITIVE_INFINITY
+    }
+    return Math.max(0, now - lastHeartbeatAt)
+  }
+
+  function shouldPauseReconnect(rawReason = '') {
+    return NON_RETRYABLE_CLOSE_REASONS.has(String(rawReason || '').trim())
+  }
+
+  function pauseReconnect(rawReason = '') {
+    const reason = normalizeCloseReason(rawReason)
+    updateStatus({
+      reconnectPaused: true,
+      reconnectPausedReason: reason || String(rawReason || '').trim(),
+      nextReconnectDelayMs: 0,
+    })
+    appendRecentEvent('reconnect_paused', {
+      reason: reason || String(rawReason || '').trim() || 'unknown',
+    })
+    logWarn('[relay] 检测到不可重试错误，已暂停自动重连', getLogContext({
+      reason: reason || String(rawReason || '').trim() || 'unknown',
+    }))
   }
 
   syncStatusFromConfig()
@@ -313,43 +402,142 @@ function createRelayClient({
     }
   }
 
-  function scheduleReconnect() {
-    if (stopped || reconnectTimer || !config.enabled) {
+  function connectWithRetry(source = 'start') {
+    return connect().catch((error) => {
+      updateStatus({
+        lastError: error?.message || 'Relay 连接失败。',
+      })
+      appendRecentEvent('connect_failed', {
+        source,
+        reconnectCount: Number(status.reconnectCount || 0),
+        error: error?.message || String(error || ''),
+      })
+      logError('[relay] 连接失败', getLogContext({
+        source,
+        reconnectCount: Number(status.reconnectCount || 0),
+        error: error?.message || String(error || ''),
+      }))
+      scheduleReconnect({ source })
+    })
+  }
+
+  function scheduleReconnect({ source = 'close' } = {}) {
+    if (stopped || reconnectTimer || !config.enabled || status.reconnectPaused) {
       return
     }
 
     const nextReconnectCount = Number(status.reconnectCount || 0) + 1
+    const reconnectInMs = Math.max(100, Number(reconnectDelayStrategy(nextReconnectCount)) || getReconnectDelayMs(nextReconnectCount))
     updateStatus({
       reconnectCount: nextReconnectCount,
+      nextReconnectDelayMs: reconnectInMs,
     })
     appendRecentEvent('reconnect_scheduled', {
-      reconnectInMs: DEFAULT_RECONNECT_DELAY_MS,
+      reconnectInMs,
       reconnectCount: nextReconnectCount,
       authenticated,
+      source,
     })
     logWarn('[relay] 已计划重连', getLogContext({
-      reconnectInMs: DEFAULT_RECONNECT_DELAY_MS,
+      reconnectInMs,
       reconnectCount: nextReconnectCount,
       authenticated,
+      source,
     }))
 
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
-      connect().catch((error) => {
-        updateStatus({
-          lastError: error?.message || 'Relay 连接失败。',
+      connectWithRetry(`reconnect:${source}`)
+    }, reconnectInMs)
+    reconnectTimer.unref?.()
+  }
+
+  function triggerReconnect(source = 'manual') {
+    if (stopped || !config.enabled) {
+      return false
+    }
+
+    clearReconnectTimer()
+    updateStatus({
+      reconnectPaused: false,
+      reconnectPausedReason: '',
+      nextReconnectDelayMs: 0,
+      lastError: '',
+    })
+    pendingReconnectSource = source
+    appendRecentEvent('reconnect_requested', {
+      source,
+      socketReadyState: socket?.readyState ?? 3,
+    })
+    logInfo('[relay] 收到重连请求', getLogContext({
+      source,
+      socketReadyState: socket?.readyState ?? 3,
+    }))
+
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      pendingReconnectSource = ''
+      connectWithRetry(source)
+      return true
+    }
+
+    try {
+      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+        socket.terminate()
+      } else {
+        socket.close(1012, `${source}_reconnect`)
+      }
+    } catch {
+      socket = null
+      authenticated = false
+      pendingReconnectSource = ''
+      connectWithRetry(source)
+    }
+
+    return true
+  }
+
+  function runHealthCheck() {
+    if (stopped || !config.enabled) {
+      return
+    }
+
+    const now = getNow()
+    const previousTickAt = lastHealthCheckTickAt
+    lastHealthCheckTickAt = now
+
+    if (previousTickAt > 0) {
+      const elapsedSinceLastTick = now - previousTickAt
+      if (elapsedSinceLastTick > sleepResumeThresholdMs) {
+        appendRecentEvent('system_resume_detected', {
+          elapsedMs: elapsedSinceLastTick,
         })
-        appendRecentEvent('reconnect_failed', {
-          reconnectCount: Number(status.reconnectCount || 0),
-          error: error?.message || String(error || ''),
-        })
-        logError('[relay] 重连失败', getLogContext({
-          reconnectCount: Number(status.reconnectCount || 0),
-          error: error?.message || String(error || ''),
+        logInfo('[relay] 检测到系统挂起/恢复，开始检查连接健康状态', getLogContext({
+          elapsedMs: elapsedSinceLastTick,
+          socketReadyState: socket?.readyState ?? 3,
+          connected: status.connected,
         }))
-        scheduleReconnect()
-      })
-    }, DEFAULT_RECONNECT_DELAY_MS)
+      }
+    }
+
+    if (socket?.readyState === WebSocket.OPEN && authenticated) {
+      const heartbeatAgeMs = getHeartbeatAgeMs(now)
+      if (heartbeatAgeMs > heartbeatTimeoutMs) {
+        appendRecentEvent('heartbeat_stale', {
+          heartbeatAgeMs,
+          heartbeatTimeoutMs,
+        })
+        logWarn('[relay] 心跳已过期，准备主动重连', getLogContext({
+          heartbeatAgeMs,
+          heartbeatTimeoutMs,
+        }))
+        triggerReconnect('heartbeat_timeout')
+        return
+      }
+    }
+
+    if (!socket && !reconnectTimer && !status.connected && !status.reconnectPaused) {
+      scheduleReconnect({ source: 'health_check_idle' })
+    }
   }
 
   async function connect() {
@@ -390,10 +578,11 @@ function createRelayClient({
 
       if (message?.type === 'hello.ack') {
         authenticated = true
+        resetReconnectState()
         updateStatus({
           connected: true,
-          lastConnectedAt: new Date().toISOString(),
-          lastHeartbeatAt: new Date().toISOString(),
+          lastConnectedAt: nowIso(),
+          lastHeartbeatAt: nowIso(),
           lastCloseCode: 0,
           lastCloseReason: '',
           lastError: '',
@@ -414,26 +603,28 @@ function createRelayClient({
 
     socket.on('ping', () => {
       updateStatus({
-        lastHeartbeatAt: new Date().toISOString(),
+        lastHeartbeatAt: nowIso(),
       })
     })
 
     socket.on('pong', () => {
       updateStatus({
-        lastHeartbeatAt: new Date().toISOString(),
+        lastHeartbeatAt: nowIso(),
       })
     })
 
     socket.on('close', (code, reason) => {
       const wasAuthenticated = authenticated
-      const closeReason = normalizeCloseReason(reason?.toString('utf8'))
+      const reconnectSource = pendingReconnectSource
+      pendingReconnectSource = ''
+      const { rawReason, closeReason } = parseCloseReason(reason)
       const nextError = closeReason && closeReason !== '配置已更新，正在重连'
         ? `${wasAuthenticated ? 'Relay 已断开' : 'Relay 连接被拒绝'}：${closeReason}`
         : (!wasAuthenticated && code && code !== 1000 ? `Relay 连接已关闭（code=${code}）` : '')
 
       updateStatus({
         connected: false,
-        lastDisconnectedAt: new Date().toISOString(),
+        lastDisconnectedAt: nowIso(),
         lastCloseCode: Number(code || 0),
         lastCloseReason: closeReason,
         ...(nextError ? { lastError: nextError } : {}),
@@ -441,7 +632,9 @@ function createRelayClient({
       appendRecentEvent('close', {
         code: Number(code || 0),
         reason: closeReason || '',
+        rawReason: rawReason || '',
         authenticated: wasAuthenticated,
+        reconnectSource: reconnectSource || '',
       })
       socket = null
       authenticated = false
@@ -449,8 +642,20 @@ function createRelayClient({
         code: Number(code || 0),
         reason: closeReason || 'none',
         authenticated: wasAuthenticated,
+        reconnectSource: reconnectSource || '',
       }))
-      scheduleReconnect()
+
+      if (reconnectSource) {
+        connectWithRetry(reconnectSource)
+        return
+      }
+
+      if (shouldPauseReconnect(rawReason)) {
+        pauseReconnect(rawReason)
+        return
+      }
+
+      scheduleReconnect({ source: rawReason || 'close' })
     })
 
     socket.on('error', (error) => {
@@ -469,6 +674,8 @@ function createRelayClient({
   return {
     start() {
       stopped = false
+      clearReconnectTimer()
+      clearHealthCheckTimer()
       if (!config.enabled) {
         syncStatusFromConfig()
         appendRecentEvent('disabled')
@@ -476,34 +683,29 @@ function createRelayClient({
         return
       }
 
-      connect().catch((error) => {
-        updateStatus({
-          lastError: error?.message || 'Relay 连接失败。',
-        })
-        appendRecentEvent('connect_failed', {
-          error: error?.message || String(error || ''),
-        })
-        logError('[relay] 初次连接失败', getLogContext({
-          error: error?.message || String(error || ''),
-        }))
-        scheduleReconnect()
-      })
+      lastHealthCheckTickAt = getNow()
+      healthCheckTimer = setInterval(() => {
+        runHealthCheck()
+      }, Math.max(20, Number(healthCheckIntervalMs) || DEFAULT_HEALTH_CHECK_INTERVAL_MS))
+      healthCheckTimer.unref?.()
+
+      connectWithRetry('start')
     },
     stop() {
       stopped = true
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = null
-      }
+      clearReconnectTimer()
+      clearHealthCheckTimer()
       requestMap.forEach((record) => {
         record.controller?.abort()
       })
       requestMap = new Map()
+      pendingReconnectSource = ''
       socket?.close()
       socket = null
       authenticated = false
       updateStatus({
         connected: false,
+        nextReconnectDelayMs: 0,
       })
       appendRecentEvent('stopped')
       logInfo('[relay] 已停止', getLogContext())
@@ -517,6 +719,9 @@ function createRelayClient({
       syncStatusFromConfig()
       updateStatus({
         lastError: '',
+        reconnectPaused: false,
+        reconnectPausedReason: '',
+        nextReconnectDelayMs: 0,
       })
       appendRecentEvent('config_updated', {
         previousEnabled,
@@ -543,6 +748,9 @@ function createRelayClient({
         this.start()
       }
     },
+    reconnect() {
+      return triggerReconnect('manual')
+    },
     getStatus() {
       return {
         ...status,
@@ -557,5 +765,6 @@ function createRelayClient({
 export {
   createDisabledStatus,
   createRelayClient,
+  getReconnectDelayMs,
   readRelayClientConfig,
 }

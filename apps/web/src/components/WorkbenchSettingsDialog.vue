@@ -6,6 +6,7 @@ import ThemeToggle from './ThemeToggle.vue'
 import {
   getMeta,
   getRelayConfig,
+  reconnectRelay,
   getRuntimeDiagnostics,
   getSystemConfig,
   updateRelayConfig,
@@ -25,6 +26,7 @@ const versionLoading = ref(false)
 const versionError = ref('')
 const relayLoading = ref(false)
 const relaySaving = ref(false)
+const relayReconnecting = ref(false)
 const relayError = ref('')
 const relaySuccess = ref('')
 const systemLoading = ref(false)
@@ -85,14 +87,23 @@ const settingsSections = [
 ]
 
 const relayStatusLabel = computed(() => {
+  if (relayReconnecting.value) {
+    return '重连中...'
+  }
   if (relaySaving.value || relayToggleSaving.value) {
     return '保存中...'
   }
   if (relayLoading.value) {
     return '读取中...'
   }
+  if (relayStatus.value?.reconnectPaused) {
+    return '已暂停重连'
+  }
   if (relayStatus.value?.connected) {
     return '已连接'
+  }
+  if ((relayStatus.value?.enabled ?? relayForm.enabled) && Number(relayStatus.value?.nextReconnectDelayMs || 0) > 0) {
+    return '等待重连'
   }
   if (relayForm.enabled) {
     return '未连接'
@@ -101,6 +112,9 @@ const relayStatusLabel = computed(() => {
 })
 
 const relayStatusClass = computed(() => {
+  if (relayStatus.value?.reconnectPaused) {
+    return 'theme-status-danger'
+  }
   if (relayStatus.value?.connected) {
     return 'theme-status-success'
   }
@@ -322,6 +336,25 @@ async function handleSaveRelay() {
     relayError.value = error?.message || '远程访问配置保存失败。'
   } finally {
     relaySaving.value = false
+  }
+}
+
+async function handleReconnectRelay() {
+  relayReconnecting.value = true
+  relayError.value = ''
+  relaySuccess.value = ''
+
+  try {
+    const payload = await reconnectRelay()
+    relayStatus.value = payload?.relay || null
+    relaySuccess.value = '已触发重连，PromptX 正在重新建立 Relay 连接。'
+    setTimeout(() => {
+      loadRelayConfig()
+    }, 1200)
+  } catch (error) {
+    relayError.value = error?.message || '触发 Relay 重连失败。'
+  } finally {
+    relayReconnecting.value = false
   }
 }
 
@@ -645,6 +678,12 @@ onBeforeUnmount(() => {
                 <div class="settings-form-footer flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0 space-y-1">
                     <p
+                      v-if="relayStatus?.reconnectPausedReason"
+                      class="theme-danger-text theme-note-text"
+                    >
+                      当前已暂停自动重连：{{ relayStatus.reconnectPausedReason }}
+                    </p>
+                    <p
                       v-if="relayManagedByEnv"
                       class="theme-status-warning theme-note-text"
                     >
@@ -691,7 +730,16 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
-                      :disabled="relayLoading"
+                      :disabled="relayLoading || relaySaving || relayToggleSaving || relayReconnecting || !(relayStatus?.enabled ?? relayForm.enabled)"
+                      @click="handleReconnectRelay"
+                    >
+                      <LoaderCircle v-if="relayReconnecting" class="h-4 w-4 animate-spin" />
+                      <span>{{ relayReconnecting ? '重连中...' : '立即重连' }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+                      :disabled="relayLoading || relayReconnecting"
                       @click="handleCopyRelayDiagnostics"
                     >
                       <span>{{ relayCopied ? '已复制诊断信息' : '复制 Relay 诊断信息' }}</span>
@@ -699,7 +747,7 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
-                      :disabled="relayLoading || relaySaving || relayToggleSaving || relayManagedByEnv"
+                      :disabled="relayLoading || relaySaving || relayToggleSaving || relayReconnecting || relayManagedByEnv"
                       @click="handleSaveRelay"
                     >
                       <LoaderCircle v-if="relaySaving" class="h-4 w-4 animate-spin" />

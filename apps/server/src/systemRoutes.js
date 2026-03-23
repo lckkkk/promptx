@@ -122,6 +122,22 @@ function registerSystemRoutes(app, options = {}) {
     }
   })
 
+  app.post('/api/relay/reconnect', async (request, reply) => {
+    const status = relayClient.getStatus()
+    if (!status.enabled) {
+      return reply.code(400).send({
+        message: '当前远程访问尚未启用，请先保存完整的 Relay 配置。',
+        relay: status,
+      })
+    }
+
+    relayClient.reconnect()
+    return {
+      ok: true,
+      relay: relayClient.getStatus(),
+    }
+  })
+
   app.get('/internal/system-config', async (request, reply) => {
     try {
       assertInternalRequest(request.headers)

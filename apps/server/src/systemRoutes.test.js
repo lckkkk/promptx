@@ -22,6 +22,7 @@ function createTestServices(overrides = {}) {
     promptxVersion: '1.2.3',
     relayClient: {
       getStatus: () => ({ enabled: false }),
+      reconnect: () => true,
       updateConfig: (payload) => {
         relayUpdates.push(payload)
       },
@@ -205,5 +206,46 @@ test('runtime diagnostics degrade gracefully when runner diagnostics fail', asyn
     assert.deepEqual(payload.gitDiffWorker, { healthy: true })
     assert.deepEqual(payload.recovery, { recoveredRuns: 0 })
     assert.deepEqual(payload.maintenance, { lastCleanupAt: null })
+  })
+})
+
+test('relay reconnect endpoint triggers client reconnect when enabled', async (t) => {
+  let reconnectCalled = 0
+  await withTestApp(t, {
+    relayClient: {
+      getStatus: () => ({ enabled: true, connected: false }),
+      reconnect: () => {
+        reconnectCalled += 1
+        return true
+      },
+      updateConfig: () => {},
+    },
+  }, async ({ app }) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/relay/reconnect',
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().ok, true)
+    assert.equal(reconnectCalled, 1)
+  })
+})
+
+test('relay reconnect endpoint rejects when relay is disabled', async (t) => {
+  await withTestApp(t, {
+    relayClient: {
+      getStatus: () => ({ enabled: false, connected: false }),
+      reconnect: () => true,
+      updateConfig: () => {},
+    },
+  }, async ({ app }) => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/relay/reconnect',
+    })
+
+    assert.equal(response.statusCode, 400)
+    assert.match(response.json().message, /尚未启用/)
   })
 })

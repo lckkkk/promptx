@@ -12,3 +12,9 @@ export function updateRelayConfig(payload) {
     body: JSON.stringify(payload),
   })
 }
+
+export function reconnectRelay() {
+  return request('/api/relay/reconnect', {
+    method: 'POST',
+  })
+}

@@ -11,6 +11,7 @@ export {
 } from './taskApi.js'
 export {
   getRelayConfig,
+  reconnectRelay,
   updateRelayConfig,
 } from './relayApi.js'
 export {
