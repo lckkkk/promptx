@@ -13,6 +13,7 @@ import {
   createTranscriptFixture,
   openWorkbenchTask,
   readTranscriptState,
+  shutdownPromptxE2EStack,
 } from './helpers.js'
 
 test('执行过程面板遵循 IM 式滚动跟随规则', async (t) => {
@@ -28,8 +29,9 @@ test('执行过程面板遵循 IM 式滚动跟随规则', async (t) => {
     status: 'running',
   })
 
-  t.after(() => {
+  t.after(async () => {
     fixture.cleanup()
+    await shutdownPromptxE2EStack()
   })
 
   const threadId = 'thread-e2e-scroll'

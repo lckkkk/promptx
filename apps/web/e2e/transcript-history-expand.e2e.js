@@ -14,6 +14,7 @@ import {
   buildTurnStartedEvent,
   createTranscriptFixture,
   openWorkbenchTask,
+  shutdownPromptxE2EStack,
 } from './helpers.js'
 import { createCodexRun, updateCodexRun } from '../../server/src/codexRuns.js'
 
@@ -25,8 +26,9 @@ test('历史 turn 展开后会拉取并展示执行过程', async (t) => {
     status: 'completed',
   })
 
-  t.after(() => {
+  t.after(async () => {
     fixture.cleanup()
+    await shutdownPromptxE2EStack()
   })
 
   const latestRun = createCodexRun({

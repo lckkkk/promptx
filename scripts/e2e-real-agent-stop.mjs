@@ -17,11 +17,14 @@ const RUN_START_TIMEOUT_MS = Math.max(10000, Number(process.env.PROMPTX_REAL_STO
 const STOP_FINAL_TIMEOUT_MS = Math.max(10000, Number(process.env.PROMPTX_REAL_STOP_FINAL_TIMEOUT_MS) || 30000)
 const STOP_FORCE_AFTER_MS = Math.max(200, Number(process.env.PROMPTX_REAL_STOP_FORCE_AFTER_MS) || 1500)
 const PID_EXIT_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_REAL_STOP_PID_EXIT_TIMEOUT_MS) || 10000)
+const PID_FILE_AFTER_EVIDENCE_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_REAL_STOP_PID_FILE_TIMEOUT_MS) || 10000)
 const SSE_CONNECT_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_REAL_SSE_CONNECT_TIMEOUT_MS) || 5000)
+const LONG_TASK_EVIDENCE_TIMEOUT_MS = Math.max(15000, Number(process.env.PROMPTX_REAL_STOP_EVIDENCE_TIMEOUT_MS) || 45000)
 const VERIFY_SSE = String(process.env.PROMPTX_REAL_VERIFY_SSE || '1') !== '0'
 const REQUESTED_ENGINES = String(process.env.PROMPTX_REAL_ENGINES || '').trim()
 const DEFAULT_ENGINE_BINS = {
   codex: process.env.CODEX_BIN || 'codex',
+  'claude-code': process.env.CLAUDE_CODE_BIN || 'claude',
   opencode: process.env.OPENCODE_BIN || 'opencode',
 }
 
@@ -241,6 +244,18 @@ function buildLongRunPrompt(engine = 'codex') {
     ].join('\n')
   }
 
+  if (engine === 'claude-code') {
+    return [
+      'You are running a PromptX stop-path integration test.',
+      'Use the Bash tool immediately as your first and only tool action before the command exits.',
+      'Run exactly this command and nothing else: node long-runner.js',
+      'Do not read, summarize, search, or edit any file before running the command.',
+      'After the command starts, keep waiting and do not stop it yourself.',
+      'Do not send any assistant text before the command exits naturally.',
+      'After the command exits naturally, reply with exactly: LONG_RUNNER_DONE_ACK',
+    ].join('\n')
+  }
+
   return [
     '你正在执行 PromptX 的真实停止链路集成测试。',
     '不要先读文件，也不要先总结。',
@@ -318,7 +333,7 @@ async function waitForRunActive(baseUrl, taskSlug, runId) {
   )
 }
 
-async function waitForLongTaskEvidence(baseUrl, runId, pidFile, evidenceTimeoutMs = 15000) {
+async function waitForLongTaskEvidence(baseUrl, runId, pidFile, evidenceTimeoutMs = LONG_TASK_EVIDENCE_TIMEOUT_MS) {
   return waitFor(
     async () => {
       const pidExists = fs.existsSync(pidFile)
@@ -358,6 +373,14 @@ async function waitForProcessExit(pid) {
   )
 }
 
+async function waitForPidFile(pidFile) {
+  return waitFor(
+    async () => (fs.existsSync(pidFile) ? true : null),
+    PID_FILE_AFTER_EVIDENCE_TIMEOUT_MS,
+    `pid file was not created after long task evidence appeared: ${pidFile}`
+  )
+}
+
 async function runStopScenarioForEngine(harness, engine, sseCollector) {
   const workspace = createLongTaskWorkspace(harness.tempRoot, engine)
   const task = await createTask(harness.serverBaseUrl, engine)
@@ -387,6 +410,16 @@ async function runStopScenarioForEngine(harness, engine, sseCollector) {
   } catch (error) {
     if (engine !== 'opencode') {
       throw error
+    }
+  }
+
+  if (!fs.existsSync(workspace.pidFile) && evidence) {
+    try {
+      await waitForPidFile(workspace.pidFile)
+    } catch (error) {
+      if (engine !== 'opencode') {
+        throw error
+      }
     }
   }
 

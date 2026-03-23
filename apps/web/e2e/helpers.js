@@ -28,7 +28,9 @@ const DEFAULT_API_URL_CANDIDATES = Array.from(new Set([
 
 let promptxStackPromise = null
 let promptxStackChild = null
+let promptxStackManaged = false
 let promptxStackLogTail = ''
+let promptxStackCleanupHandlers = null
 
 function appendPromptxStackLog(chunk = '') {
   const next = `${promptxStackLogTail}${String(chunk || '')}`
@@ -68,18 +70,81 @@ async function resolveReachableApiUrl(candidates = DEFAULT_API_URL_CANDIDATES) {
   return null
 }
 
+function resetPromptxE2EStackState() {
+  if (promptxStackChild?.stdout) {
+    promptxStackChild.stdout.removeAllListeners('data')
+  }
+  if (promptxStackChild?.stderr) {
+    promptxStackChild.stderr.removeAllListeners('data')
+  }
+
+  if (promptxStackCleanupHandlers) {
+    const { onExit, onSigint, onSigterm } = promptxStackCleanupHandlers
+    process.off('exit', onExit)
+    process.off('SIGINT', onSigint)
+    process.off('SIGTERM', onSigterm)
+    promptxStackCleanupHandlers = null
+  }
+
+  promptxStackPromise = null
+  promptxStackChild = null
+  promptxStackManaged = false
+  promptxStackLogTail = ''
+}
+
+export async function shutdownPromptxE2EStack() {
+  if (!promptxStackManaged || !promptxStackChild) {
+    resetPromptxE2EStackState()
+    return
+  }
+
+  const child = promptxStackChild
+
+  if (child.exitCode !== null || child.signalCode !== null) {
+    resetPromptxE2EStackState()
+    return
+  }
+
+  await new Promise((resolve) => {
+    let settled = false
+
+    const finish = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(forceKillTimer)
+      resolve()
+    }
+
+    const forceKillTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL')
+      }
+    }, 5000)
+
+    child.once('exit', finish)
+    child.once('error', finish)
+    child.kill('SIGTERM')
+  })
+
+  resetPromptxE2EStackState()
+}
+
 export async function ensurePromptxE2EStack() {
   if (promptxStackPromise) {
     return promptxStackPromise
   }
 
   promptxStackPromise = (async () => {
+    promptxStackLogTail = ''
     const [webReady, apiUrl] = await Promise.all([
       canReach(DEFAULT_BASE_URL),
       resolveReachableApiUrl(),
     ])
 
     if (webReady && apiUrl) {
+      promptxStackManaged = false
       return { managed: false, apiUrl }
     }
 
@@ -99,15 +164,31 @@ export async function ensurePromptxE2EStack() {
       appendPromptxStackLog(chunk)
     })
 
-    const cleanup = () => {
-      if (promptxStackChild && !promptxStackChild.killed) {
-        promptxStackChild.kill('SIGTERM')
+    promptxStackManaged = true
+
+    const cleanup = (signal = 'SIGTERM') => {
+      if (!promptxStackChild || promptxStackChild.killed) {
+        return
+      }
+
+      if (promptxStackChild.exitCode === null && promptxStackChild.signalCode === null) {
+        promptxStackChild.kill(signal)
       }
     }
 
-    process.once('exit', cleanup)
-    process.once('SIGINT', cleanup)
-    process.once('SIGTERM', cleanup)
+    const onExit = () => cleanup()
+    const onSigint = () => cleanup('SIGINT')
+    const onSigterm = () => cleanup('SIGTERM')
+
+    process.once('exit', onExit)
+    process.once('SIGINT', onSigint)
+    process.once('SIGTERM', onSigterm)
+
+    promptxStackCleanupHandlers = {
+      onExit,
+      onSigint,
+      onSigterm,
+    }
 
     await Promise.all([
       waitForUrl(DEFAULT_BASE_URL),

@@ -2,257 +2,144 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { chromium } from 'playwright'
+import {
+  requestJson,
+} from '../../../scripts/lib/runnerSplitHarness.mjs'
+import {
+  ROOT_DIR,
+  buildSingleRunSnapshot,
+  createBrowserPage,
+  createTextBlock,
+  createWorkspaceTaskAndSession,
+  fetchRuntimeDiagnostics,
+  isTerminalStatus,
+  logEnv,
+  logFailure,
+  logFinal,
+  logInitial,
+  logJson,
+  logLine,
+  openTaskPage,
+  probeEngineVersion,
+  sendTaskAndWaitForRun,
+  setupManagedEnvironment,
+  stopActiveRun,
+  waitForLatestRun,
+} from './realRunnerShared.mjs'
 
-const webBaseUrl = process.env.PROMPTX_WEB_BASE_URL || 'http://127.0.0.1:5174'
-const apiBaseUrl = process.env.PROMPTX_API_BASE_URL || 'http://127.0.0.1:3001'
-const engine = String(process.env.PROMPTX_ENGINE || 'codex').trim() || 'codex'
-const promptText = process.env.PROMPTX_PROMPT_TEXT || '请详细整理 2000 年到 2024 年国际局势中的伊朗相关关键事件，按年份分段，尽量完整，并给出结构化总结。'
-const timeoutMs = Number(process.env.PROMPTX_TIMEOUT_MS || 8 * 60 * 1000)
-const headless = !/^(0|false|no)$/i.test(String(process.env.PROMPTX_HEADLESS || 'true').trim())
+const EXTERNAL_WEB_BASE_URL = String(process.env.PROMPTX_WEB_BASE_URL || '').trim()
+const EXTERNAL_API_BASE_URL = String(process.env.PROMPTX_API_BASE_URL || '').trim()
+const ENGINE = String(process.env.PROMPTX_ENGINE || 'codex').trim() || 'codex'
+const PROMPT_TEXT = process.env.PROMPTX_PROMPT_TEXT || '请详细整理 2000 年到 2024 年国际局势中的伊朗相关关键事件，按年份分段，尽量完整，并给出结构化总结。'
+const TIMEOUT_MS = Math.max(30_000, Number(process.env.PROMPTX_TIMEOUT_MS) || 8 * 60 * 1000)
+const RUNNING_TIMEOUT_MS = Math.max(10_000, Number(process.env.PROMPTX_RUNNING_TIMEOUT_MS) || 90_000)
+const HEADLESS = !/^(0|false|no)$/i.test(String(process.env.PROMPTX_HEADLESS || 'true').trim())
 
-function getDefaultBrowserChannels() {
-  if (process.platform === 'win32') {
-    return ['msedge', 'chrome']
-  }
-  return ['chrome', 'msedge']
-}
+process.chdir(ROOT_DIR)
 
-function getPreferredBrowserChannels() {
-  const raw = String(process.env.PROMPTX_BROWSER_CHANNELS || '').trim()
-  if (!raw) {
-    return getDefaultBrowserChannels()
-  }
-
-  return raw
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-async function launchBrowser() {
-  const executablePath = String(process.env.PROMPTX_BROWSER_EXECUTABLE_PATH || '').trim()
-  const preferredChannel = String(process.env.PROMPTX_PLAYWRIGHT_CHANNEL || '').trim()
-  const attempts = []
-
-  if (executablePath) {
-    try {
-      const browser = await chromium.launch({ headless, executablePath })
-      return { browser, strategy: `executablePath=${executablePath}` }
-    } catch (error) {
-      attempts.push(`executablePath=${executablePath}: ${error.message || error}`)
-    }
-  }
-
-  if (preferredChannel) {
-    try {
-      const browser = await chromium.launch({ headless, channel: preferredChannel })
-      return { browser, strategy: `channel=${preferredChannel}` }
-    } catch (error) {
-      attempts.push(`channel=${preferredChannel}: ${error.message || error}`)
-    }
-  }
-
-  try {
-    const browser = await chromium.launch({ headless })
-    return { browser, strategy: 'bundled-chromium' }
-  } catch (error) {
-    attempts.push(`bundled-chromium: ${error.message || error}`)
-  }
-
-  for (const channel of getPreferredBrowserChannels()) {
-    if (channel === preferredChannel) {
-      continue
-    }
-    try {
-      const browser = await chromium.launch({ headless, channel })
-      return { browser, strategy: `channel=${channel}` }
-    } catch (error) {
-      attempts.push(`channel=${channel}: ${error.message || error}`)
-    }
-  }
-
-  throw new Error(
-    [
-      '无法启动 Playwright Chromium 浏览器。',
-      '1. 运行 `pnpm --filter @promptx/web exec playwright install chromium`',
-      '2. 或设置 `PROMPTX_PLAYWRIGHT_CHANNEL=chrome` / `msedge`',
-      '3. 或设置 `PROMPTX_BROWSER_EXECUTABLE_PATH`',
-      '',
-      '尝试记录：',
-      ...attempts.map((item) => `- ${item}`),
-    ].join('\n')
-  )
-}
-
-async function requestJson(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers || {}),
-    },
-  })
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}: ${text}`)
-  }
-  return payload
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function createWorkspace() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `promptx-real-stop-${Date.now()}-`))
-  fs.writeFileSync(path.join(dir, 'README.md'), '# real runner stop repro\n')
-  return dir
-}
-
-async function createTaskAndSession() {
+async function createTaskAndSession(apiBaseUrl, workspaceRoot) {
   const stamp = `${Date.now()}`
   const title = `真实停止回归-${stamp}`
-
-  const task = await requestJson(`${apiBaseUrl}/api/tasks`, {
-    method: 'POST',
-    body: JSON.stringify({
-      title,
-      expiry: 'none',
-      visibility: 'private',
-    }),
+  return createWorkspaceTaskAndSession(apiBaseUrl, {
+    title,
+    workspaceRoot,
+    workspaceName: 'workspace',
+    readme: '# real runner stop repro\n',
+    engine: ENGINE,
+    blocks: [createTextBlock(PROMPT_TEXT)],
   })
-
-  const session = await requestJson(`${apiBaseUrl}/api/codex/sessions`, {
-    method: 'POST',
-    body: JSON.stringify({
-      title,
-      cwd: createWorkspace(),
-      engine,
-    }),
-  })
-
-  await requestJson(`${apiBaseUrl}/api/tasks/${encodeURIComponent(task.slug)}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      title: task.title,
-      autoTitle: '',
-      lastPromptPreview: '',
-      todoItems: [],
-      codexSessionId: session.id,
-      expiry: 'none',
-      visibility: 'private',
-      blocks: [
-        { type: 'text', content: promptText, meta: {} },
-      ],
-    }),
-  })
-
-  return { task, session }
-}
-
-async function fetchLatestRun(taskSlug) {
-  const payload = await requestJson(`${apiBaseUrl}/api/tasks/${encodeURIComponent(taskSlug)}/codex-runs?limit=20&events=latest`)
-  return payload.items?.[0] || null
-}
-
-async function waitForRun(taskSlug, predicate, deadlineMs) {
-  while (Date.now() < deadlineMs) {
-    const run = await fetchLatestRun(taskSlug)
-    if (predicate(run)) {
-      return run
-    }
-    await sleep(1500)
-  }
-
-  return await fetchLatestRun(taskSlug)
 }
 
 async function main() {
-  const created = await createTaskAndSession()
-  const deadlineMs = Date.now() + timeoutMs
-  const initialDiagnostics = await requestJson(`${apiBaseUrl}/api/diagnostics/runtime`)
-  console.log('INITIAL ' + JSON.stringify({
-    runnerStartedAt: initialDiagnostics.runner?.runner?.startedAt,
-    recoveryRecovered: initialDiagnostics.recovery?.metrics?.totalRecovered,
-    active: initialDiagnostics.runner?.runner?.activeRunCount,
-    tracked: initialDiagnostics.runner?.runner?.trackedRunCount,
-    queued: initialDiagnostics.runner?.runner?.queuedRunCount,
-  }))
-
-  const { browser, strategy } = await launchBrowser()
-  console.log(`BROWSER ${strategy}`)
-  const page = await browser.newPage()
-  page.on('console', (msg) => console.log(`BROWSER_${msg.type().toUpperCase()} ${msg.text()}`))
-  page.on('pageerror', (error) => console.log(`BROWSER_PAGEERROR ${error.message}`))
+  const environment = await setupManagedEnvironment({
+    externalWebBaseUrl: EXTERNAL_WEB_BASE_URL,
+    externalApiBaseUrl: EXTERNAL_API_BASE_URL,
+    tempPrefix: 'promptx-real-stop-',
+    useFakeCodexBin: false,
+    cwd: process.cwd(),
+  })
+  const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-real-stop-'))
+  let browser = null
+  let taskSlug = ''
+  let runId = ''
 
   try {
-    await page.goto(`${webBaseUrl}/?task=${encodeURIComponent(created.task.slug)}`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
+    const created = await createTaskAndSession(environment.apiBaseUrl, workspaceRoot)
+    taskSlug = created.task.slug
+
+    logEnv({
+      apiBaseUrl: environment.apiBaseUrl,
+      webBaseUrl: environment.webBaseUrl,
+      managedServer: Boolean(environment.harness),
+      managedWeb: Boolean(environment.webServer),
+      engine: ENGINE,
+      cliVersions: {
+        [ENGINE]: probeEngineVersion(ENGINE) || 'unknown',
+      },
     })
-    await page.waitForTimeout(2500)
 
-    const sendButton = page.getByRole('button', { name: '发送' }).last()
-    await sendButton.waitFor({ state: 'visible', timeout: 30000 })
-    await sendButton.click()
-    console.log(`SENT ${created.task.slug}`)
+    const initialDiagnostics = await fetchRuntimeDiagnostics(environment.apiBaseUrl)
+    logInitial(initialDiagnostics)
 
-    const activeRun = await waitForRun(
-      created.task.slug,
-      (run) => ['queued', 'starting', 'running'].includes(String(run?.status || '')),
-      deadlineMs
-    )
-    if (!activeRun?.id) {
+    const launched = await createBrowserPage({ headless: HEADLESS, logPrefix: 'BROWSER' })
+    browser = launched.browser
+    logLine('BROWSER', launched.strategy)
+    const { page } = launched
+
+    await openTaskPage(page, environment.webBaseUrl, created.task.slug)
+
+    const activeRun = await sendTaskAndWaitForRun(page, environment.apiBaseUrl, created.task, {
+      clickTaskCard: false,
+      predicate: (run) => ['queued', 'starting', 'running'].includes(String(run?.status || '')),
+      timeoutMs: TIMEOUT_MS,
+      message: '发送后没有观察到活动 run',
+      logLabel: 'SENT',
+    })
+    runId = activeRun?.id || ''
+    if (!runId) {
       throw new Error('发送后没有观察到活动 run')
     }
-    console.log('ACTIVE ' + JSON.stringify({
-      runId: activeRun.id,
-      status: activeRun.status,
-    }))
 
-    const runningRun = await waitForRun(
+    logJson('ACTIVE', {
+      runId,
+      status: activeRun.status,
+    })
+
+    const runningRun = await waitForLatestRun(
+      environment.apiBaseUrl,
       created.task.slug,
       (run) => String(run?.status || '') === 'running',
-      Math.min(deadlineMs, Date.now() + 90_000)
-    )
-    console.log('RUNNING ' + JSON.stringify({
-      runId: runningRun?.id || activeRun.id,
+      RUNNING_TIMEOUT_MS,
+      '运行态等待超时'
+    ).catch(() => activeRun)
+
+    logJson('RUNNING', {
+      runId: runningRun?.id || runId,
       status: runningRun?.status || activeRun.status,
-    }))
+    })
 
     const stopButton = page.getByRole('button', { name: '停止' }).last()
-    await stopButton.waitFor({ state: 'visible', timeout: 30000 })
+    await stopButton.waitFor({ state: 'visible', timeout: 30_000 })
     await stopButton.click()
-    console.log(`STOP_CLICKED ${created.task.slug}`)
+    logLine('STOP_CLICKED', created.task.slug)
 
-    const terminalRun = await waitForRun(
+    const terminalRun = await waitForLatestRun(
+      environment.apiBaseUrl,
       created.task.slug,
-      (run) => ['stopped', 'stop_timeout', 'error', 'completed'].includes(String(run?.status || '')),
-      deadlineMs
+      (run) => isTerminalStatus(run?.status),
+      TIMEOUT_MS,
+      '停止后没有观察到终态 run'
     )
+
     if (!terminalRun?.id) {
       throw new Error('停止后没有观察到终态 run')
     }
 
-    const tasksPayload = await requestJson(`${apiBaseUrl}/api/tasks`)
-    const runtimePayload = await requestJson(`${apiBaseUrl}/api/diagnostics/runtime`)
-    const taskRecord = tasksPayload.items.find((task) => task.slug === created.task.slug)
-    const snapshot = {
-      taskSlug: created.task.slug,
-      runId: terminalRun.id,
-      status: terminalRun.status,
-      errorMessage: terminalRun.errorMessage || '',
-      responseLength: String(terminalRun.responseMessage || '').length,
-      taskRunning: Boolean(taskRecord?.running),
-      runnerActive: runtimePayload.runner?.runner?.activeRunCount,
-      runnerTracked: runtimePayload.runner?.runner?.trackedRunCount,
-      runnerQueued: runtimePayload.runner?.runner?.queuedRunCount,
-      recoveryRecovered: runtimePayload.recovery?.metrics?.totalRecovered,
-    }
+    const tasksPayload = await requestJson(environment.apiBaseUrl, '/api/tasks')
+    const runtimePayload = await fetchRuntimeDiagnostics(environment.apiBaseUrl)
+    const snapshot = buildSingleRunSnapshot(created.task, terminalRun, tasksPayload, runtimePayload)
 
-    console.log('FINAL ' + JSON.stringify(snapshot))
+    logFinal(snapshot)
 
     if (!['stopped', 'stop_timeout'].includes(String(terminalRun.status || ''))) {
       throw new Error(`停止回归未落到预期终态: ${JSON.stringify(snapshot)}`)
@@ -264,11 +151,14 @@ async function main() {
       throw new Error(`停止后任务仍显示 running: ${JSON.stringify(snapshot)}`)
     }
   } finally {
-    await browser.close()
+    await stopActiveRun(environment.apiBaseUrl, taskSlug, runId).catch(() => {})
+    await browser?.close().catch(() => {})
+    await environment.cleanup().catch(() => {})
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
   }
 }
 
 main().catch((error) => {
-  console.error('FAIL ' + (error?.stack || error?.message || String(error)))
+  logFailure(error)
   process.exitCode = 1
 })

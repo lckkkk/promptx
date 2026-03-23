@@ -18,6 +18,7 @@ const VERIFY_SSE = String(process.env.PROMPTX_REAL_VERIFY_SSE || '1') !== '0'
 const REQUESTED_ENGINES = String(process.env.PROMPTX_REAL_ENGINES || '').trim()
 const DEFAULT_ENGINE_BINS = {
   codex: process.env.CODEX_BIN || 'codex',
+  'claude-code': process.env.CLAUDE_CODE_BIN || 'claude',
   opencode: process.env.OPENCODE_BIN || 'opencode',
 }
 

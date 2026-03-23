@@ -14,6 +14,7 @@ import {
   buildTurnStartedEvent,
   createTranscriptFixture,
   openWorkbenchTask,
+  shutdownPromptxE2EStack,
 } from './helpers.js'
 
 test('最新一条 turn 默认展开并展示完整执行过程', async (t) => {
@@ -24,9 +25,9 @@ test('最新一条 turn 默认展开并展示完整执行过程', async (t) => {
     status: 'completed',
   })
 
-  await fixture.cleanup?.bind
-  t.after(() => {
+  t.after(async () => {
     fixture.cleanup()
+    await shutdownPromptxE2EStack()
   })
 
   const threadId = 'thread-e2e-latest'
