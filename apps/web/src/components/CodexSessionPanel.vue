@@ -14,6 +14,7 @@ import {
 } from 'lucide-vue-next'
 import CodexSessionSelect from './CodexSessionSelect.vue'
 import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
+import { useI18n } from '../composables/useI18n.js'
 import { useCodexSessionPanel } from '../composables/useCodexSessionPanel.js'
 import { useCodexTranscriptCollapse } from '../composables/useCodexTranscriptCollapse.js'
 import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
@@ -116,6 +117,7 @@ const {
 const COLLAPSED_PREVIEW_CLASS = 'max-h-40 overflow-hidden'
 const renderedResponseCache = new Map()
 const previewPromptImageUrl = ref('')
+const { t } = useI18n()
 
 const {
   canCollapsePrompt,
@@ -237,7 +239,7 @@ defineExpose({
           <div class="min-w-0 shrink-0">
             <div class="theme-heading flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
-              <span>项目</span>
+              <span>{{ t('sessionPanel.project') }}</span>
             </div>
             <p v-if="helperText" class="theme-muted-text mt-1 text-xs">{{ helperText }}</p>
           </div>
@@ -251,7 +253,7 @@ defineExpose({
               @click="openTaskDiff"
             >
               <FileDiff class="h-4 w-4" />
-              <span>代码变更</span>
+              <span>{{ t('sessionPanel.diff') }}</span>
             </button>
             <button
               type="button"
@@ -260,7 +262,7 @@ defineExpose({
               @click="openManager"
             >
               <PencilLine class="h-4 w-4" />
-              <span>管理项目</span>
+              <span>{{ t('sessionPanel.manageProjects') }}</span>
             </button>
           </div>
         </div>
@@ -291,14 +293,14 @@ defineExpose({
           v-if="!turns.length"
           class="theme-empty-state px-4 py-6 text-sm"
         >
-          这里会显示项目执行过程和模型回复。
+          {{ t('sessionPanel.empty') }}
         </div>
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
             <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-[var(--theme-promptBorder)] bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
               <div class="flex items-center justify-between gap-3 text-xs opacity-75">
-                <span>本轮提示词</span>
+                <span>{{ t('sessionPanel.promptTitle') }}</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="canCollapsePrompt(turn)"
@@ -308,7 +310,7 @@ defineExpose({
                   >
                     <ChevronDown v-if="isPromptCollapsed(turn)" class="h-3 w-3" />
                     <ChevronUp v-else class="h-3 w-3" />
-                    <span>{{ isPromptCollapsed(turn) ? '展开' : '收起' }}</span>
+                    <span>{{ isPromptCollapsed(turn) ? t('sessionPanel.expand') : t('sessionPanel.collapse') }}</span>
                   </button>
                   <span>{{ formatTurnTime(turn.startedAt) }}</span>
                 </div>
@@ -330,7 +332,7 @@ defineExpose({
                     >
                       <div class="flex items-center gap-2 border-b border-dashed border-[var(--theme-promptBorder)]/60 px-3 py-2 text-xs opacity-80">
                         <ImageIcon class="h-3.5 w-3.5" />
-                        <span>本轮附图</span>
+                        <span>{{ t('sessionPanel.promptImage') }}</span>
                       </div>
                       <div class="px-3 py-3">
                         <button
@@ -340,7 +342,7 @@ defineExpose({
                         >
                           <img
                             :src="item.content"
-                            alt="本轮提示词图片"
+                            :alt="t('sessionPanel.promptImageAlt')"
                             class="max-h-52 w-auto max-w-full rounded-sm object-contain"
                           />
                         </button>
@@ -364,7 +366,7 @@ defineExpose({
           <div class="flex justify-start">
             <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm border border-dashed px-4 py-3" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
-                <span>执行过程</span>
+                <span>{{ t('sessionPanel.processTitle') }}</span>
                 <div class="flex items-center gap-2">
                   <button
                     v-if="hasTurnEventHistory(turn)"
@@ -376,13 +378,13 @@ defineExpose({
                     <LoaderCircle v-if="turn.eventsLoading" class="h-3 w-3 animate-spin" />
                     <ChevronDown v-else-if="isTurnEventsCollapsed(turn)" class="h-3 w-3" />
                     <ChevronUp v-else class="h-3 w-3" />
-                    <span>{{ turn.eventsLoading ? '加载中...' : isTurnEventsCollapsed(turn) ? `展开 (${getTurnEventCount(turn)})` : '收起' }}</span>
+                    <span>{{ turn.eventsLoading ? t('sessionPanel.loading') : isTurnEventsCollapsed(turn) ? `${t('sessionPanel.expand')} (${getTurnEventCount(turn)})` : t('sessionPanel.collapse') }}</span>
                   </button>
                   <span>{{ getProcessStatus(turn) }}</span>
                 </div>
               </div>
               <div v-if="turn.eventsLoading && !turn.events.length" class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70">
-                正在加载执行过程...
+                {{ t('sessionPanel.loadingEvents') }}
               </div>
               <div v-else-if="turn.events.length && !isTurnEventsCollapsed(turn)" class="mt-3 space-y-3">
                 <div
@@ -404,9 +406,11 @@ defineExpose({
                 v-else-if="hasTurnEventHistory(turn)"
                 class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
               >
-                {{ turn.eventsLoaded ? `已折叠 ${getTurnEventCount(turn)} 条过程日志` : `共 ${getTurnEventCount(turn)} 条过程日志，展开后加载` }}
+                {{ turn.eventsLoaded
+                  ? t('sessionPanel.hiddenEventsLoaded', { count: getTurnEventCount(turn) })
+                  : t('sessionPanel.hiddenEventsLoadLater', { count: getTurnEventCount(turn) }) }}
               </div>
-              <p v-else class="mt-3 text-xs text-current/80">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? `正在等待 ${getTurnAgentLabel(turn)} 返回事件...` : '本轮没有记录执行过程。' }}</p>
+              <p v-else class="mt-3 text-xs text-current/80">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? t('sessionPanel.waitingEvents', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.noEvents') }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
                 class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
@@ -437,7 +441,7 @@ defineExpose({
                     @click="openTurnDiff(turn)"
                   >
                     <FileDiff class="h-3 w-3" />
-                    <span>查看</span>
+                    <span>{{ t('sessionPanel.view') }}</span>
                   </button>
                 </div>
               </div>
@@ -452,7 +456,7 @@ defineExpose({
                 : 'border-[var(--theme-responseBorder)] bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-current/80">
-                <span>{{ turn.errorMessage ? `${getTurnAgentLabel(turn)} 错误` : `${getTurnAgentLabel(turn)} 回复` }}</span>
+                <span>{{ turn.errorMessage ? t('sessionPanel.errorSuffix', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.responseSuffix', { agent: getTurnAgentLabel(turn) }) }}</span>
                 <button
                   v-if="canCollapseResponse(turn)"
                   type="button"
@@ -461,7 +465,7 @@ defineExpose({
                 >
                   <ChevronDown v-if="isResponseCollapsed(turn)" class="h-3 w-3" />
                   <ChevronUp v-else class="h-3 w-3" />
-                  <span>{{ isResponseCollapsed(turn) ? '展开' : '收起' }}</span>
+                  <span>{{ isResponseCollapsed(turn) ? t('sessionPanel.expand') : t('sessionPanel.collapse') }}</span>
                 </button>
               </div>
               <div class="relative mt-2">
@@ -499,7 +503,7 @@ defineExpose({
         @click="scrollToBottom"
       >
         <ArrowDown class="h-4 w-4" />
-        <span>有新消息，跳到底部</span>
+        <span>{{ t('sessionPanel.jumpToLatest') }}</span>
       </button>
     </div>
 
@@ -519,7 +523,7 @@ defineExpose({
       >
         <LoaderCircle v-if="stopping" class="h-4 w-4 animate-spin" />
         <Square v-else class="h-4 w-4" />
-        <span>{{ stopping ? '正在停止...' : '停止' }}</span>
+        <span>{{ stopping ? t('sessionPanel.stopping') : t('sessionPanel.stop') }}</span>
       </button>
     </div>
 

@@ -4,10 +4,19 @@ import {
   AGENT_RUN_ITEM_TYPES,
   normalizeAgentRunEnvelopeEventType,
 } from '@promptx/shared'
+import { getCurrentLocale } from './useI18n.js'
 import { resolveAssetUrl } from '../lib/api.js'
 import { getAgentEngineLabel, normalizeAgentEngine } from '../lib/agentEngines.js'
 
 const ACTIVE_TURN_STATUSES = new Set(['queued', 'starting', 'running', 'stopping'])
+
+function isEnglishLocale() {
+  return getCurrentLocale() === 'en-US'
+}
+
+function text(zh, en) {
+  return isEnglishLocale() ? en : zh
+}
 
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
@@ -31,7 +40,7 @@ export function sortSessions(items = [], currentSessionId = '') {
       return updatedDiff
     }
 
-    return String(left.title || left.cwd || left.id).localeCompare(String(right.title || right.cwd || right.id), 'zh-CN')
+    return String(left.title || left.cwd || left.id).localeCompare(String(right.title || right.cwd || right.id), getCurrentLocale())
   })
 }
 
@@ -53,7 +62,7 @@ function formatTodoItems(items = []) {
   }
 
   return list
-    .map((item) => `${item.completed ? '[x]' : '[ ]'} ${item.text || '未命名任务'}`)
+    .map((item) => `${item.completed ? '[x]' : '[ ]'} ${item.text || text('未命名任务', 'Untitled Task')}`)
     .join('\n')
 }
 
@@ -62,7 +71,7 @@ function formatCount(value = 0) {
   if (!Number.isFinite(number)) {
     return '0'
   }
-  return number.toLocaleString('zh-CN')
+  return number.toLocaleString(getCurrentLocale())
 }
 
 export function formatElapsedDuration(value = 0) {
@@ -76,10 +85,14 @@ export function formatElapsedDuration(value = 0) {
   const seconds = totalSeconds % 60
 
   if (hours > 0) {
-    return `${hours}小时${minutes}分${seconds}秒`
+    return isEnglishLocale()
+      ? `${hours}h ${minutes}m ${seconds}s`
+      : `${hours}小时${minutes}分${seconds}秒`
   }
 
-  return `${minutes}分${seconds}秒`
+  return isEnglishLocale()
+    ? `${minutes}m ${seconds}s`
+    : `${minutes}分${seconds}秒`
 }
 
 function summarizeText(value = '', limit = 140) {
@@ -173,7 +186,7 @@ function getAgentCliCommand(engine = 'codex') {
 }
 
 function getAgentFailureText(engine = 'codex') {
-  return `${getAgentEngineLabel(engine)} 执行失败`
+  return text(`${getAgentEngineLabel(engine)} 执行失败`, `${getAgentEngineLabel(engine)} failed`)
 }
 
 function parseCodexRetryMessage(message = '') {
@@ -203,12 +216,12 @@ function formatWebSearchEvent(item = {}, phase = 'completed') {
   const url = String(action.url || query || '').trim()
 
   if (actionType === 'search') {
-    const title = phase === 'started' ? '正在搜索网页' : '已搜索网页'
+    const title = phase === 'started' ? text('正在搜索网页', 'Searching the web') : text('已搜索网页', 'Web search completed')
     return {
       kind: 'command',
       title,
       detail: formatMultilineList(
-        query ? `关键词：${query}` : '',
+        query ? text(`关键词：${query}`, `Query: ${query}`) : '',
         queries.length > 1 ? queries : []
       ),
     }
@@ -217,14 +230,14 @@ function formatWebSearchEvent(item = {}, phase = 'completed') {
   if (actionType === 'open_page') {
     return {
       kind: 'command',
-      title: phase === 'started' ? '正在打开网页' : '已打开网页',
+      title: phase === 'started' ? text('正在打开网页', 'Opening page') : text('已打开网页', 'Page opened'),
       detail: url,
     }
   }
 
   return {
     kind: 'command',
-    title: phase === 'started' ? '准备网页检索' : '网页检索已更新',
+    title: phase === 'started' ? text('准备网页检索', 'Preparing web search') : text('网页检索已更新', 'Web search updated'),
     detail: query,
   }
 }
@@ -238,9 +251,9 @@ function formatCollabToolEvent(item = {}, phase = 'completed') {
     return {
       kind: 'todo',
       title: phase === 'started'
-        ? '正在启动子代理'
-        : `已启动 ${agentCount || 1} 个子代理`,
-      detail: prompt ? `任务：${prompt}` : '',
+        ? text('正在启动子代理', 'Starting sub-agent')
+        : text(`已启动 ${agentCount || 1} 个子代理`, `Started ${agentCount || 1} sub-agent(s)`),
+      detail: prompt ? text(`任务：${prompt}`, `Task: ${prompt}`) : '',
     }
   }
 
@@ -248,38 +261,38 @@ function formatCollabToolEvent(item = {}, phase = 'completed') {
     return {
       kind: 'todo',
       title: phase === 'started'
-        ? (agentCount ? `等待 ${agentCount} 个子代理返回结果` : '等待子代理返回结果')
-        : '子代理结果已汇总',
-      detail: prompt ? `等待内容：${prompt}` : '',
+        ? (agentCount ? text(`等待 ${agentCount} 个子代理返回结果`, `Waiting for ${agentCount} sub-agent result(s)`) : text('等待子代理返回结果', 'Waiting for sub-agent results'))
+        : text('子代理结果已汇总', 'Sub-agent results aggregated'),
+      detail: prompt ? text(`等待内容：${prompt}`, `Waiting on: ${prompt}`) : '',
     }
   }
 
   return {
     kind: 'todo',
     title: phase === 'started'
-      ? `正在执行协作工具：${tool || '未知工具'}`
-      : `协作工具完成：${tool || '未知工具'}`,
-    detail: prompt ? `任务：${prompt}` : '',
+      ? text(`正在执行协作工具：${tool || '未知工具'}`, `Running collaboration tool: ${tool || 'Unknown tool'}`)
+      : text(`协作工具完成：${tool || '未知工具'}`, `Collaboration tool completed: ${tool || 'Unknown tool'}`),
+    detail: prompt ? text(`任务：${prompt}`, `Task: ${prompt}`) : '',
   }
 }
 
 function formatFileChangeEvent(item = {}, phase = 'completed') {
   const changes = Array.isArray(item.changes) ? item.changes : []
   const kindLabelMap = {
-    create: '新增',
-    update: '更新',
-    delete: '删除',
+    create: text('新增', 'Added'),
+    update: text('更新', 'Updated'),
+    delete: text('删除', 'Deleted'),
   }
 
   return {
     kind: 'command',
     title: phase === 'started'
-      ? '正在整理文件变更'
-      : `已记录 ${changes.length || 0} 个文件改动`,
+      ? text('正在整理文件变更', 'Collecting file changes')
+      : text(`已记录 ${changes.length || 0} 个文件改动`, `Recorded ${changes.length || 0} file change(s)`),
     detail: formatMultilineList('', changes.map((change) => {
       const changePath = String(change?.path || '').trim()
-      const changeKind = kindLabelMap[String(change?.kind || '').trim()] || '变更'
-      return `${changeKind} ${changePath || '未命名文件'}`
+      const changeKind = kindLabelMap[String(change?.kind || '').trim()] || text('变更', 'Changed')
+      return `${changeKind} ${changePath || text('未命名文件', 'Unnamed file')}`
     })),
   }
 }
@@ -295,8 +308,8 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   const item = event.item || {}
 
   if (eventType === AGENT_RUN_EVENT_TYPES.TURN_STARTED) {
-    summary.currentActivity = '正在分析任务'
-    summary.latestActivity = `${agentLabel} 开始执行`
+    summary.currentActivity = text('正在分析任务', 'Analyzing task')
+    summary.latestActivity = text(`${agentLabel} 开始执行`, `${agentLabel} started`)
     summary.latestDetail = ''
     return
   }
@@ -304,7 +317,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (eventType === AGENT_RUN_EVENT_TYPES.TURN_COMPLETED) {
     summary.currentActivity = ''
     summary.waitingAgentCount = 0
-    summary.latestActivity = `${agentLabel} 执行完成`
+    summary.latestActivity = text(`${agentLabel} 执行完成`, `${agentLabel} completed`)
     summary.latestDetail = ''
     return
   }
@@ -312,7 +325,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (eventType === AGENT_RUN_EVENT_TYPES.TURN_FAILED) {
     summary.currentActivity = ''
     summary.waitingAgentCount = 0
-    summary.latestActivity = '本轮运行失败'
+    summary.latestActivity = text('本轮运行失败', 'This run failed')
     summary.latestDetail = ''
     return
   }
@@ -320,35 +333,37 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (eventType === AGENT_RUN_EVENT_TYPES.ERROR) {
     const retrying = parseCodexRetryMessage(extractCodexEventErrorText(event))
     if (retrying) {
-      summary.currentActivity = `网络异常，正在重试 (${retrying.attempt}/${retrying.total})`
+      summary.currentActivity = text(`网络异常，正在重试 (${retrying.attempt}/${retrying.total})`, `Network error, retrying (${retrying.attempt}/${retrying.total})`)
       summary.latestActivity = summary.currentActivity
       summary.latestDetail = summarizeText(retrying.reason, 120)
       return
     }
 
     summary.currentActivity = ''
-    summary.latestActivity = `${agentLabel} 返回错误`
+    summary.latestActivity = text(`${agentLabel} 返回错误`, `${agentLabel} returned an error`)
     summary.latestDetail = summarizeText(extractCodexEventErrorText(event), 120)
     return
   }
 
   if (eventType === AGENT_RUN_EVENT_TYPES.ITEM_STARTED) {
     if (item.type === AGENT_RUN_ITEM_TYPES.REASONING) {
-      summary.currentActivity = '正在思考'
-      summary.latestActivity = '正在思考'
+      summary.currentActivity = text('正在思考', 'Thinking')
+      summary.latestActivity = text('正在思考', 'Thinking')
       summary.latestDetail = summarizeText(item.text, 120)
       return
     }
 
     if (item.type === AGENT_RUN_ITEM_TYPES.COMMAND_EXECUTION) {
-      summary.currentActivity = '正在执行命令'
-      summary.latestActivity = '开始执行命令'
+      summary.currentActivity = text('正在执行命令', 'Running command')
+      summary.latestActivity = text('开始执行命令', 'Command started')
       summary.latestDetail = summarizeText(item.command, 120)
       return
     }
 
     if (item.type === AGENT_RUN_ITEM_TYPES.WEB_SEARCH) {
-      summary.currentActivity = item.action?.type === 'open_page' ? '正在打开网页' : '正在搜索网页'
+      summary.currentActivity = item.action?.type === 'open_page'
+        ? text('正在打开网页', 'Opening page')
+        : text('正在搜索网页', 'Searching the web')
       summary.latestActivity = summary.currentActivity
       summary.latestDetail = summarizeText(item.action?.type === 'open_page' ? (item.action?.url || item.query) : (item.query || item.action?.query), 120)
       return
@@ -358,31 +373,33 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
       if (item.tool === 'wait') {
         const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
         summary.waitingAgentCount = agentCount
-        summary.currentActivity = agentCount ? `等待 ${agentCount} 个子代理返回结果` : '等待子代理返回结果'
+        summary.currentActivity = agentCount
+          ? text(`等待 ${agentCount} 个子代理返回结果`, `Waiting for ${agentCount} sub-agent result(s)`)
+          : text('等待子代理返回结果', 'Waiting for sub-agent results')
         summary.latestActivity = summary.currentActivity
         summary.latestDetail = summarizeText(item.prompt, 120)
         return
       }
 
       if (item.tool === 'spawn_agent') {
-        summary.currentActivity = '正在启动子代理'
-        summary.latestActivity = '正在启动子代理'
+        summary.currentActivity = text('正在启动子代理', 'Starting sub-agent')
+        summary.latestActivity = text('正在启动子代理', 'Starting sub-agent')
         summary.latestDetail = summarizeText(item.prompt, 120)
         return
       }
     }
 
     if (item.type === AGENT_RUN_ITEM_TYPES.FILE_CHANGE) {
-      summary.currentActivity = '正在整理文件变更'
-      summary.latestActivity = '正在整理文件变更'
-      summary.latestDetail = summarizeText((item.changes || []).map((change) => change?.path).filter(Boolean).join('，'), 120)
+      summary.currentActivity = text('正在整理文件变更', 'Collecting file changes')
+      summary.latestActivity = text('正在整理文件变更', 'Collecting file changes')
+      summary.latestDetail = summarizeText((item.changes || []).map((change) => change?.path).filter(Boolean).join(isEnglishLocale() ? ', ' : '，'), 120)
       return
     }
 
     if (item.type === AGENT_RUN_ITEM_TYPES.TODO_LIST) {
-      summary.currentActivity = '正在规划执行步骤'
-      summary.latestActivity = '正在规划执行步骤'
-      summary.latestDetail = summarizeText((item.items || []).map((entry) => entry?.text).filter(Boolean).join('；'), 120)
+      summary.currentActivity = text('正在规划执行步骤', 'Planning steps')
+      summary.latestActivity = text('正在规划执行步骤', 'Planning steps')
+      summary.latestDetail = summarizeText((item.items || []).map((entry) => entry?.text).filter(Boolean).join(isEnglishLocale() ? '; ' : '；'), 120)
     }
     return
   }
@@ -394,7 +411,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (item.type === AGENT_RUN_ITEM_TYPES.COMMAND_EXECUTION) {
     summary.commandCount += 1
     summary.currentActivity = ''
-    summary.latestActivity = '命令执行完成'
+    summary.latestActivity = text('命令执行完成', 'Command completed')
     summary.latestDetail = summarizeText(item.command, 120)
     return
   }
@@ -402,7 +419,9 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
   if (item.type === AGENT_RUN_ITEM_TYPES.WEB_SEARCH) {
     summary.webSearchCount += 1
     summary.currentActivity = ''
-    summary.latestActivity = item.action?.type === 'open_page' ? '已打开网页' : '已搜索网页'
+    summary.latestActivity = item.action?.type === 'open_page'
+      ? text('已打开网页', 'Page opened')
+      : text('已搜索网页', 'Web search completed')
     summary.latestDetail = summarizeText(item.action?.type === 'open_page' ? (item.action?.url || item.query) : (item.query || item.action?.query), 120)
     return
   }
@@ -412,7 +431,9 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
       const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
       summary.subAgentCount += agentCount
       summary.currentActivity = ''
-      summary.latestActivity = agentCount ? `已启动 ${agentCount} 个子代理` : '已启动子代理'
+      summary.latestActivity = agentCount
+        ? text(`已启动 ${agentCount} 个子代理`, `Started ${agentCount} sub-agent(s)`)
+        : text('已启动子代理', 'Started sub-agent')
       summary.latestDetail = summarizeText(item.prompt, 120)
       return
     }
@@ -420,13 +441,13 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
     if (item.tool === 'wait') {
       summary.waitingAgentCount = 0
       summary.currentActivity = ''
-      summary.latestActivity = '子代理结果已汇总'
+      summary.latestActivity = text('子代理结果已汇总', 'Sub-agent results aggregated')
       summary.latestDetail = summarizeText(item.prompt, 120)
       return
     }
 
     summary.currentActivity = ''
-    summary.latestActivity = `协作工具完成：${item.tool || '未知工具'}`
+    summary.latestActivity = text(`协作工具完成：${item.tool || '未知工具'}`, `Collaboration tool completed: ${item.tool || 'Unknown tool'}`)
     summary.latestDetail = summarizeText(item.prompt, 120)
     return
   }
@@ -435,21 +456,23 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
     const changes = Array.isArray(item.changes) ? item.changes : []
     summary.fileChangeCount += changes.length
     summary.currentActivity = ''
-    summary.latestActivity = changes.length ? `已记录 ${changes.length} 个文件改动` : '已记录文件改动'
-    summary.latestDetail = summarizeText(changes.map((change) => change?.path).filter(Boolean).join('，'), 120)
+    summary.latestActivity = changes.length
+      ? text(`已记录 ${changes.length} 个文件改动`, `Recorded ${changes.length} file change(s)`)
+      : text('已记录文件改动', 'Recorded file changes')
+    summary.latestDetail = summarizeText(changes.map((change) => change?.path).filter(Boolean).join(isEnglishLocale() ? ', ' : '，'), 120)
     return
   }
 
   if (item.type === AGENT_RUN_ITEM_TYPES.TODO_LIST) {
     summary.currentActivity = ''
-    summary.latestActivity = '待办列表已更新'
-    summary.latestDetail = summarizeText((item.items || []).map((entry) => entry?.text).filter(Boolean).join('；'), 120)
+    summary.latestActivity = text('待办列表已更新', 'Todo list updated')
+    summary.latestDetail = summarizeText((item.items || []).map((entry) => entry?.text).filter(Boolean).join(isEnglishLocale() ? '; ' : '；'), 120)
     return
   }
 
   if (item.type === AGENT_RUN_ITEM_TYPES.AGENT_MESSAGE) {
     summary.currentActivity = ''
-    summary.latestActivity = `${agentLabel} 已返回结果`
+    summary.latestActivity = text(`${agentLabel} 已返回结果`, `${agentLabel} returned a result`)
     summary.latestDetail = summarizeText(item.text, 120)
   }
 }
@@ -487,20 +510,20 @@ export function getTurnSummaryItems(turn = {}, options = {}) {
   const elapsedSeconds = getTurnElapsedSeconds(turn, options)
 
   if (elapsedSeconds > 0) {
-    items.push({ key: 'elapsed', label: '耗时', value: formatElapsedDuration(elapsedSeconds) })
+    items.push({ key: 'elapsed', label: text('耗时', 'Elapsed'), value: formatElapsedDuration(elapsedSeconds) })
   }
 
   if (summary.webSearchCount) {
-    items.push({ key: 'web', label: '网页', value: formatCount(summary.webSearchCount) })
+    items.push({ key: 'web', label: text('网页', 'Web'), value: formatCount(summary.webSearchCount) })
   }
   if (summary.commandCount) {
-    items.push({ key: 'command', label: '命令', value: formatCount(summary.commandCount) })
+    items.push({ key: 'command', label: text('命令', 'Command'), value: formatCount(summary.commandCount) })
   }
   if (summary.fileChangeCount) {
-    items.push({ key: 'file', label: '改动', value: formatCount(summary.fileChangeCount) })
+    items.push({ key: 'file', label: text('改动', 'Changes'), value: formatCount(summary.fileChangeCount) })
   }
   if (summary.subAgentCount) {
-    items.push({ key: 'agent', label: '子代理', value: formatCount(summary.subAgentCount) })
+    items.push({ key: 'agent', label: text('子代理', 'Sub-agent'), value: formatCount(summary.subAgentCount) })
   }
 
   return items
@@ -510,19 +533,19 @@ export function getTurnSummaryStatus(turn = {}) {
   const summary = turn.summary || createTurnSummaryState()
 
   if (summary.waitingAgentCount > 0) {
-    return `当前：等待 ${formatCount(summary.waitingAgentCount)} 个子代理返回结果`
+    return text(`当前：等待 ${formatCount(summary.waitingAgentCount)} 个子代理返回结果`, `Current: waiting for ${formatCount(summary.waitingAgentCount)} sub-agent result(s)`)
   }
 
   if (summary.currentActivity) {
-    return `当前：${summary.currentActivity}`
+    return text(`当前：${summary.currentActivity}`, `Current: ${summary.currentActivity}`)
   }
 
   if (summary.latestActivity) {
-    return `最近：${summary.latestActivity}`
+    return text(`最近：${summary.latestActivity}`, `Latest: ${summary.latestActivity}`)
   }
 
   if (isTurnActiveStatus(turn.status)) {
-    return `当前：正在等待 ${getTurnAgentLabel(turn)} 返回更多事件`
+    return text(`当前：正在等待 ${getTurnAgentLabel(turn)} 返回更多事件`, `Current: waiting for more events from ${getTurnAgentLabel(turn)}`)
   }
 
   return ''
@@ -540,8 +563,8 @@ export function hasTurnSummary(turn = {}) {
 const CODEX_ISSUE_PATTERNS = [
   {
     type: 'startup_config',
-    title: (engine) => `${getAgentEngineLabel(engine)} 启动配置冲突`,
-    summary: (engine) => `${getAgentEngineLabel(engine)} 当前启动参数可能与本机包装脚本、别名或外部环境配置冲突，请检查 CLI 启动方式。`,
+    title: (engine) => text(`${getAgentEngineLabel(engine)} 启动配置冲突`, `${getAgentEngineLabel(engine)} startup config conflict`),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 当前启动参数可能与本机包装脚本、别名或外部环境配置冲突，请检查 CLI 启动方式。`, `${getAgentEngineLabel(engine)} startup arguments may conflict with your local wrapper script, alias, or external environment configuration. Please check how the CLI is launched.`),
     patterns: [
       /not inside a trusted directory/i,
       /do you trust the contents of this directory/i,
@@ -554,8 +577,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'billing',
-    title: '额度或账单异常',
-    summary: (engine) => `${getAgentEngineLabel(engine)} 可能因为额度不足、欠费或账单限制而无法继续执行。`,
+    title: text('额度或账单异常', 'Quota or billing issue'),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 可能因为额度不足、欠费或账单限制而无法继续执行。`, `${getAgentEngineLabel(engine)} may be unable to continue due to quota exhaustion, billing issues, or account limits.`),
     patterns: [
       /insufficient_quota/i,
       /exceeded your current quota/i,
@@ -571,8 +594,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'permission',
-    title: '权限不足',
-    summary: (engine) => `${getAgentEngineLabel(engine)} 当前权限不够，无法访问所需文件、命令或资源。`,
+    title: text('权限不足', 'Insufficient permissions'),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 当前权限不够，无法访问所需文件、命令或资源。`, `${getAgentEngineLabel(engine)} does not currently have permission to access the required files, commands, or resources.`),
     patterns: [
       /permission denied/i,
       /insufficient permissions?/i,
@@ -588,8 +611,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'rate_limit',
-    title: '请求过于频繁',
-    summary: (engine) => `${getAgentEngineLabel(engine)} 可能触发了限流，请稍后再试。`,
+    title: text('请求过于频繁', 'Too many requests'),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 可能触发了限流，请稍后再试。`, `${getAgentEngineLabel(engine)} may have hit a rate limit. Please try again later.`),
     patterns: [
       /rate limit/i,
       /too many requests/i,
@@ -600,8 +623,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'context_limit',
-    title: '上下文过长',
-    summary: '这次发送的内容可能过长，超过了模型可处理的上下文限制。',
+    title: text('上下文过长', 'Context too long'),
+    summary: text('这次发送的内容可能过长，超过了模型可处理的上下文限制。', 'The content sent in this run may be too long and exceed the model context limit.'),
     patterns: [
       /context length/i,
       /maximum context length/i,
@@ -615,8 +638,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'model_unavailable',
-    title: '模型或服务暂不可用',
-    summary: (engine) => `${getAgentEngineLabel(engine)} 背后的模型或服务当前不可用，请稍后重试。`,
+    title: text('模型或服务暂不可用', 'Model or service unavailable'),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 背后的模型或服务当前不可用，请稍后重试。`, `The model or service behind ${getAgentEngineLabel(engine)} is currently unavailable. Please try again later.`),
     patterns: [
       /model .*not found/i,
       /model .*unavailable/i,
@@ -630,8 +653,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'network',
-    title: '网络连接异常',
-    summary: (engine) => `${getAgentEngineLabel(engine)} 在请求过程中遇到了网络问题或连接超时。`,
+    title: text('网络连接异常', 'Network connection issue'),
+    summary: (engine) => text(`${getAgentEngineLabel(engine)} 在请求过程中遇到了网络问题或连接超时。`, `${getAgentEngineLabel(engine)} encountered a network problem or timeout while making the request.`),
     patterns: [
       /timed out/i,
       /\btimeout\b/i,
@@ -653,8 +676,8 @@ const CODEX_ISSUE_PATTERNS = [
   },
   {
     type: 'cli_missing',
-    title: (engine) => `${getAgentEngineLabel(engine)} CLI 不可用`,
-    summary: (engine) => `当前环境没有正确安装或配置 ${getAgentEngineLabel(engine)} CLI。`,
+    title: (engine) => text(`${getAgentEngineLabel(engine)} CLI 不可用`, `${getAgentEngineLabel(engine)} CLI unavailable`),
+    summary: (engine) => text(`当前环境没有正确安装或配置 ${getAgentEngineLabel(engine)} CLI。`, `${getAgentEngineLabel(engine)} CLI is not correctly installed or configured in the current environment.`),
     patterns: [
       /找不到 Codex CLI/,
       /找不到 Claude Code CLI/,
@@ -689,17 +712,17 @@ export function classifyCodexIssue(message = '', engine = 'codex') {
 }
 
 export function formatCodexIssueMessage(message = '', engine = 'codex') {
-  const text = String(message || '').trim()
-  if (!text) {
+  const rawText = String(message || '').trim()
+  if (!rawText) {
     return ''
   }
 
-  const issue = classifyCodexIssue(text, engine)
+  const issue = classifyCodexIssue(rawText, engine)
   if (!issue) {
-    return text
+    return rawText
   }
 
-  return `${issue.summary}\n\n原始错误：${issue.rawMessage}`
+  return `${issue.summary}\n\n${text('原始错误', 'Raw error')}: ${issue.rawMessage}`
 }
 
 function extractTextFromUnknownError(input, depth = 0) {
@@ -757,41 +780,41 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
   const item = event.item || {}
 
   if (!eventType) {
-    return { title: `收到 ${agentLabel} 事件`, detail: '' }
+    return { title: text(`收到 ${agentLabel} 事件`, `Received ${agentLabel} event`), detail: '' }
   }
 
   if (eventType === AGENT_RUN_EVENT_TYPES.THREAD_STARTED) {
     return {
-      title: `${agentLabel} 会话已创建`,
-      detail: event.thread_id ? `线程 ID: ${event.thread_id}` : '',
+      title: text(`${agentLabel} 会话已创建`, `${agentLabel} session created`),
+      detail: event.thread_id ? text(`线程 ID: ${event.thread_id}`, `Thread ID: ${event.thread_id}`) : '',
     }
   }
 
   if (eventType === AGENT_RUN_EVENT_TYPES.TURN_STARTED) {
-    return { title: `${agentLabel} 开始执行`, detail: '' }
+    return { title: text(`${agentLabel} 开始执行`, `${agentLabel} started`), detail: '' }
   }
 
   if (eventType === AGENT_RUN_EVENT_TYPES.TURN_COMPLETED) {
     const usage = event.usage
       ? [
-        `输入 ${formatCount(event.usage.input_tokens)}`,
-        event.usage.cached_input_tokens ? `缓存 ${formatCount(event.usage.cached_input_tokens)}` : '',
-        `输出 ${formatCount(event.usage.output_tokens)}`,
+        text(`输入 ${formatCount(event.usage.input_tokens)}`, `Input ${formatCount(event.usage.input_tokens)}`),
+        event.usage.cached_input_tokens ? text(`缓存 ${formatCount(event.usage.cached_input_tokens)}`, `Cached ${formatCount(event.usage.cached_input_tokens)}`) : '',
+        text(`输出 ${formatCount(event.usage.output_tokens)}`, `Output ${formatCount(event.usage.output_tokens)}`),
       ].filter(Boolean).join(' / ')
       : ''
     return {
-      title: `${agentLabel} 执行完成`,
+      title: text(`${agentLabel} 执行完成`, `${agentLabel} completed`),
       detail: usage,
     }
   }
 
   if (eventType === AGENT_RUN_EVENT_TYPES.ERROR || eventType === AGENT_RUN_EVENT_TYPES.TURN_FAILED) {
-    const rawMessage = extractCodexEventErrorText(event) || `${agentLabel} 执行失败`
+    const rawMessage = extractCodexEventErrorText(event) || text(`${agentLabel} 执行失败`, `${agentLabel} failed`)
     const retrying = eventType === AGENT_RUN_EVENT_TYPES.ERROR ? parseCodexRetryMessage(rawMessage) : null
     if (retrying) {
       return {
         kind: 'info',
-        title: `网络异常，正在重试 (${retrying.attempt}/${retrying.total})`,
+        title: text(`网络异常，正在重试 (${retrying.attempt}/${retrying.total})`, `Network error, retrying (${retrying.attempt}/${retrying.total})`),
         detail: formatCodexIssueMessage(retrying.reason || retrying.rawMessage, engine),
       }
     }
@@ -799,7 +822,7 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     const issue = classifyCodexIssue(rawMessage, engine)
     return {
       kind: 'error',
-      title: issue?.title || (eventType === AGENT_RUN_EVENT_TYPES.TURN_FAILED ? '本轮运行失败' : `${agentLabel} 返回错误`),
+      title: issue?.title || (eventType === AGENT_RUN_EVENT_TYPES.TURN_FAILED ? text('本轮运行失败', 'This run failed') : text(`${agentLabel} 返回错误`, `${agentLabel} returned an error`)),
       detail: formatCodexIssueMessage(rawMessage, engine),
     }
   }
@@ -808,7 +831,7 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.REASONING) {
       return {
         kind: 'info',
-        title: '正在思考',
+        title: text('正在思考', 'Thinking'),
         detail: item.text || '',
       }
     }
@@ -828,7 +851,7 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.COMMAND_EXECUTION) {
       return {
         kind: 'command',
-        title: '开始执行命令',
+        title: text('开始执行命令', 'Command started'),
         detail: item.command || '',
       }
     }
@@ -836,13 +859,13 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.TODO_LIST) {
       return {
         kind: 'todo',
-        title: '更新待办列表',
+        title: text('更新待办列表', 'Update todo list'),
         detail: formatTodoItems(item.items),
       }
     }
 
     return {
-      title: `开始处理 ${item.type || '未知项目'}`,
+      title: text(`开始处理 ${item.type || '未知项目'}`, `Started handling ${item.type || 'unknown item'}`),
       detail: '',
     }
   }
@@ -850,7 +873,7 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
   if (eventType === AGENT_RUN_EVENT_TYPES.ITEM_UPDATED && item.type === AGENT_RUN_ITEM_TYPES.TODO_LIST) {
     return {
       kind: 'todo',
-      title: '更新待办列表',
+      title: text('更新待办列表', 'Update todo list'),
       detail: formatTodoItems(item.items),
     }
   }
@@ -859,7 +882,7 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.AGENT_MESSAGE && item.text) {
       return {
         kind: 'result',
-        title: `${agentLabel} 已返回结果`,
+        title: text(`${agentLabel} 已返回结果`, `${agentLabel} returned a result`),
         detail: '',
       }
     }
@@ -880,7 +903,9 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
       const success = item.exit_code === 0 || item.status === 'completed'
       return {
         kind: success ? 'command' : 'error',
-        title: success ? '命令执行完成' : `命令执行失败(exit ${item.exit_code ?? '?'})`,
+        title: success
+          ? text('命令执行完成', 'Command completed')
+          : text(`命令执行失败(exit ${item.exit_code ?? '?'})`, `Command failed (exit ${item.exit_code ?? '?'})`),
         detail: [item.command, formatCommandOutput(item.aggregated_output)].filter(Boolean).join('\n\n'),
       }
     }
@@ -888,49 +913,49 @@ export function formatCodexEvent(event = {}, agentLabel = 'Codex', engine = 'cod
     if (item.type === AGENT_RUN_ITEM_TYPES.TODO_LIST) {
       return {
         kind: 'todo',
-        title: '更新待办列表',
+        title: text('更新待办列表', 'Update todo list'),
         detail: formatTodoItems(item.items),
       }
     }
 
     return {
-      title: `完成 ${item.type || '未知项目'}`,
+      title: text(`完成 ${item.type || '未知项目'}`, `Completed ${item.type || 'unknown item'}`),
       detail: '',
     }
   }
 
   return {
-    title: `事件: ${eventType}`,
+    title: text(`事件: ${eventType}`, `Event: ${eventType}`),
     detail: '',
   }
 }
 
 export function getProcessStatus(turn) {
   if (turn.status === 'queued') {
-    return '排队中'
+    return text('排队中', 'Queued')
   }
   if (turn.status === 'starting') {
-    return '启动中'
+    return text('启动中', 'Starting')
   }
   if (turn.status === 'stopping') {
-    return '停止中'
+    return text('停止中', 'Stopping')
   }
   if (turn.status === 'running') {
-    return '进行中'
+    return text('进行中', 'Running')
   }
   if (turn.status === 'error') {
-    return '失败'
+    return text('失败', 'Failed')
   }
   if (turn.status === 'interrupted') {
-    return '已中断'
+    return text('已中断', 'Interrupted')
   }
   if (turn.status === 'stopped') {
-    return '已停止'
+    return text('已停止', 'Stopped')
   }
   if (turn.status === 'stop_timeout') {
-    return '停止超时'
+    return text('停止超时', 'Stop timeout')
   }
-  return '已完成'
+  return text('已完成', 'Completed')
 }
 
 function normalizeLogEntry(entry = {}, nextLogId) {
@@ -1009,7 +1034,8 @@ function upsertRetryingEvent(turn, entry, nextLogId) {
   }
 
   for (let index = turn.events.length - 1; index >= 0; index -= 1) {
-    if (!String(turn.events[index]?.title || '').startsWith('网络异常，正在重试')) {
+    const retryPrefix = text('网络异常，正在重试', 'Network error, retrying')
+    if (!String(turn.events[index]?.title || '').startsWith(retryPrefix)) {
       continue
     }
     turn.events.splice(index, 1, normalized)
@@ -1029,8 +1055,8 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     mergeSession(payload.session)
     turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
-      title: `已连接项目：${payload.session?.title || '未命名项目'}`,
-      detail: payload.session?.cwd ? `工作目录：${payload.session.cwd}` : '',
+      title: text(`已连接项目：${payload.session?.title || '未命名项目'}`, `Connected project: ${payload.session?.title || 'Untitled Project'}`),
+      detail: payload.session?.cwd ? text(`工作目录：${payload.session.cwd}`, `Working directory: ${payload.session.cwd}`) : '',
     }, nextLogId)
     return
   }
@@ -1039,8 +1065,8 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     mergeSession(payload.session)
     turn.engine = getTurnAgentEngine(payload.session || turn)
     appendTurnEvent(turn, {
-      title: '项目会话已更新',
-      detail: payload.session?.started ? '后续请求会继续复用当前项目的执行引擎会话。' : '',
+      title: text('项目会话已更新', 'Project session updated'),
+      detail: payload.session?.started ? text('后续请求会继续复用当前项目的执行引擎会话。', 'Subsequent requests will continue reusing the current engine session for this project.') : '',
     }, nextLogId)
     return
   }
@@ -1051,7 +1077,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     }
 
     appendTurnEvent(turn, {
-      title: payload.message || '状态已更新',
+      title: payload.message || text('状态已更新', 'Status updated'),
       detail: '',
     }, nextLogId)
     return
@@ -1079,7 +1105,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.AGENT_EVENT) {
     syncTurnSummaryFromCodexEvent(turn, payload.event)
     const formattedEvent = formatCodexEvent(payload.event, getTurnAgentLabel(turn), turn.engine)
-    if (String(formattedEvent.title || '').startsWith('网络异常，正在重试')) {
+    if (String(formattedEvent.title || '').startsWith(text('网络异常，正在重试', 'Network error, retrying'))) {
       upsertRetryingEvent(turn, formattedEvent, nextLogId)
     } else {
       appendTurnEvent(turn, formattedEvent, nextLogId)
@@ -1087,10 +1113,10 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     if (payload.event?.type === AGENT_RUN_EVENT_TYPES.ITEM_COMPLETED && payload.event?.item?.type === AGENT_RUN_ITEM_TYPES.AGENT_MESSAGE && payload.event?.item?.text) {
       turn.responseMessage = payload.event.item.text
     }
-    const message = extractCodexEventErrorText(payload.event) || `${getTurnAgentLabel(turn)} 执行失败`
+    const message = extractCodexEventErrorText(payload.event) || text(`${getTurnAgentLabel(turn)} 执行失败`, `${getTurnAgentLabel(turn)} failed`)
     const retrying = payload.event?.type === 'error' ? parseCodexRetryMessage(message) : null
     if (!retrying && (payload.event?.type === AGENT_RUN_EVENT_TYPES.ERROR || payload.event?.type === AGENT_RUN_EVENT_TYPES.TURN_FAILED)) {
-      const message = extractCodexEventErrorText(payload.event) || `${getTurnAgentLabel(turn)} 执行失败`
+      const message = extractCodexEventErrorText(payload.event) || text(`${getTurnAgentLabel(turn)} 执行失败`, `${getTurnAgentLabel(turn)} failed`)
       turn.errorMessage = formatCodexIssueMessage(message, turn.engine)
       turn.status = 'error'
     }
@@ -1100,7 +1126,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
   if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.COMPLETED) {
     appendTurnEvent(turn, {
       kind: 'result',
-      title: '本轮执行结束',
+      title: text('本轮执行结束', 'Run finished'),
       detail: '',
     }, nextLogId)
     if (payload.message) {
@@ -1111,7 +1137,7 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
 
   if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.STOPPED) {
     appendTurnEvent(turn, {
-      title: payload.message || '执行已手动停止',
+      title: payload.message || text('执行已手动停止', 'Execution stopped manually'),
       detail: '',
     }, nextLogId)
     return
@@ -1121,8 +1147,8 @@ export function applyRunPayloadToTurn(turn, payload = {}, nextLogId, mergeSessio
     const issue = classifyCodexIssue(payload.message, turn.engine)
     appendTurnEvent(turn, {
       kind: 'error',
-      title: issue?.title || '执行失败',
-      detail: formatCodexIssueMessage(payload.message || `${getTurnAgentLabel(turn)} 执行失败`, turn.engine),
+      title: issue?.title || text('执行失败', 'Execution failed'),
+      detail: formatCodexIssueMessage(payload.message || text(`${getTurnAgentLabel(turn)} 执行失败`, `${getTurnAgentLabel(turn)} failed`), turn.engine),
     }, nextLogId)
   }
 }
@@ -1164,7 +1190,7 @@ export function syncTurnStateFromRun(turn, run = {}) {
     : persistedError
 
   if (turn.status === 'completed' && !turn.responseMessage) {
-    turn.responseMessage = `本轮 ${getTurnAgentLabel(turn)} 执行已完成，没有返回额外文本。`
+    turn.responseMessage = text(`本轮 ${getTurnAgentLabel(turn)} 执行已完成，没有返回额外文本。`, `${getTurnAgentLabel(turn)} completed in this run without returning additional text.`)
   }
 
   return turn
@@ -1190,7 +1216,7 @@ export function applyRunEventToTurn(turn, event = {}, nextLogId, mergeSession = 
     turn.finishedAt = new Date().toISOString()
   } else if (envelopeType === AGENT_RUN_ENVELOPE_EVENT_TYPES.ERROR) {
     turn.status = 'error'
-    turn.errorMessage = formatCodexIssueMessage(String(payload.message || turn.errorMessage || `${getTurnAgentLabel(turn)} 执行失败`), turn.engine)
+    turn.errorMessage = formatCodexIssueMessage(String(payload.message || turn.errorMessage || text(`${getTurnAgentLabel(turn)} 执行失败`, `${getTurnAgentLabel(turn)} failed`)), turn.engine)
     turn.finishedAt = new Date().toISOString()
   }
 

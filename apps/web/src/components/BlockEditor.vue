@@ -9,6 +9,7 @@ import {
   Trash2,
 } from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@promptx/shared'
+import { useI18n } from '../composables/useI18n.js'
 import { useMentionPicker } from '../composables/useMentionPicker.js'
 import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
 import PathMentionPicker from './PathMentionPicker.vue'
@@ -29,6 +30,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'upload-files', 'import-text-files', 'import-pdf-files', 'clear-request'])
+const { t } = useI18n()
 
 const blocks = computed(() => props.modelValue)
 const mentionSessionId = computed(() => props.codexSessionId)
@@ -327,7 +329,7 @@ function getImportedStats(content = '') {
   const text = String(content)
   const lines = text ? text.split('\n').length : 0
   const chars = text.length
-  return `${lines} 行 · ${chars} 字符`
+  return t('blockEditor.stats', { lines, chars })
 }
 
 function splitTextBlockForInsertion(currentIndex, incomingBlocks, options = {}) {
@@ -913,7 +915,7 @@ defineExpose({
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="theme-heading inline-flex items-center gap-2 font-medium">
           <ScanText class="h-4 w-4" />
-          <span>输入文本、图片或文件(md、pdf)</span>
+          <span>{{ t('blockEditor.title') }}</span>
         </p>
         <div class="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           <slot name="header-actions" />
@@ -922,7 +924,7 @@ defineExpose({
       <div v-if="uploading" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
         <span class="theme-status-neutral inline-flex items-center gap-1.5 rounded-sm border border-dashed px-2 py-1">
           <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
-          <span>正在处理文件...</span>
+          <span>{{ t('blockEditor.uploading') }}</span>
         </span>
       </div>
       <input
@@ -944,7 +946,7 @@ defineExpose({
             rows="1"
             :value="block.content"
             class="w-full resize-none overflow-hidden border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
-            :placeholder="index === 0 ? '从这里开始写需求...' : '继续输入...'"
+            :placeholder="index === 0 ? t('blockEditor.placeholderFirst') : t('blockEditor.placeholderNext')"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
             @compositionstart="handleTextCompositionStart(index)"
@@ -961,35 +963,35 @@ defineExpose({
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
-            <span>删除</span>
+            <span>{{ t('blockEditor.delete') }}</span>
           </button>
         </div>
 
         <div v-else-if="block.type === BLOCK_TYPES.IMPORTED_TEXT" class="group relative dashed-panel overflow-hidden">
           <div class="theme-divider theme-secondary-text flex items-start justify-between gap-3 border-b border-dashed px-4 py-3 text-xs">
             <div class="min-w-0 pr-24">
-              <p class="theme-heading font-medium">导入文件</p>
-              <p class="mt-1 truncate font-mono">{{ block.meta?.fileName || '未命名文件' }}</p>
+              <p class="theme-heading font-medium">{{ t('blockEditor.importedFile') }}</p>
+              <p class="mt-1 truncate font-mono">{{ block.meta?.fileName || t('blockEditor.unnamedFile') }}</p>
               <p class="mt-1">{{ getImportedStats(block.content) }}</p>
             </div>
             <div class="absolute right-3 top-3 flex flex-wrap gap-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
               <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="toggleImportedCollapse(index)">
                 <ChevronDown class="h-3.5 w-3.5" :class="block.meta?.collapsed ? 'rotate-180' : ''" />
-                <span>{{ block.meta?.collapsed ? '展开' : '折叠' }}</span>
+                <span>{{ block.meta?.collapsed ? t('blockEditor.expand') : t('blockEditor.collapse') }}</span>
               </button>
               <button type="button" class="tool-button inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="convertImportedToText(index)">
                 <FileText class="h-3.5 w-3.5" />
-                <span>转普通文本</span>
+                <span>{{ t('blockEditor.convertToText') }}</span>
               </button>
               <button type="button" class="tool-button tool-button-danger-subtle inline-flex items-center gap-1.5 px-2 py-1 text-xs" @click="removeBlock(index)">
                 <Trash2 class="h-3.5 w-3.5" />
-                <span>删除</span>
+                <span>{{ t('blockEditor.delete') }}</span>
               </button>
             </div>
           </div>
 
           <div v-if="block.meta?.collapsed" class="theme-secondary-text px-4 py-3 text-sm leading-7">
-            {{ getImportedPreview(block.content) || '空内容' }}<span v-if="block.content.length > 180">...</span>
+            {{ getImportedPreview(block.content) || t('blockEditor.emptyContent') }}<span v-if="block.content.length > 180">...</span>
           </div>
 
           <textarea
@@ -998,7 +1000,7 @@ defineExpose({
             rows="1"
             :value="block.content"
             class="w-full resize-none overflow-hidden border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
-            placeholder="导入内容为空"
+            :placeholder="t('blockEditor.emptyImportPlaceholder')"
             @focus="handleTextFocus(index)"
             @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
             @compositionstart="handleTextCompositionStart(index)"
@@ -1018,12 +1020,12 @@ defineExpose({
             @click="removeBlock(index)"
           >
             <Trash2 class="h-3.5 w-3.5" />
-            <span>删除</span>
+            <span>{{ t('blockEditor.delete') }}</span>
           </button>
           <div class="theme-inline-panel overflow-hidden rounded-sm border" @click="focusAfterImage(index)">
             <div class="theme-divider theme-muted-text flex items-center gap-2 border-b px-4 py-3 text-xs">
               <ImageIcon class="h-4 w-4" />
-              <span>已插入图片</span>
+              <span>{{ t('blockEditor.insertedImage') }}</span>
             </div>
             <div class="mx-auto flex w-full max-w-[720px] justify-center px-4 py-4">
               <button
@@ -1033,7 +1035,7 @@ defineExpose({
               >
                 <img
                   :src="block.content"
-                  alt="已插入图片"
+                  :alt="t('blockEditor.insertedImageAlt')"
                   class="max-h-[380px] w-auto max-w-full object-contain"
                 />
               </button>

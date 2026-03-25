@@ -33,10 +33,14 @@ function createDisabledStatus() {
     lastHeartbeatAt: '',
     lastCloseCode: 0,
     lastCloseReason: '',
+    lastCloseReasonCode: '',
     lastError: '',
+    lastErrorKey: '',
+    lastErrorParams: null,
     reconnectCount: 0,
     reconnectPaused: false,
     reconnectPausedReason: '',
+    reconnectPausedReasonCode: '',
     nextReconnectDelayMs: 0,
     recentEvents: [],
   }
@@ -244,10 +248,12 @@ function createRelayClient({
     updateStatus({
       reconnectPaused: true,
       reconnectPausedReason: reason || String(rawReason || '').trim(),
+      reconnectPausedReasonCode: String(rawReason || '').trim(),
       nextReconnectDelayMs: 0,
     })
     appendRecentEvent('reconnect_paused', {
       reason: reason || String(rawReason || '').trim() || 'unknown',
+      reasonCode: String(rawReason || '').trim() || 'unknown',
     })
     logWarn('[relay] 检测到不可重试错误，已暂停自动重连', getLogContext({
       reason: reason || String(rawReason || '').trim() || 'unknown',
@@ -408,6 +414,8 @@ function createRelayClient({
     return connect().catch((error) => {
       updateStatus({
         lastError: error?.message || 'Relay 连接失败。',
+        lastErrorKey: 'connect_failed',
+        lastErrorParams: null,
       })
       appendRecentEvent('connect_failed', {
         source,
@@ -463,8 +471,11 @@ function createRelayClient({
     updateStatus({
       reconnectPaused: false,
       reconnectPausedReason: '',
+      reconnectPausedReasonCode: '',
       nextReconnectDelayMs: 0,
       lastError: '',
+      lastErrorKey: '',
+      lastErrorParams: null,
     })
     pendingReconnectSource = source
     appendRecentEvent('reconnect_requested', {
@@ -598,6 +609,9 @@ function createRelayClient({
           lastCloseCode: 0,
           lastCloseReason: '',
           lastError: '',
+          lastCloseReasonCode: '',
+          lastErrorKey: '',
+          lastErrorParams: null,
         })
         appendRecentEvent('auth_ok', {
           tenantKey: String(message?.tenantKey || '').trim(),
@@ -651,16 +665,26 @@ function createRelayClient({
       const reconnectSource = pendingReconnectSource
       pendingReconnectSource = ''
       const { rawReason, closeReason } = parseCloseReason(reason)
+      const rawReasonCode = String(rawReason || '').trim()
       const nextError = closeReason && closeReason !== '配置已更新，正在重连'
         ? `${wasAuthenticated ? 'Relay 已断开' : 'Relay 连接被拒绝'}：${closeReason}`
         : (!wasAuthenticated && code && code !== 1000 ? `Relay 连接已关闭（code=${code}）` : '')
+      const nextErrorKey = closeReason && closeReason !== '配置已更新，正在重连'
+        ? (wasAuthenticated ? 'disconnected' : 'rejected')
+        : (!wasAuthenticated && code && code !== 1000 ? 'closed_with_code' : '')
+      const nextErrorParams = nextErrorKey === 'closed_with_code'
+        ? { code: Number(code || 0) }
+        : (nextErrorKey ? { reasonCode: rawReasonCode || closeReason || '', code: Number(code || 0) } : null)
 
       updateStatus({
         connected: false,
         lastDisconnectedAt: nowIso(),
         lastCloseCode: Number(code || 0),
         lastCloseReason: closeReason,
-        ...(nextError ? { lastError: nextError } : {}),
+        lastCloseReasonCode: rawReasonCode,
+        ...(nextError
+          ? { lastError: nextError, lastErrorKey: nextErrorKey, lastErrorParams: nextErrorParams }
+          : { lastErrorKey: '', lastErrorParams: null }),
       })
       appendRecentEvent('close', {
         code: Number(code || 0),
@@ -699,6 +723,8 @@ function createRelayClient({
       }
       updateStatus({
         lastError: error?.message || 'Relay 连接失败。',
+        lastErrorKey: 'connect_failed',
+        lastErrorParams: null,
       })
       appendRecentEvent('error', {
         error: error?.message || String(error || ''),
@@ -746,6 +772,8 @@ function createRelayClient({
       updateStatus({
         connected: false,
         nextReconnectDelayMs: 0,
+        lastErrorKey: '',
+        lastErrorParams: null,
       })
       appendRecentEvent('stopped')
       logInfo('[relay] 已停止', getLogContext())
@@ -759,8 +787,11 @@ function createRelayClient({
       syncStatusFromConfig()
       updateStatus({
         lastError: '',
+        lastErrorKey: '',
+        lastErrorParams: null,
         reconnectPaused: false,
         reconnectPausedReason: '',
+        reconnectPausedReasonCode: '',
         nextReconnectDelayMs: 0,
       })
       appendRecentEvent('config_updated', {

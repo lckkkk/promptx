@@ -1,21 +1,27 @@
 ﻿<script setup>
 import { computed } from 'vue'
 import { Check } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 import { useTheme } from '../composables/useTheme.js'
 
 const { currentTheme, setTheme, themes } = useTheme()
+const { t } = useI18n()
 
 const themeGroups = computed(() => {
   const light = themes.value.filter((theme) => theme.mode === 'light')
   const dark = themes.value.filter((theme) => theme.mode === 'dark')
   return [
-    { id: 'light', label: '浅色主题', items: light },
-    { id: 'dark', label: '深色主题', items: dark },
+    { id: 'light', label: t('theme.groupLight'), items: light },
+    { id: 'dark', label: t('theme.groupDark'), items: dark },
   ].filter((group) => group.items.length)
 })
 
 function handleThemeSelect(themeId) {
   setTheme(themeId)
+}
+
+function getThemeDescription(theme) {
+  return t(`theme.description.${theme.id}`, {}, theme.description)
 }
 </script>
 
@@ -23,12 +29,12 @@ function handleThemeSelect(themeId) {
   <div class="space-y-4">
     <div>
       <div class="flex items-center justify-between gap-3">
-        <div class="theme-heading text-sm font-medium">界面主题</div>
+        <div class="theme-heading text-sm font-medium">{{ t('theme.heading') }}</div>
         <div class="theme-toggle-current theme-badge-muted theme-muted-text rounded-sm border border-dashed px-2 py-1 text-[11px]">
-          当前：{{ currentTheme.shortName }}
+          {{ t('theme.currentTheme', { name: currentTheme.shortName }) }}
         </div>
       </div>
-      <div class="theme-muted-text theme-note-text mt-1">像编辑器一样切换整套配色，而不只是深浅模式。</div>
+      <div class="theme-muted-text theme-note-text mt-1">{{ t('theme.helper') }}</div>
     </div>
 
     <div class="space-y-4">
@@ -56,7 +62,7 @@ function handleThemeSelect(themeId) {
                 <span class="truncate text-sm font-medium">{{ theme.shortName }}</span>
                 <Check v-if="theme.id === currentTheme.id" class="h-4 w-4 shrink-0" />
               </div>
-              <div class="theme-muted-text theme-note-text mt-1">{{ theme.description }}</div>
+              <div class="theme-muted-text theme-note-text mt-1">{{ getThemeDescription(theme) }}</div>
             </div>
           </div>
         </button>
@@ -64,4 +70,3 @@ function handleThemeSelect(themeId) {
     </div>
   </div>
 </template>
-

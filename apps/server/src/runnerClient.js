@@ -1,4 +1,5 @@
 import { buildInternalAuthHeaders } from './internalAuth.js'
+import { createApiError } from './apiErrors.js'
 
 const DEFAULT_RUNNER_HTTP_TIMEOUT_MS = Math.max(
   500,
@@ -16,10 +17,12 @@ function getDefaultRunnerBaseUrl() {
 }
 
 function createHttpError(status, payload, fallbackMessage) {
-  const error = new Error(String(payload?.message || fallbackMessage || `HTTP ${status}`))
-  error.statusCode = status
-  error.payload = payload
-  return error
+  return createApiError(
+    payload?.messageKey || '',
+    String(payload?.message || fallbackMessage || `HTTP ${status}`),
+    status,
+    { payload }
+  )
 }
 
 function createRequestAbortController(timeoutMs, upstreamSignal) {
@@ -73,9 +76,17 @@ export function createRunnerClient(options = {}) {
     } catch (error) {
       abortController.cleanup()
       if (abortController.wasTimeout()) {
-        throw createHttpError(504, { message: `runner 请求超时（>${timeoutMs}ms）。` }, 'runner 请求超时。')
+        throw createHttpError(
+          504,
+          { messageKey: 'errors.runnerRequestTimeout', message: `runner 请求超时（>${timeoutMs}ms）。` },
+          'runner 请求超时。'
+        )
       }
-      throw createHttpError(503, { message: error.message || '无法连接 runner 服务。' }, '无法连接 runner 服务。')
+      throw createHttpError(
+        503,
+        { messageKey: 'errors.runnerServiceUnavailable', message: error.message || '无法连接 runner 服务。' },
+        '无法连接 runner 服务。'
+      )
     }
 
     const text = await response.text()

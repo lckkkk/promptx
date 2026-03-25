@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { FileDiff, X } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 import TaskDiffReviewPanel from './TaskDiffReviewPanel.vue'
 
 const props = defineProps({
@@ -31,10 +32,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+const { t } = useI18n()
 
 const titleText = computed(() => {
   const taskTitle = String(props.taskTitle || '').trim()
-  return taskTitle ? `代码变更 · ${taskTitle}` : '代码变更'
+  return taskTitle ? t('diffReview.dialogTitleWithTask', { title: taskTitle }) : t('diffReview.dialogTitle')
 })
 
 function handleKeydown(event) {

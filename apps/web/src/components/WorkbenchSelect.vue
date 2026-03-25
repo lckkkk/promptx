@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronDown, LoaderCircle } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   modelValue: {
@@ -21,11 +22,11 @@ const props = defineProps({
   },
   placeholder: {
     type: String,
-    default: '请选择',
+    default: '',
   },
   emptyText: {
     type: String,
-    default: '暂无可选项',
+    default: '',
   },
   getOptionValue: {
     type: Function,
@@ -34,6 +35,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'refresh-intent'])
+const { t } = useI18n()
 
 const rootRef = ref(null)
 const panelRef = ref(null)
@@ -45,6 +47,8 @@ const selectedOption = computed(() => {
   const currentValue = String(props.modelValue ?? '')
   return props.options.find((option) => String(props.getOptionValue(option) ?? '') === currentValue) || null
 })
+const resolvedPlaceholder = computed(() => props.placeholder || t('common.select'))
+const resolvedEmptyText = computed(() => props.emptyText || t('common.noOptions'))
 
 function getOptionLabel(option) {
   if (option && typeof option === 'object' && Object.prototype.hasOwnProperty.call(option, 'label')) {
@@ -195,7 +199,7 @@ onBeforeUnmount(() => {
           :disabled="disabled"
         >
           <div class="theme-muted-text text-sm">
-            {{ selectedOption ? getOptionLabel(selectedOption) : placeholder }}
+            {{ selectedOption ? getOptionLabel(selectedOption) : resolvedPlaceholder }}
           </div>
         </slot>
       </div>
@@ -245,7 +249,7 @@ onBeforeUnmount(() => {
               name="empty"
             >
               <div class="theme-empty-state px-3 py-4 text-sm">
-                {{ emptyText }}
+                {{ resolvedEmptyText }}
               </div>
             </slot>
           </div>

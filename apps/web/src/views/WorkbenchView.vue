@@ -8,6 +8,7 @@ import WorkbenchMobileDetailHeader from '../components/WorkbenchMobileDetailHead
 import WorkbenchTaskListPanel from '../components/WorkbenchTaskListPanel.vue'
 import WorkbenchTodoDialog from '../components/WorkbenchTodoDialog.vue'
 import TopToast from '../components/TopToast.vue'
+import { useI18n } from '../composables/useI18n.js'
 import { useWorkbenchMobileLayout } from '../composables/useWorkbenchMobileLayout.js'
 import { usePageTitle } from '../composables/usePageTitle.js'
 import { useToast } from '../composables/useToast.js'
@@ -27,6 +28,7 @@ const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
+const { t } = useI18n()
 const { toastMessage, flashToast, clearToast } = useToast()
 const TaskDiffReviewDialog = defineAsyncComponent(() => import('../components/TaskDiffReviewDialog.vue'))
 const WorkbenchSettingsDialog = defineAsyncComponent(() => import('../components/WorkbenchSettingsDialog.vue'))
@@ -331,7 +333,7 @@ async function flushCurrentEditorInput() {
 async function copyCodexPrompt() {
   await flushCurrentEditorInput()
   await navigator.clipboard.writeText(buildPromptForTask(currentTaskSlug.value))
-  flashToast('已复制提示词')
+  flashToast(t('workbench.promptCopied'))
 }
 
 async function handleCreateTask() {
@@ -512,7 +514,7 @@ const taskListPanelListeners = {
 
 const activityPanelListeners = {
   'open-diff': ({ scope, runId }) => openTaskDiff(scope, runId),
-  'project-created': () => flashToast('已新建项目'),
+  'project-created': () => flashToast(t('workbench.projectCreated')),
   'selected-session-change': handleCurrentTaskSessionChange,
   'sending-change': handleCurrentTaskSendingChange,
 }
@@ -545,19 +547,19 @@ const mobileDetailHeaderListeners = {
 
     <ConfirmDialog
       :open="showClearDialog"
-      title="确认清空当前任务？"
-      description="将清空右侧编辑区内容，但会保留当前任务本身。"
-      confirm-text="确认清空"
-      cancel-text="继续编辑"
+      :title="t('workbench.confirmClearTitle')"
+      :description="t('workbench.confirmClearDescription')"
+      :confirm-text="t('workbench.confirmClearAction')"
+      :cancel-text="t('workbench.continueEditing')"
       @cancel="closeClearDialog"
       @confirm="clearAllContent"
     />
     <ConfirmDialog
       :open="showDeleteDialog"
-      title="确认删除当前任务？"
-      :description="`将删除「${currentTaskDisplayTitle}」，删除后无法恢复。`"
-      confirm-text="确认删除"
-      cancel-text="先保留"
+      :title="t('workbench.confirmDeleteTitle')"
+      :description="t('workbench.confirmDeleteDescription', { title: currentTaskDisplayTitle })"
+      :confirm-text="t('workbench.confirmDeleteAction')"
+      :cancel-text="t('workbench.keepForNow')"
       :loading="removingTask"
       danger
       @cancel="closeDeleteDialog"
@@ -565,20 +567,20 @@ const mobileDetailHeaderListeners = {
     />
     <ConfirmDialog
       :open="showTodoDeleteConfirm"
-      title="确认删除这条代办？"
-      description="删除后这条代办将无法恢复。"
-      confirm-text="确认删除"
-      cancel-text="先保留"
+      :title="t('workbench.confirmDeleteTodoTitle')"
+      :description="t('workbench.confirmDeleteTodoDescription')"
+      :confirm-text="t('workbench.confirmDeleteAction')"
+      :cancel-text="t('workbench.keepForNow')"
       danger
       @cancel="closeTodoDeleteConfirm"
       @confirm="confirmDeleteTodo"
     />
     <ConfirmDialog
       :open="showTodoUseConfirm"
-      title="替换编辑区内容？"
-      description="编辑区已有内容。继续使用这条代办会清空当前内容，并替换成代办里的内容。"
-      confirm-text="确认替换"
-      cancel-text="先不替换"
+      :title="t('workbench.replaceEditorTitle')"
+      :description="t('workbench.replaceEditorDescription')"
+      :confirm-text="t('workbench.confirmReplaceAction')"
+      :cancel-text="t('workbench.dontReplaceYet')"
       @cancel="closeTodoUseConfirm"
       @confirm="applyTodoToEditor()"
     />
@@ -663,7 +665,7 @@ const mobileDetailHeaderListeners = {
                 :class="mobileDetailTab === 'activity' ? 'tool-button-accent-subtle' : ''"
                 @click="mobileDetailTab = 'activity'"
               >
-                执行
+                {{ t('workbench.activity') }}
               </button>
               <button
                 type="button"
@@ -671,7 +673,7 @@ const mobileDetailHeaderListeners = {
                 :class="mobileDetailTab === 'input' ? 'tool-button-accent-subtle' : ''"
                 @click="mobileDetailTab = 'input'"
               >
-                输入
+                {{ t('workbench.input') }}
               </button>
             </div>
           </div>
@@ -682,7 +684,7 @@ const mobileDetailHeaderListeners = {
             <WorkbenchActivityPanel
               ref="codexPanelRef"
               v-bind="activityPanelProps"
-              empty-message="请选择一个任务"
+              :empty-message="t('workbench.selectTask')"
               v-on="activityPanelListeners"
             />
           </div>

@@ -1,3 +1,5 @@
+import { translate } from '../composables/useI18n.js'
+
 const DB_NAME = 'promptx-transcripts'
 const STORE_NAME = 'turns'
 const DB_VERSION = 1
@@ -32,7 +34,7 @@ function openDatabase() {
     }
 
     request.onerror = () => {
-      reject(request.error || new Error('无法打开本地会话存储'))
+      reject(request.error || new Error(translate('errors.transcriptOpenFailed')))
     }
   }).catch((error) => {
     dbPromise = null
@@ -62,11 +64,11 @@ function runTransaction(mode, handler) {
       }
 
       transaction.onerror = () => {
-        reject(transaction.error || request?.error || new Error('本地会话存储操作失败'))
+        reject(transaction.error || request?.error || new Error(translate('errors.transcriptOperationFailed')))
       }
 
       transaction.onabort = () => {
-        reject(transaction.error || new Error('本地会话存储操作已中断'))
+        reject(transaction.error || new Error(translate('errors.transcriptAborted')))
       }
     })
   })

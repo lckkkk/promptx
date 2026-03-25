@@ -1,5 +1,6 @@
 <script setup>
 import { ArrowLeft, PencilLine } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   currentTaskSlug: {
@@ -31,6 +32,8 @@ const emit = defineEmits([
   'cancel-title-edit',
   'update:titleInputValue',
 ])
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -43,7 +46,7 @@ const emit = defineEmits([
           @click="emit('back')"
         >
           <ArrowLeft class="h-4 w-4" />
-          <span>任务</span>
+          <span>{{ t('workbench.tasks') }}</span>
         </button>
 
         <div class="min-w-0 flex-1">
@@ -54,7 +57,7 @@ const emit = defineEmits([
             maxlength="140"
             data-task-title-input="current"
             class="block w-full appearance-none border-0 bg-transparent p-0 text-left text-sm font-semibold leading-6 outline-none placeholder:text-[var(--theme-textMuted)]"
-            :placeholder="currentTaskAutoTitle || '未命名任务'"
+            :placeholder="currentTaskAutoTitle || t('workbench.untitledTask')"
             @input="emit('update:titleInputValue', $event.target.value)"
             @keydown.enter.prevent="$event.target.blur()"
             @keydown.esc.prevent="emit('cancel-title-edit')"
@@ -67,7 +70,7 @@ const emit = defineEmits([
             :disabled="!currentTaskSlug"
             @click="emit('begin-edit')"
           >
-            <span class="truncate">{{ title || '未命名任务' }}</span>
+            <span class="truncate">{{ title || t('workbench.untitledTask') }}</span>
             <PencilLine class="h-3.5 w-3.5 shrink-0 opacity-50" />
           </button>
         </div>

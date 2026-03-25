@@ -400,11 +400,17 @@ export async function createTranscriptFixture(options = {}) {
 export async function openWorkbenchTask(page, slug, options = {}) {
   await ensurePromptxE2EStack()
   const baseUrl = String(options.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '')
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('promptx:locale', 'zh-CN')
+    } catch {
+    }
+  })
   await page.goto(`${baseUrl}/?task=${encodeURIComponent(slug)}`, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   })
-  await page.waitForSelector('text=本轮提示词', { timeout: 30000 })
+  await page.waitForSelector('.transcript-card--prompt', { timeout: 30000 })
   await page.waitForTimeout(1200)
 }
 

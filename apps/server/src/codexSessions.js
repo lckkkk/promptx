@@ -4,11 +4,10 @@ import { nanoid } from 'nanoid'
 import { normalizeAgentEngine } from '../../../packages/shared/src/index.js'
 import { all, get, run, transaction } from './db.js'
 import { assertAgentRunner } from './agents/index.js'
+import { createApiError } from './apiErrors.js'
 
 function createHttpError(message, statusCode = 400) {
-  const error = new Error(message)
-  error.statusCode = statusCode
-  return error
+  return createApiError('', message, statusCode)
 }
 
 function toCodexSession(row) {
@@ -45,7 +44,7 @@ function ensureAgentRunnerAvailable(engine) {
   try {
     assertAgentRunner(engine)
   } catch (error) {
-    throw createHttpError(error.message || '当前执行引擎不可用。')
+    throw createApiError('errors.agentEngineUnavailable', error.message || '当前执行引擎不可用。')
   }
 }
 
@@ -62,17 +61,17 @@ function normalizeTitle(input = '', cwd = '') {
 export function normalizeCwd(input = '') {
   const cwd = String(input || '').trim()
   if (!cwd) {
-    throw createHttpError('请先填写工作目录。')
+    throw createApiError('errors.cwdRequired', '请先填写工作目录。')
   }
 
   const resolved = path.resolve(cwd)
   if (!fs.existsSync(resolved)) {
-    throw createHttpError('工作目录不存在，请重新确认。')
+    throw createApiError('errors.cwdNotFound', '工作目录不存在，请重新确认。')
   }
 
   const stats = fs.statSync(resolved)
   if (!stats.isDirectory()) {
-    throw createHttpError('工作目录必须是文件夹。')
+    throw createApiError('errors.cwdMustBeDirectory', '工作目录必须是文件夹。')
   }
 
   return resolved
@@ -144,10 +143,10 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   ensureAgentRunnerAvailable(nextEngine)
 
   if (existing.started && wantsCwd && nextCwd !== existing.cwd) {
-    throw createHttpError('已启动的 PromptX 项目不能直接修改工作目录。', 409)
+    throw createApiError('errors.startedProjectCwdLocked', '已启动的 PromptX 项目不能直接修改工作目录。', 409)
   }
   if (existing.started && wantsEngine && nextEngine !== existing.engine) {
-    throw createHttpError('已启动的 PromptX 项目不能直接切换执行引擎，请新建项目。', 409)
+    throw createApiError('errors.startedProjectEngineLocked', '已启动的 PromptX 项目不能直接切换执行引擎，请新建项目。', 409)
   }
 
   const title = Object.prototype.hasOwnProperty.call(patch, 'title')

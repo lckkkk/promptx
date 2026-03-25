@@ -1,4 +1,4 @@
-import { getApiBase } from './request.js'
+import { getApiBase, resolveRequestErrorMessage } from './request.js'
 
 const API_BASE = getApiBase()
 
@@ -13,7 +13,7 @@ export async function uploadImage(file) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || '上传失败。')
+    throw new Error(resolveRequestErrorMessage(payload, 'errors.uploadFailed'))
   }
 
   return response.json()
@@ -30,7 +30,7 @@ export async function importPdf(file) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || 'PDF 导入失败。')
+    throw new Error(resolveRequestErrorMessage(payload, 'errors.pdfImportFailed'))
   }
 
   return response.json()

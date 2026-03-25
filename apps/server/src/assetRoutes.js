@@ -3,6 +3,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Jimp } from 'jimp'
 import { nanoid } from 'nanoid'
+import { createApiError } from './apiErrors.js'
 
 function registerAssetRoutes(app, options = {}) {
   const {
@@ -17,10 +18,10 @@ function registerAssetRoutes(app, options = {}) {
   app.post('/api/uploads', async (request, reply) => {
     const part = await request.file()
     if (!part) {
-      return reply.code(400).send({ message: '没有收到上传文件。' })
+      return reply.code(400).send({ messageKey: 'errors.uploadFileMissing', message: '没有收到上传文件。' })
     }
     if (!String(part.mimetype || '').startsWith('image/')) {
-      return reply.code(400).send({ message: '只支持上传图片文件。' })
+      return reply.code(400).send({ messageKey: 'errors.uploadImageOnly', message: '只支持上传图片文件。' })
     }
 
     const tempPath = createTempFilePath(tmpDir, part.filename)
@@ -58,13 +59,13 @@ function registerAssetRoutes(app, options = {}) {
   app.post('/api/imports/pdf', async (request, reply) => {
     const part = await request.file()
     if (!part) {
-      return reply.code(400).send({ message: '没有收到 PDF 文件。' })
+      return reply.code(400).send({ messageKey: 'errors.pdfFileMissing', message: '没有收到 PDF 文件。' })
     }
 
     const fileName = normalizeUploadFileName(part.filename, 'task.pdf')
     const mimetype = String(part.mimetype || '').toLowerCase()
     if (mimetype !== 'application/pdf' && !fileName.toLowerCase().endsWith('.pdf')) {
-      return reply.code(400).send({ message: '只支持导入 PDF 文件。' })
+      return reply.code(400).send({ messageKey: 'errors.pdfOnly', message: '只支持导入 PDF 文件。' })
     }
 
     const tempPath = createTempFilePath(tmpDir, fileName, '.pdf')
@@ -80,7 +81,10 @@ function registerAssetRoutes(app, options = {}) {
 
       if (!imported.blocks.length) {
         removeAssetFiles(createdAssets)
-        return reply.code(422).send({ message: '没有从 PDF 中提取到可导入的文本或图片。' })
+        return reply.code(422).send({
+          messageKey: 'errors.pdfNoImportableContent',
+          message: '没有从 PDF 中提取到可导入的文本或图片。',
+        })
       }
 
       return reply.code(201).send({
@@ -90,7 +94,10 @@ function registerAssetRoutes(app, options = {}) {
       })
     } catch (error) {
       removeAssetFiles(error.createdAssets || createdAssets)
-      throw error
+      throw createApiError(error?.messageKey || '', error?.message || 'PDF 导入失败。', error?.statusCode || 500, {
+        createdAssets: error?.createdAssets || createdAssets,
+        cause: error,
+      })
     } finally {
       fs.rmSync(tempPath, { force: true })
     }

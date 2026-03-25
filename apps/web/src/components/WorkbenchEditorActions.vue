@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { LoaderCircle, List, Plus, SendHorizontal, Upload, WandSparkles } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   canAddTodo: {
@@ -30,14 +31,16 @@ const emit = defineEmits([
   'send-request',
 ])
 
+const { t } = useI18n()
+
 const sendLabel = computed(() => {
   if (props.sendState === 'sending') {
-    return '发送中'
+    return t('editor.sending')
   }
   if (props.sendState === 'running') {
-    return '执行中'
+    return t('editor.running')
   }
-  return '发送'
+  return t('editor.send')
 })
 </script>
 
@@ -48,7 +51,7 @@ const sendLabel = computed(() => {
     @click="emit('open-file-picker')"
   >
     <Upload class="h-4 w-4" />
-    <span>选文件</span>
+    <span>{{ t('editor.chooseFiles') }}</span>
   </button>
   <button
     type="button"
@@ -56,7 +59,7 @@ const sendLabel = computed(() => {
     @click="emit('clear-request')"
   >
     <WandSparkles class="h-4 w-4" />
-    <span>清空</span>
+    <span>{{ t('editor.clear') }}</span>
   </button>
   <button
     type="button"
@@ -65,7 +68,7 @@ const sendLabel = computed(() => {
     @click="emit('add-todo')"
   >
     <Plus class="h-4 w-4" />
-    <span>代办</span>
+    <span>{{ t('editor.todo') }}</span>
   </button>
   <button
     type="button"
@@ -73,7 +76,7 @@ const sendLabel = computed(() => {
     @click="emit('manage-todo')"
   >
     <List class="h-4 w-4" />
-    <span>{{ todoCount > 0 ? `代办 (${todoCount})` : '代办' }}</span>
+    <span>{{ todoCount > 0 ? t('editor.todoWithCount', { count: todoCount }) : t('editor.todo') }}</span>
   </button>
   <button
     type="button"

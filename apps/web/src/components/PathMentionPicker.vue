@@ -8,6 +8,7 @@ import {
   Search,
   X,
 } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 import { useWorkspaceTree } from '../composables/useWorkspaceTree.js'
 
 const props = defineProps({
@@ -31,6 +32,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'select'])
 const panelRef = ref(null)
+const { t } = useI18n()
 
 const {
   activeKey,
@@ -95,7 +97,7 @@ defineExpose({
             @click="setActiveTab('search')"
           >
             <Search class="h-3.5 w-3.5" />
-            <span>搜索</span>
+            <span>{{ t('pathPicker.searchTab') }}</span>
           </button>
           <button
             type="button"
@@ -106,7 +108,7 @@ defineExpose({
             @click="setActiveTab('tree')"
           >
             <FolderOpen class="h-3.5 w-3.5" />
-            <span>文件树</span>
+            <span>{{ t('pathPicker.treeTab') }}</span>
           </button>
         </div>
         <div class="flex shrink-0 items-center gap-2">
@@ -131,7 +133,7 @@ defineExpose({
           v-if="!sessionId"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          请先选择项目。
+          {{ t('pathPicker.selectProjectFirst') }}
         </div>
 
         <div
@@ -145,28 +147,28 @@ defineExpose({
           v-else-if="showSearchPromptState"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          输入关键词开始搜索。
+          {{ t('pathPicker.searchPrompt') }}
         </div>
 
         <div
           v-else-if="showSearchEmptyState"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          无结果
+          {{ t('pathPicker.noResults') }}
         </div>
 
         <div
           v-else-if="showTreeEmptyState"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          空目录
+          {{ t('pathPicker.emptyDirectory') }}
         </div>
 
         <div
           v-else-if="currentLoading && !visibleItems.length"
           class="theme-empty-state px-3 py-4 text-xs"
         >
-          加载中...
+          {{ t('pathPicker.loading') }}
         </div>
 
         <div v-else-if="activeTab === 'search'" class="space-y-1">
@@ -174,7 +176,7 @@ defineExpose({
             v-if="recentSearchItems.length"
             class="theme-muted-text px-1 py-0.5 text-[10px] uppercase tracking-[0.12em]"
           >
-            最近
+            {{ t('pathPicker.recent') }}
           </div>
           <button
             v-for="item in recentSearchItems"
@@ -209,7 +211,7 @@ defineExpose({
             v-if="normalizedQuery && normalSearchItems.length"
             class="theme-muted-text px-1 py-0.5 text-[10px] uppercase tracking-[0.12em]"
           >
-            结果
+            {{ t('pathPicker.results') }}
           </div>
           <button
             v-for="item in normalSearchItems"

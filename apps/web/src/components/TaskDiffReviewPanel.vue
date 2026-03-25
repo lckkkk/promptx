@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { Check, CircleAlert, FileDiff, FolderOpen, GitBranch, RefreshCw } from 'lucide-vue-next'
+import { formatDateTime, useI18n } from '../composables/useI18n.js'
 import { useMediaQuery } from '../composables/useMediaQuery.js'
 import { useTaskDiffReviewData } from '../composables/useTaskDiffReviewData.js'
 import TaskDiffFileList from './TaskDiffFileList.vue'
@@ -65,6 +66,7 @@ const {
 
 const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
 const mobilePanelTab = ref('files')
+const { t } = useI18n()
 
 function handleSelectFile(path) {
   selectedFilePath.value = path
@@ -111,8 +113,8 @@ watch(diffScope, () => {
             :class="diffScope === 'workspace' ? 'theme-filter-active' : ''"
             @click="diffScope = 'workspace'"
           >
-            <span class="sm:hidden">当前</span>
-            <span class="hidden sm:inline">当前变更</span>
+            <span class="sm:hidden">{{ t('diffReview.scopeCurrentShort') }}</span>
+            <span class="hidden sm:inline">{{ t('diffReview.scopeCurrent') }}</span>
           </button>
           <button
             type="button"
@@ -120,8 +122,8 @@ watch(diffScope, () => {
             :class="diffScope === 'task' ? 'theme-filter-active' : ''"
             @click="diffScope = 'task'"
           >
-            <span class="sm:hidden">累计</span>
-            <span class="hidden sm:inline">任务累计</span>
+            <span class="sm:hidden">{{ t('diffReview.scopeTaskShort') }}</span>
+            <span class="hidden sm:inline">{{ t('diffReview.scopeTask') }}</span>
           </button>
           <button
             type="button"
@@ -129,7 +131,7 @@ watch(diffScope, () => {
             :class="diffScope === 'run' ? 'theme-filter-active' : ''"
             @click="diffScope = 'run'"
           >
-            <span>本轮</span>
+            <span>{{ t('diffReview.scopeRun') }}</span>
           </button>
           <button
             type="button"
@@ -138,9 +140,9 @@ watch(diffScope, () => {
             @click="loadDiff"
           >
             <RefreshCw class="h-3.5 w-3.5 sm:hidden" :class="loading ? 'animate-spin' : ''" />
-            <span class="sm:hidden">刷新</span>
+            <span class="sm:hidden">{{ t('diffReview.refresh') }}</span>
             <RefreshCw class="hidden h-3.5 w-3.5 sm:inline-block" :class="loading ? 'animate-spin' : ''" />
-            <span class="hidden sm:inline">{{ loading ? '刷新中...' : statsLoading ? '统计中...' : '刷新' }}</span>
+            <span class="hidden sm:inline">{{ loading ? t('diffReview.refreshing') : statsLoading ? t('diffReview.computing') : t('diffReview.refresh') }}</span>
           </button>
         </div>
 
@@ -151,18 +153,18 @@ watch(diffScope, () => {
           :options="terminalRuns"
           :loading="loading"
           :get-option-value="(run) => run?.id || ''"
-          placeholder="请选择历史执行"
-          empty-text="暂无可查看的历史执行"
+          :placeholder="t('diffReview.selectRun')"
+          :empty-text="t('diffReview.noRuns')"
         >
           <template #trigger="{ selectedOption }">
             <div class="truncate text-xs text-[var(--theme-textPrimary)]">
-              {{ selectedOption ? formatRunOptionLabel(selectedOption) : '请选择历史执行' }}
+              {{ selectedOption ? formatRunOptionLabel(selectedOption) : t('diffReview.selectRun') }}
             </div>
           </template>
 
           <template #header>
             <div class="theme-divider theme-muted-text border-b border-dashed px-3 py-2 text-[11px]">
-              共 {{ terminalRuns.length }} 条可审查执行
+              {{ t('diffReview.runCount', { count: terminalRuns.length }) }}
             </div>
           </template>
 
@@ -171,12 +173,12 @@ watch(diffScope, () => {
               type="button"
               class="w-full rounded-sm border border-dashed px-3 py-2 text-left transition"
               :class="selected ? 'theme-filter-active' : 'theme-filter-idle'"
-              @click="select"
+                  @click="select"
             >
               <div class="flex items-start gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-xs font-medium text-[var(--theme-textPrimary)]">
-                    {{ new Date(option.startedAt || option.createdAt).toLocaleString('zh-CN') }}
+                    {{ formatDateTime(option.startedAt || option.createdAt) }}
                   </div>
                   <div class="theme-muted-text mt-1 text-[11px]">
                     {{ getRunStatusLabel(option) }}
@@ -201,17 +203,15 @@ watch(diffScope, () => {
       </div>
     </div>
 
-    <div v-if="loading && !diffPayload" class="theme-muted-text flex flex-1 items-center justify-center px-5 text-sm">
-      正在读取代码变更...
-    </div>
+    <div v-if="loading && !diffPayload" class="theme-muted-text flex flex-1 items-center justify-center px-5 text-sm">{{ t('diffReview.loading') }}</div>
 
     <div v-else-if="diffPayload && !diffPayload.supported" class="flex flex-1 items-center justify-center px-5">
       <div class="theme-empty-state w-full max-w-xl px-4 py-5 text-sm text-[var(--theme-textSecondary)]">
         <div class="theme-heading inline-flex items-center gap-2 font-medium">
           <FileDiff class="h-4 w-4" />
-          <span>暂时无法查看代码变更</span>
+          <span>{{ t('diffReview.unavailableTitle') }}</span>
         </div>
-        <p class="mt-2 break-all leading-7">{{ diffPayload.reason || '当前没有可展示的代码变更。' }}</p>
+        <p class="mt-2 break-all leading-7">{{ diffPayload.reason || t('diffReview.unavailableReason') }}</p>
         <div v-if="diffPayload.repoRoot" class="mt-3 flex flex-wrap gap-2 text-xs">
           <div class="theme-status-neutral inline-flex items-center gap-2 rounded-sm border border-dashed px-2.5 py-1.5">
             <FolderOpen class="h-3.5 w-3.5 shrink-0" />
@@ -242,9 +242,9 @@ watch(diffScope, () => {
             class="theme-status-success inline-flex items-center gap-2 rounded-sm border border-dashed px-2.5 py-1.5"
           >
             <GitBranch class="h-3.5 w-3.5 shrink-0" />
-            <span>{{ diffPayload.branch || '未识别分支' }}</span>
+            <span>{{ diffPayload.branch || t('diffReview.unknownBranch') }}</span>
             <span class="opacity-50">•</span>
-            <span class="text-[var(--theme-textPrimary)]">{{ diffPayload.summary?.fileCount || 0 }} 个文件</span>
+            <span class="text-[var(--theme-textPrimary)]">{{ t('diffReview.fileCount', { count: diffPayload.summary?.fileCount || 0 }) }}</span>
             <template v-if="diffPayload.summary?.statsComplete">
               <span class="opacity-50">•</span>
               <span class="font-medium text-[var(--theme-success)]">+{{ diffPayload.summary?.additions || 0 }}</span>
@@ -255,7 +255,7 @@ watch(diffScope, () => {
               <span class="h-3 w-10 animate-pulse rounded bg-[var(--theme-successSoft)]" />
               <span class="h-3 w-10 animate-pulse rounded bg-[var(--theme-dangerSoft)]" />
             </template>
-            <span v-else class="opacity-75">等待统计</span>
+            <span v-else class="opacity-75">{{ t('diffReview.waitingStats') }}</span>
           </div>
         </div>
         <p v-if="baselineMetaText" class="mt-2 break-all text-[11px] opacity-75">
@@ -281,7 +281,7 @@ watch(diffScope, () => {
               :class="mobilePanelTab === 'files' ? 'tool-button-accent-subtle' : ''"
               @click="mobilePanelTab = 'files'"
             >
-              文件
+              {{ t('diffReview.filesTab') }}
             </button>
             <button
               type="button"
@@ -290,7 +290,7 @@ watch(diffScope, () => {
               :disabled="!selectedFile"
               @click="mobilePanelTab = 'patch'"
             >
-              Diff
+              {{ t('diffReview.diffTab') }}
             </button>
           </div>
         </div>

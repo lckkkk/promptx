@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { Search } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   diffPayload: {
@@ -54,6 +55,7 @@ const emit = defineEmits([
   'update:fileSearch',
   'update:statusFilter',
 ])
+const { t } = useI18n()
 
 const fileSearchModel = computed({
   get: () => props.fileSearch,
@@ -69,12 +71,12 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
 </script>
 
 <template>
-  <div class="mb-3 flex flex-wrap gap-2">
+  <div class="mb-3 grid grid-cols-2 gap-2">
     <button
       v-for="filter in ['all', 'A', 'M', 'D']"
       :key="filter"
       type="button"
-      class="rounded-sm border px-2 py-1 text-[11px] transition"
+      class="inline-flex w-full items-center justify-center gap-1 whitespace-nowrap rounded-sm border px-2 py-1 text-[11px] transition"
       :class="getFilterButtonClass(filter)"
       @click="statusFilterModel = filter"
     >
@@ -87,7 +89,7 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
     <input
       v-model="fileSearchModel"
       type="text"
-      placeholder="搜索文件路径"
+      :placeholder="t('diffReview.searchFilePath')"
       class="min-w-0 flex-1 bg-transparent text-xs text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
     >
   </label>
@@ -96,14 +98,14 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
     v-if="showSummarySkeleton"
     class="theme-empty-state theme-empty-state-strong mb-3 px-3 py-2 text-[11px]"
   >
-    已先展示文件列表，整体增删行数正在后台统计...
+    {{ t('diffReview.statsPending') }}
   </div>
 
   <div v-if="!hasDiffFiles" class="theme-empty-state px-3 py-4 text-xs">
-    当前范围内还没有检测到代码变更。
+    {{ t('diffReview.noChanges') }}
   </div>
   <div v-else-if="!filteredFiles.length" class="theme-empty-state px-3 py-4 text-xs">
-    当前筛选或搜索条件下没有匹配文件。
+    {{ t('diffReview.noMatches') }}
   </div>
 
   <div v-else class="space-y-2">
@@ -122,7 +124,7 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
         <div class="min-w-0 flex-1">
           <div class="break-all text-xs font-medium">{{ file.path }}</div>
           <div class="mt-1 text-[11px] opacity-75">
-            {{ file.statsLoaded ? `+${file.additions} / -${file.deletions}` : '行数按需统计' }}
+            {{ file.statsLoaded ? `+${file.additions} / -${file.deletions}` : t('diffReview.statsOnDemand') }}
           </div>
         </div>
       </div>

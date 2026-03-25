@@ -1,4 +1,5 @@
 import { normalizeCodexRunEventsMode } from '../../../packages/shared/src/index.js'
+import { getApiErrorPayload } from './apiErrors.js'
 
 function createEmptyWorkspaceDiffSummary() {
   return {
@@ -71,19 +72,32 @@ function createTaskWorkspaceDiffSummaryService(options = {}) {
 
 function mapRunDispatchErrorToReply(error, reply) {
   const message = String(error?.message || '')
+  const payload = getApiErrorPayload(error, {
+    messageKey: 'errors.requestFailed',
+    message: message || '请求失败。',
+  })
 
   if (error?.statusCode) {
     const statusCode = error.statusCode >= 500 ? 503 : error.statusCode
-    return reply.code(statusCode).send({ message })
+    return reply.code(statusCode).send(payload)
   }
   if (message.includes('请选择') || message.includes('没有可发送')) {
-    return reply.code(400).send({ message })
+    return reply.code(400).send({
+      ...payload,
+      messageKey: payload.messageKey || (message.includes('请选择') ? 'errors.sessionRequired' : 'errors.noPromptToSend'),
+    })
   }
   if (message.includes('没有找到对应的 PromptX 项目') || message.includes('任务不存在')) {
-    return reply.code(404).send({ message })
+    return reply.code(404).send({
+      ...payload,
+      messageKey: payload.messageKey || (message.includes('任务不存在') ? 'errors.taskNotFound' : 'errors.sessionNotFound'),
+    })
   }
   if (message.includes('当前项目正在执行中')) {
-    return reply.code(409).send({ message })
+    return reply.code(409).send({
+      ...payload,
+      messageKey: payload.messageKey || 'errors.currentProjectRunning',
+    })
   }
 
   throw error
@@ -133,7 +147,10 @@ function registerTaskRoutes(app, options = {}) {
     try {
       task = createTask(request.body || {})
     } catch (error) {
-      return reply.code(400).send({ message: error.message || '任务创建失败。' })
+      return reply.code(400).send({
+        messageKey: 'errors.taskCreateFailed',
+        message: error.message || '任务创建失败。',
+      })
     }
     broadcastServerEvent('tasks.changed', {
       taskSlug: task.slug,
@@ -146,10 +163,10 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const task = getTaskBySlug(request.params.slug)
     if (!task) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
     if (task.expired) {
-      return reply.code(410).send({ message: '任务已过期。' })
+      return reply.code(410).send({ messageKey: 'errors.taskExpired', message: '任务已过期。' })
     }
 
     return {
@@ -164,10 +181,13 @@ function registerTaskRoutes(app, options = {}) {
     try {
       result = updateTask(request.params.slug, request.body || {})
     } catch (error) {
-      return reply.code(400).send({ message: error.message || '任务更新失败。' })
+      return reply.code(400).send({
+        messageKey: 'errors.taskUpdateFailed',
+        message: error.message || '任务更新失败。',
+      })
     }
     if (result.error === 'not_found') {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
     broadcastServerEvent('tasks.changed', {
       taskSlug: request.params.slug,
@@ -179,11 +199,14 @@ function registerTaskRoutes(app, options = {}) {
   app.delete('/api/tasks/:slug', async (request, reply) => {
     purgeExpiredContent()
     if (getRunningCodexRunByTaskSlug(request.params.slug)) {
-      return reply.code(409).send({ message: '当前任务正在执行中，请先停止后再删除。' })
+      return reply.code(409).send({
+        messageKey: 'errors.taskDeleteWhileRunning',
+        message: '当前任务正在执行中，请先停止后再删除。',
+      })
     }
     const result = deleteTask(request.params.slug)
     if (result.error === 'not_found') {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
     removeAssetFiles(result.removedAssets)
     broadcastServerEvent('tasks.changed', {
@@ -197,13 +220,14 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const task = getTaskBySlug(request.params.slug)
     if (!task || task.expired) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
 
     const sessionId = String(request.body?.sessionId || '').trim()
     const taskSessionLocked = Boolean(task.codexSessionId && Number(task.codexRunCount || 0) > 0)
     if (taskSessionLocked && sessionId !== String(task.codexSessionId || '').trim()) {
       return reply.code(409).send({
+        messageKey: 'errors.taskSessionLocked',
         message: '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。',
       })
     }
@@ -211,13 +235,13 @@ function registerTaskRoutes(app, options = {}) {
     if (sessionId) {
       const session = getPromptxCodexSessionById(sessionId)
       if (!session) {
-        return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+        return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
       }
     }
 
     const updatedTask = updateTaskCodexSession(request.params.slug, sessionId)
     if (!updatedTask) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
 
     broadcastServerEvent('tasks.changed', {
@@ -237,7 +261,7 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const task = getTaskBySlug(request.params.slug)
     if (!task || task.expired) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
 
     const includeEvents = String(request.query?.includeEvents || '').trim() === 'true'
@@ -259,12 +283,12 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const task = getTaskBySlug(request.params.slug)
     if (!task || task.expired) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
 
     const scope = String(request.query?.scope || 'workspace').trim()
     if (scope !== 'workspace' && scope !== 'task' && scope !== 'run') {
-      return reply.code(400).send({ message: '无效的 diff 范围。' })
+      return reply.code(400).send({ messageKey: 'errors.invalidDiffScope', message: '无效的 diff 范围。' })
     }
 
     try {
@@ -277,9 +301,10 @@ function registerTaskRoutes(app, options = {}) {
       })
     } catch (error) {
       if (error?.statusCode) {
-        return reply.code(error.statusCode).send({
+        return reply.code(error.statusCode).send(getApiErrorPayload(error, {
+          messageKey: 'errors.gitDiffFailed',
           message: String(error?.message || 'git diff 计算失败。'),
-        })
+        }))
       }
       throw error
     }
@@ -304,12 +329,15 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const task = getTaskBySlug(request.params.slug)
     if (!task || task.expired) {
-      return reply.code(404).send({ message: '任务不存在。' })
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
 
     const runningRun = getRunningCodexRunByTaskSlug(request.params.slug)
     if (runningRun) {
-      return reply.code(409).send({ message: '当前任务正在执行中，请先停止后再清空记录。' })
+      return reply.code(409).send({
+        messageKey: 'errors.taskClearRunsWhileRunning',
+        message: '当前任务正在执行中，请先停止后再清空记录。',
+      })
     }
 
     deleteTaskCodexRuns(request.params.slug)

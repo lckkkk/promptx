@@ -1,5 +1,6 @@
 import { normalizeCodexRunEventsMode } from '../../../../packages/shared/src/index.js'
-import { getApiBase, request } from './request.js'
+import { getApiBase, request, resolveRequestErrorMessage } from './request.js'
+import { translate } from '../composables/useI18n.js'
 
 const API_BASE = getApiBase()
 
@@ -229,11 +230,11 @@ export async function streamCodexRun(runId, options = {}) {
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({}))
-    throw new Error(errorPayload.message || '请求失败。')
+    throw new Error(resolveRequestErrorMessage(errorPayload))
   }
 
   if (!response.body) {
-    throw new Error('浏览器不支持流式响应。')
+    throw new Error(translate('errors.streamUnsupported'))
   }
 
   const reader = response.body.getReader()

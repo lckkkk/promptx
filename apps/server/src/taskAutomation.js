@@ -3,8 +3,10 @@ import {
   BLOCK_TYPES,
   TASK_AUTOMATION_CONCURRENCY_POLICIES,
   TASK_NOTIFICATION_CHANNELS,
+  TASK_NOTIFICATION_LOCALES,
   TASK_NOTIFICATION_TRIGGERS,
   clampText,
+  normalizeTaskNotificationLocale,
 } from '../../../packages/shared/src/index.js'
 
 const CRON_FIELD_RANGES = [
@@ -16,6 +18,14 @@ const CRON_FIELD_RANGES = [
 ]
 const SCHEDULER_INTERVAL_MS = 15 * 1000
 const MAX_CRON_SCAN_MINUTES = 366 * 24 * 60
+
+function text(locale, zh, en) {
+  return normalizeTaskNotificationLocale(locale) === TASK_NOTIFICATION_LOCALES.EN_US ? en : zh
+}
+
+function resolveNotificationLocale(task = {}) {
+  return normalizeTaskNotificationLocale(task?.notification?.locale)
+}
 
 function resolveImageUrl(content = '', rawTaskUrl = '') {
   const value = String(content || '').trim()
@@ -213,6 +223,7 @@ function shouldNotifyRun(task = {}, run = {}) {
 }
 
 function summarizeRunMessage(run = {}) {
+  const locale = resolveNotificationLocale(run?.task || {})
   const errorMessage = String(run.errorMessage || '').trim()
   if (errorMessage) {
     return errorMessage
@@ -224,49 +235,51 @@ function summarizeRunMessage(run = {}) {
   }
 
   if (String(run.status || '') === 'stopped') {
-    return '本次运行已停止。'
+    return text(locale, '本次运行已停止。', 'This run was stopped.')
   }
 
-  return '本次运行已结束，没有额外返回内容。'
+  return text(locale, '本次运行已结束，没有额外返回内容。', 'This run finished without any additional response.')
 }
 
-function getRunStatusLabel(run = {}) {
+function getRunStatusLabel(run = {}, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
   switch (String(run.status || '').trim()) {
     case 'completed':
-      return '成功'
+      return text(locale, '成功', 'Completed')
     case 'error':
-      return '失败'
+      return text(locale, '失败', 'Failed')
     case 'stopped':
-      return '已停止'
+      return text(locale, '已停止', 'Stopped')
     case 'interrupted':
-      return '已中断'
+      return text(locale, '已中断', 'Interrupted')
     default:
-      return '已结束'
+      return text(locale, '已结束', 'Finished')
   }
 }
 
 function buildNotificationSummary(task = {}, run = {}, options = {}) {
-  const taskTitle = String(task.displayTitle || task.title || task.autoTitle || task.slug || '未命名任务').trim()
-  const statusLabel = getRunStatusLabel(run)
+  const locale = resolveNotificationLocale(task)
+  const taskTitle = String(task.displayTitle || task.title || task.autoTitle || task.slug || text(locale, '未命名任务', 'Untitled Task')).trim()
+  const statusLabel = getRunStatusLabel(run, locale)
   const engineLabel = String(run.engine || task?.engine || 'codex').trim()
-  const summary = summarizeRunMessage(run)
+  const summary = summarizeRunMessage({ ...run, task })
   const lines = [
-    `任务：${taskTitle}`,
-    `状态：${statusLabel}`,
-    `引擎：${engineLabel}`,
-    `时间：${new Date(run.finishedAt || run.updatedAt || Date.now()).toLocaleString('zh-CN')}`,
+    `${text(locale, '任务', 'Task')}: ${taskTitle}`,
+    `${text(locale, '状态', 'Status')}: ${statusLabel}`,
+    `${text(locale, '引擎', 'Engine')}: ${engineLabel}`,
+    `${text(locale, '时间', 'Time')}: ${new Date(run.finishedAt || run.updatedAt || Date.now()).toLocaleString(locale)}`,
     '',
     summary,
   ]
 
   if (options.detailUrl) {
-    lines.push('', `详情：${options.detailUrl}`)
+    lines.push('', `${text(locale, '详情', 'Details')}: ${options.detailUrl}`)
   }
 
   return {
-    title: `PromptX 任务通知｜${taskTitle}`,
+    title: text(locale, `PromptX 任务通知｜${taskTitle}`, `PromptX Task Notification | ${taskTitle}`),
     text: lines.join('\n').trim(),
     summary,
+    locale,
   }
 }
 
@@ -351,7 +364,7 @@ function buildNotificationRequest(task = {}, run = {}, options = {}) {
   }
 }
 
-async function postNotification(requestOptions = {}) {
+async function postNotification(requestOptions = {}, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
   const response = await fetch(requestOptions.url, {
     method: 'POST',
     headers: {
@@ -360,13 +373,17 @@ async function postNotification(requestOptions = {}) {
     body: JSON.stringify(requestOptions.payload),
   })
 
-  const text = await response.text()
+  const bodyText = await response.text()
   if (!response.ok) {
-    throw new Error(`Webhook 返回 ${response.status}：${text.slice(0, 200)}`)
+    throw new Error(text(
+      locale,
+      `Webhook 返回 ${response.status}：${bodyText.slice(0, 200)}`,
+      `Webhook returned ${response.status}: ${bodyText.slice(0, 200)}`
+    ))
   }
 
   try {
-    const payload = JSON.parse(text)
+    const payload = JSON.parse(bodyText)
     const businessCode = Number(payload?.code)
     const statusCode = Number(payload?.StatusCode)
     const errCode = Number(payload?.errcode)
@@ -378,22 +395,22 @@ async function postNotification(requestOptions = {}) {
     ).trim()
 
     if (Number.isFinite(businessCode) && businessCode !== 0) {
-      throw new Error(message || `Webhook 业务返回异常：code=${businessCode}`)
+      throw new Error(message || text(locale, `Webhook 业务返回异常：code=${businessCode}`, `Webhook business response error: code=${businessCode}`))
     }
     if (Number.isFinite(statusCode) && statusCode !== 0) {
-      throw new Error(message || `Webhook 业务返回异常：StatusCode=${statusCode}`)
+      throw new Error(message || text(locale, `Webhook 业务返回异常：StatusCode=${statusCode}`, `Webhook business response error: StatusCode=${statusCode}`))
     }
     if (Number.isFinite(errCode) && errCode !== 0) {
-      throw new Error(message || `Webhook 业务返回异常：errcode=${errCode}`)
+      throw new Error(message || text(locale, `Webhook 业务返回异常：errcode=${errCode}`, `Webhook business response error: errcode=${errCode}`))
     }
   } catch (error) {
     if (error instanceof SyntaxError) {
-      return text.slice(0, 500)
+      return bodyText.slice(0, 500)
     }
     throw error
   }
 
-  return text.slice(0, 500)
+  return bodyText.slice(0, 500)
 }
 
 export function createTaskAutomationService(options = {}) {
@@ -540,7 +557,7 @@ export function createTaskAutomationService(options = {}) {
       const requestOptions = buildNotificationRequest(task, run, {
         detailUrl: detailUrlBuilder(task.slug),
       })
-      await postNotification(requestOptions)
+      await postNotification(requestOptions, resolveNotificationLocale(task))
       updateTaskNotificationDelivery(task.slug, {
         lastStatus: 'success',
         lastError: '',
@@ -548,9 +565,10 @@ export function createTaskAutomationService(options = {}) {
       })
       logger?.info?.({ taskSlug: task.slug, runId: run.id }, '[automation] 已发送运行通知')
     } catch (error) {
+      const locale = resolveNotificationLocale(task)
       updateTaskNotificationDelivery(task.slug, {
         lastStatus: 'error',
-        lastError: clampText(error?.message || '消息发送失败。', 500),
+        lastError: clampText(error?.message || text(locale, '消息发送失败。', 'Failed to send the notification.'), 500),
         lastSentAt: new Date().toISOString(),
       })
       logger?.error?.({ taskSlug: task.slug, runId: run.id, error: error?.message || '' }, '[automation] 发送运行通知失败')

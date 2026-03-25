@@ -5,33 +5,19 @@ import {
   TASK_AUTOMATION_CONCURRENCY_POLICY_OPTIONS,
   TASK_AUTOMATION_TIMEZONE_OPTIONS,
   TASK_NOTIFICATION_CHANNEL_OPTIONS,
+  TASK_NOTIFICATION_LOCALE_OPTIONS,
   TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS,
   TASK_NOTIFICATION_TRIGGER_OPTIONS,
 } from '@promptx/shared'
 import DialogSideNav from './DialogSideNav.vue'
 import WorkbenchSelect from './WorkbenchSelect.vue'
+import { formatDateTime as formatLocaleDateTime, useI18n } from '../composables/useI18n.js'
 import { getTask, updateTask } from '../lib/api.js'
 
 const DEFAULT_AUTOMATION_CRON = '0 9 * * 1-5'
 const DEFAULT_AUTOMATION_MODE = 'weekdays'
 const DEFAULT_AUTOMATION_TIME = '09:00'
 const DEFAULT_AUTOMATION_WEEKDAY = '1'
-
-const AUTOMATION_MODE_OPTIONS = [
-  { value: 'daily', label: '每天' },
-  { value: 'weekdays', label: '工作日' },
-  { value: 'weekly', label: '每周' },
-]
-
-const WEEKDAY_OPTIONS = [
-  { value: '1', label: '周一' },
-  { value: '2', label: '周二' },
-  { value: '3', label: '周三' },
-  { value: '4', label: '周四' },
-  { value: '5', label: '周五' },
-  { value: '6', label: '周六' },
-  { value: '0', label: '周日' },
-]
 
 const props = defineProps({
   open: {
@@ -49,6 +35,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'saved'])
+const { locale, t } = useI18n()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -69,44 +56,105 @@ const form = reactive({
   notificationWebhookUrl: '',
   notificationSecret: '',
   notificationTriggerOn: 'completed',
+  notificationLocale: 'zh-CN',
   notificationMessageMode: 'summary',
   notificationLastStatus: '',
   notificationLastError: '',
   notificationLastSentAt: '',
 })
 
-const normalizedTaskTitle = computed(() => String(props.taskTitle || '').trim() || '未命名任务')
-const taskSections = [
+const normalizedTaskTitle = computed(() => String(props.taskTitle || '').trim() || t('workbench.untitledTask'))
+const taskSections = computed(() => ([
   {
     id: 'basic',
-    label: '基础',
-    description: '标题与任务信息',
+    label: t('taskDialog.sections.basic.label'),
+    description: t('taskDialog.sections.basic.description'),
     icon: PencilLine,
   },
   {
     id: 'automation',
-    label: '定时',
-    description: '自动运行设置',
+    label: t('taskDialog.sections.automation.label'),
+    description: t('taskDialog.sections.automation.description'),
     icon: Clock3,
   },
   {
     id: 'notification',
-    label: '通知',
-    description: '运行结束通知',
+    label: t('taskDialog.sections.notification.label'),
+    description: t('taskDialog.sections.notification.description'),
     icon: Bell,
   },
-]
+]))
+const automationModeOptions = computed(() => ([
+  { value: 'daily', label: t('taskDialog.sections.automation.modeDaily') },
+  { value: 'weekdays', label: t('taskDialog.sections.automation.modeWeekdays') },
+  { value: 'weekly', label: t('taskDialog.sections.automation.modeWeekly') },
+]))
+const weekdayOptions = computed(() => ([
+  { value: '1', label: t('taskDialog.sections.automation.weekday1') },
+  { value: '2', label: t('taskDialog.sections.automation.weekday2') },
+  { value: '3', label: t('taskDialog.sections.automation.weekday3') },
+  { value: '4', label: t('taskDialog.sections.automation.weekday4') },
+  { value: '5', label: t('taskDialog.sections.automation.weekday5') },
+  { value: '6', label: t('taskDialog.sections.automation.weekday6') },
+  { value: '0', label: t('taskDialog.sections.automation.weekday0') },
+]))
+const timezoneOptions = computed(() => TASK_AUTOMATION_TIMEZONE_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'local'
+    ? t('taskDialog.sections.automation.timezoneLocal')
+    : option.label,
+})))
+const concurrencyPolicyOptions = computed(() => TASK_AUTOMATION_CONCURRENCY_POLICY_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'skip'
+    ? t('taskDialog.sections.automation.concurrencySkip')
+    : option.label,
+})))
+const notificationChannelOptions = computed(() => TASK_NOTIFICATION_CHANNEL_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'dingtalk'
+    ? t('taskDialog.sections.notification.channelDingtalk')
+    : option.value === 'feishu'
+      ? t('taskDialog.sections.notification.channelFeishu')
+      : option.value === 'webhook'
+        ? t('taskDialog.sections.notification.channelWebhook')
+        : option.label,
+})))
+const notificationTriggerOptions = computed(() => TASK_NOTIFICATION_TRIGGER_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'completed'
+    ? t('taskDialog.sections.notification.triggerCompleted')
+    : option.value === 'success'
+      ? t('taskDialog.sections.notification.triggerSuccess')
+      : option.value === 'error'
+        ? t('taskDialog.sections.notification.triggerError')
+        : option.label,
+})))
+const notificationMessageModeOptions = computed(() => TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'summary'
+    ? t('taskDialog.sections.notification.messageSummary')
+    : option.label,
+})))
+const notificationLocaleOptions = computed(() => TASK_NOTIFICATION_LOCALE_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'zh-CN'
+    ? t('taskDialog.sections.notification.localeZhCn')
+    : option.value === 'en-US'
+      ? t('taskDialog.sections.notification.localeEnUs')
+      : option.label,
+})))
 const notificationStatusText = computed(() => {
   if (!form.notificationEnabled) {
-    return '未启用'
+    return t('taskDialog.sections.notification.statusDisabled')
   }
   if (form.notificationLastStatus === 'success') {
-    return '最近发送成功'
+    return t('taskDialog.sections.notification.statusSuccess')
   }
   if (form.notificationLastStatus === 'error') {
-    return '最近发送失败'
+    return t('taskDialog.sections.notification.statusError')
   }
-  return '等待首次发送'
+  return t('taskDialog.sections.notification.statusPending')
 })
 
 function resetForm() {
@@ -124,6 +172,7 @@ function resetForm() {
   form.notificationWebhookUrl = ''
   form.notificationSecret = ''
   form.notificationTriggerOn = 'completed'
+  form.notificationLocale = String(locale.value || 'zh-CN')
   form.notificationMessageMode = 'summary'
   form.notificationLastStatus = ''
   form.notificationLastError = ''
@@ -198,7 +247,7 @@ function buildAutomationCron() {
   }
 
   if (form.automationMode === 'weekly') {
-    const weekday = WEEKDAY_OPTIONS.find((item) => item.value === String(form.automationWeekday || ''))?.value || DEFAULT_AUTOMATION_WEEKDAY
+    const weekday = weekdayOptions.value.find((item) => item.value === String(form.automationWeekday || ''))?.value || DEFAULT_AUTOMATION_WEEKDAY
     return `${minute} ${hour} * * ${weekday}`
   }
 
@@ -221,6 +270,7 @@ function applyTaskToForm(task = {}) {
   form.notificationWebhookUrl = String(task.notification?.webhookUrl || '')
   form.notificationSecret = String(task.notification?.secret || '')
   form.notificationTriggerOn = String(task.notification?.triggerOn || 'completed')
+  form.notificationLocale = String(task.notification?.locale || locale.value || 'zh-CN')
   form.notificationMessageMode = String(task.notification?.messageMode || 'summary')
   form.notificationLastStatus = String(task.notification?.lastStatus || '')
   form.notificationLastError = String(task.notification?.lastError || '')
@@ -241,7 +291,7 @@ async function loadTaskSettings() {
     const task = await getTask(taskSlug)
     applyTaskToForm(task)
   } catch (nextError) {
-    error.value = nextError?.message || '任务配置读取失败。'
+    error.value = nextError?.message || t('taskDialog.loadFailed')
   } finally {
     loading.value = false
   }
@@ -262,6 +312,7 @@ function buildUpdatePayload() {
       webhookUrl: form.notificationWebhookUrl,
       secret: form.notificationSecret,
       triggerOn: form.notificationTriggerOn,
+      locale: form.notificationLocale,
       messageMode: form.notificationMessageMode,
     },
   }
@@ -282,7 +333,7 @@ async function handleSave() {
     emit('saved', task)
     emit('close')
   } catch (nextError) {
-    error.value = nextError?.message || '任务配置保存失败。'
+    error.value = nextError?.message || t('taskDialog.saveFailed')
   } finally {
     saving.value = false
   }
@@ -300,15 +351,22 @@ function handleKeydown(event) {
 
 function formatTime(value = '') {
   if (!value) {
-    return '暂无'
+    return t('common.notAvailable')
   }
 
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
-    return '暂无'
+    return t('common.notAvailable')
   }
 
-  return date.toLocaleString('zh-CN')
+  return formatLocaleDateTime(date.toISOString(), {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 watch(
@@ -354,9 +412,9 @@ onBeforeUnmount(() => {
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <PencilLine class="h-4 w-4" />
-              <span>编辑任务</span>
+              <span>{{ t('taskDialog.title') }}</span>
             </div>
-            <p class="theme-muted-text mt-1 text-xs">当前任务：{{ normalizedTaskTitle }}</p>
+            <p class="theme-muted-text mt-1 text-xs">{{ t('taskDialog.currentTask', { title: normalizedTaskTitle }) }}</p>
           </div>
 
           <button
@@ -377,25 +435,25 @@ onBeforeUnmount(() => {
           <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
             <div v-if="loading" class="theme-muted-text flex items-center gap-2 py-4 text-sm">
               <LoaderCircle class="h-4 w-4 animate-spin" />
-              <span>正在读取任务配置...</span>
+              <span>{{ t('taskDialog.loading') }}</span>
             </div>
 
             <div v-else class="space-y-4">
               <section v-if="activeSection === 'basic'" class="space-y-4">
                 <div>
-                  <div class="theme-heading text-base font-medium">基础信息</div>
-                  <p class="theme-muted-text mt-1 text-xs leading-5">这里维护任务标题，留空时继续使用自动标题。</p>
+                  <div class="theme-heading text-base font-medium">{{ t('taskDialog.sections.basic.title') }}</div>
+                  <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.basic.intro') }}</p>
                 </div>
 
                 <section class="settings-section-card px-4 py-4">
                   <label class="block space-y-1.5">
-                    <span class="theme-muted-text text-xs">任务标题</span>
+                    <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.basic.taskTitle') }}</span>
                     <input
                       v-model="form.title"
                       type="text"
                       maxlength="140"
                       class="tool-input"
-                      placeholder="留空则继续使用自动标题"
+                      :placeholder="t('taskDialog.sections.basic.taskTitlePlaceholder')"
                     />
                   </label>
                 </section>
@@ -406,37 +464,37 @@ onBeforeUnmount(() => {
                   <div>
                     <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
                       <Clock3 class="h-4 w-4" />
-                      <span>定时运行</span>
+                      <span>{{ t('taskDialog.sections.automation.title') }}</span>
                     </div>
-                    <p class="theme-muted-text mt-1 text-xs leading-5">用可视化方式设置自动运行时间，不需要手填 Cron。</p>
+                    <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.automation.intro') }}</p>
                   </div>
 
                   <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
                     <input v-model="form.automationEnabled" type="checkbox" class="h-4 w-4" />
-                    <span>启用</span>
+                    <span>{{ t('taskDialog.enabled') }}</span>
                   </label>
                 </div>
 
                 <section class="settings-section-card px-4 py-4">
                   <div class="grid gap-4 sm:grid-cols-2">
                     <label class="space-y-1.5 sm:col-span-2">
-                      <span class="theme-muted-text text-xs">运行周期</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.mode') }}</span>
                       <WorkbenchSelect
                         v-model="form.automationMode"
-                        :options="AUTOMATION_MODE_OPTIONS"
+                        :options="automationModeOptions"
                         :disabled="!form.automationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
                     </label>
 
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">运行时间</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.time') }}</span>
                       <input
                         v-model="form.automationTime"
                         type="time"
@@ -449,48 +507,48 @@ onBeforeUnmount(() => {
                       v-if="form.automationMode === 'weekly'"
                       class="space-y-1.5"
                     >
-                      <span class="theme-muted-text text-xs">每周日期</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.weekday') }}</span>
                       <WorkbenchSelect
                         v-model="form.automationWeekday"
-                        :options="WEEKDAY_OPTIONS"
+                        :options="weekdayOptions"
                         :disabled="!form.automationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
                     </label>
 
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">时区</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.timezone') }}</span>
                       <WorkbenchSelect
                         v-model="form.automationTimezone"
-                        :options="TASK_AUTOMATION_TIMEZONE_OPTIONS"
+                        :options="timezoneOptions"
                         :disabled="!form.automationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
                     </label>
 
                     <label class="space-y-1.5" :class="form.automationMode === 'weekly' ? '' : 'sm:col-span-2'">
-                      <span class="theme-muted-text text-xs">并发策略</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.concurrencyPolicy') }}</span>
                       <WorkbenchSelect
                         v-model="form.automationConcurrencyPolicy"
-                        :options="TASK_AUTOMATION_CONCURRENCY_POLICY_OPTIONS"
+                        :options="concurrencyPolicyOptions"
                         :disabled="!form.automationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
@@ -498,8 +556,8 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
-                    <p>最近触发：{{ formatTime(form.automationLastTriggeredAt) }}</p>
-                    <p>下次触发：{{ formatTime(form.automationNextTriggerAt) }}</p>
+                    <p>{{ t('taskDialog.sections.automation.lastTriggered', { value: formatTime(form.automationLastTriggeredAt) }) }}</p>
+                    <p>{{ t('taskDialog.sections.automation.nextTriggered', { value: formatTime(form.automationNextTriggerAt) }) }}</p>
                   </div>
                 </section>
               </section>
@@ -509,84 +567,100 @@ onBeforeUnmount(() => {
                   <div>
                     <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
                       <Bell class="h-4 w-4" />
-                      <span>运行通知</span>
+                      <span>{{ t('taskDialog.sections.notification.title') }}</span>
                     </div>
-                    <p class="theme-muted-text mt-1 text-xs leading-5">run 结束后按规则把结果推送到群机器人。</p>
+                    <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.notification.intro') }}</p>
                   </div>
 
                   <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
                     <input v-model="form.notificationEnabled" type="checkbox" class="h-4 w-4" />
-                    <span>启用</span>
+                    <span>{{ t('taskDialog.enabled') }}</span>
                   </label>
                 </div>
 
                 <section class="settings-section-card px-4 py-4">
                   <div class="grid gap-4 sm:grid-cols-2">
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">渠道类型</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.channelType') }}</span>
                       <WorkbenchSelect
                         v-model="form.notificationChannelType"
-                        :options="TASK_NOTIFICATION_CHANNEL_OPTIONS"
+                        :options="notificationChannelOptions"
                         :disabled="!form.notificationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
                     </label>
 
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">触发时机</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.triggerOn') }}</span>
                       <WorkbenchSelect
                         v-model="form.notificationTriggerOn"
-                        :options="TASK_NOTIFICATION_TRIGGER_OPTIONS"
+                        :options="notificationTriggerOptions"
                         :disabled="!form.notificationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
                     </label>
 
                     <label class="space-y-1.5 sm:col-span-2">
-                      <span class="theme-muted-text text-xs">Webhook 地址</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.webhookUrl') }}</span>
                       <input
                         v-model="form.notificationWebhookUrl"
                         type="text"
                         class="tool-input"
-                        placeholder="请输入群机器人 Webhook 地址"
+                        :placeholder="t('taskDialog.sections.notification.webhookUrlPlaceholder')"
                         :disabled="!form.notificationEnabled"
                       />
                     </label>
 
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">签名密钥（可选）</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.secret') }}</span>
                       <input
                         v-model="form.notificationSecret"
                         type="text"
                         class="tool-input"
-                        placeholder="开启签名时再填写"
+                        :placeholder="t('taskDialog.sections.notification.secretPlaceholder')"
                         :disabled="!form.notificationEnabled"
                       />
                     </label>
 
                     <label class="space-y-1.5">
-                      <span class="theme-muted-text text-xs">消息模式</span>
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.locale') }}</span>
                       <WorkbenchSelect
-                        v-model="form.notificationMessageMode"
-                        :options="TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS"
+                        v-model="form.notificationLocale"
+                        :options="notificationLocaleOptions"
                         :disabled="!form.notificationEnabled"
                         :get-option-value="(option) => option.value"
                       >
                         <template #trigger="{ selectedOption }">
                           <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                            {{ selectedOption?.label || '请选择' }}
+                            {{ selectedOption?.label || t('common.select') }}
+                          </div>
+                        </template>
+                      </WorkbenchSelect>
+                    </label>
+
+                    <label class="space-y-1.5">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.messageMode') }}</span>
+                      <WorkbenchSelect
+                        v-model="form.notificationMessageMode"
+                        :options="notificationMessageModeOptions"
+                        :disabled="!form.notificationEnabled"
+                        :get-option-value="(option) => option.value"
+                      >
+                        <template #trigger="{ selectedOption }">
+                          <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                            {{ selectedOption?.label || t('common.select') }}
                           </div>
                         </template>
                       </WorkbenchSelect>
@@ -594,10 +668,10 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
-                    <p>通知状态：{{ notificationStatusText }}</p>
-                    <p>最近发送：{{ formatTime(form.notificationLastSentAt) }}</p>
+                    <p>{{ t('taskDialog.sections.notification.status', { value: notificationStatusText }) }}</p>
+                    <p>{{ t('taskDialog.sections.notification.lastSent', { value: formatTime(form.notificationLastSentAt) }) }}</p>
                     <p v-if="form.notificationLastError" class="theme-danger-text">
-                      最近错误：{{ form.notificationLastError }}
+                      {{ t('taskDialog.sections.notification.lastError', { value: form.notificationLastError }) }}
                     </p>
                   </div>
                 </section>
@@ -610,7 +684,7 @@ onBeforeUnmount(() => {
 
         <div class="theme-divider flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <p class="theme-muted-text theme-note-text">
-            定时运行会按 Cron 创建新的 run；运行通知会在本次 run 结束后按规则发送到群机器人。
+            {{ t('taskDialog.footerHint') }}
           </p>
 
           <div class="flex items-center justify-end gap-2">
@@ -620,7 +694,7 @@ onBeforeUnmount(() => {
               :disabled="saving"
               @click="emit('close')"
             >
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button
               type="button"
@@ -630,7 +704,7 @@ onBeforeUnmount(() => {
             >
               <LoaderCircle v-if="saving" class="h-4 w-4 animate-spin" />
               <Save v-else class="h-4 w-4" />
-              <span>{{ saving ? '保存中...' : '保存任务配置' }}</span>
+              <span>{{ saving ? t('common.saving') : t('taskDialog.saveTaskConfig') }}</span>
             </button>
           </div>
         </div>

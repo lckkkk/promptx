@@ -94,6 +94,16 @@ export const TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS = [
   { value: TASK_NOTIFICATION_MESSAGE_MODES.SUMMARY, label: '摘要消息' },
 ]
 
+export const TASK_NOTIFICATION_LOCALES = {
+  ZH_CN: 'zh-CN',
+  EN_US: 'en-US',
+}
+
+export const TASK_NOTIFICATION_LOCALE_OPTIONS = [
+  { value: TASK_NOTIFICATION_LOCALES.ZH_CN, label: '简体中文' },
+  { value: TASK_NOTIFICATION_LOCALES.EN_US, label: 'English' },
+]
+
 export function normalizeVisibility(value) {
   return 'private'
 }
@@ -138,6 +148,12 @@ export function normalizeTaskNotificationMessageMode(value) {
   const normalized = String(value || '').trim().toLowerCase()
   return TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS.find((item) => item.value === normalized)?.value
     || TASK_NOTIFICATION_MESSAGE_MODES.SUMMARY
+}
+
+export function normalizeTaskNotificationLocale(value) {
+  const normalized = String(value || '').trim()
+  return TASK_NOTIFICATION_LOCALE_OPTIONS.find((item) => item.value === normalized)?.value
+    || TASK_NOTIFICATION_LOCALES.ZH_CN
 }
 
 export function getAgentEngineLabel(value) {

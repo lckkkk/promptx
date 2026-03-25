@@ -77,6 +77,7 @@ import {
   registerRealtimeRoutes,
 } from './internalRoutes.js'
 import { registerAssetRoutes } from './assetRoutes.js'
+import { getApiErrorPayload } from './apiErrors.js'
 import { registerWebAppRoutes } from './webAppRoutes.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import { importPdfBlocks } from './pdf.js'
@@ -419,8 +420,10 @@ registerWebAppRoutes(app, {
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error(error)
-  const message = error.statusCode === 413 ? '文件太大了。' : error.message || '发生了意外错误。'
-  reply.code(error.statusCode || 500).send({ message })
+  const payload = getApiErrorPayload(error, error.statusCode === 413
+    ? { messageKey: 'errors.fileTooLarge', message: '文件太大了。' }
+    : { messageKey: 'errors.unexpectedServerError', message: error.message || '发生了意外错误。' })
+  reply.code(error.statusCode || 500).send(payload)
 })
 
 purgeExpiredContent(true)

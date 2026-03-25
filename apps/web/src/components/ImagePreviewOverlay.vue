@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   modelValue: {
@@ -13,6 +14,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue'])
+const { t } = useI18n()
 
 const previewScale = ref(1)
 
@@ -167,7 +169,7 @@ onBeforeUnmount(() => {
           class="image-preview-overlay__button rounded-sm border px-3 py-2 text-sm transition"
           @click="adjustPreviewScale(-0.1)"
         >
-          缩小
+          {{ t('imagePreview.zoomOut') }}
         </button>
         <button
           type="button"
@@ -181,7 +183,7 @@ onBeforeUnmount(() => {
           class="image-preview-overlay__button rounded-sm border px-3 py-2 text-sm transition"
           @click="adjustPreviewScale(0.1)"
         >
-          放大
+          {{ t('imagePreview.zoomIn') }}
         </button>
       </div>
       <div class="absolute right-4 top-4 flex items-center gap-2" @click.stop>
@@ -191,7 +193,7 @@ onBeforeUnmount(() => {
           :disabled="currentPreviewIndex <= 0"
           @click="showPreviousPreview"
         >
-          上一张
+          {{ t('imagePreview.previous') }}
         </button>
         <button
           type="button"
@@ -199,19 +201,19 @@ onBeforeUnmount(() => {
           :disabled="currentPreviewIndex < 0 || currentPreviewIndex >= normalizedImages.length - 1"
           @click="showNextPreview"
         >
-          下一张
+          {{ t('imagePreview.next') }}
         </button>
         <button
           type="button"
           class="image-preview-overlay__button rounded-sm border px-3 py-2 text-sm transition"
           @click="closePreview"
         >
-          关闭
+          {{ t('imagePreview.close') }}
         </button>
       </div>
       <img
         :src="currentPreviewImageUrl"
-        alt="图片预览"
+        :alt="t('imagePreview.alt')"
         class="image-preview-overlay__image max-h-[90vh] max-w-[90vw] object-contain shadow-2xl transition-transform"
         :style="{ transform: `scale(${previewScale})` }"
         @click.stop

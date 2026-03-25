@@ -1,6 +1,7 @@
 <script setup>
 import { FolderOpen } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { useI18n } from '../composables/useI18n.js'
 import WorkbenchSelect from './WorkbenchSelect.vue'
 
 const props = defineProps({
@@ -55,6 +56,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine', 'update:title'])
+const { t } = useI18n()
 const selectedEngineOption = computed(() => {
   const current = String(props.engine || '').trim()
   return props.engineOptions.find((item) => String(item?.value || '').trim() === current) || null
@@ -64,7 +66,7 @@ const selectedEngineOption = computed(() => {
 <template>
   <div class="grid gap-4">
     <label class="theme-muted-text block text-xs">
-      <span>项目标题（可选）</span>
+      <span>{{ t('projectManager.projectTitleOptional') }}</span>
       <input
         :value="title"
         type="text"
@@ -77,7 +79,7 @@ const selectedEngineOption = computed(() => {
     </label>
 
     <label class="theme-muted-text block text-xs">
-      <span>工作目录</span>
+      <span>{{ t('projectManager.workingDirectoryField') }}</span>
       <div class="mt-1 flex gap-2">
         <input
           :value="cwd"
@@ -96,7 +98,7 @@ const selectedEngineOption = computed(() => {
           @click="emit('open-directory-picker')"
         >
           <FolderOpen class="h-4 w-4" />
-          <span>{{ mobile ? '选择' : '选择目录' }}</span>
+          <span>{{ mobile ? t('projectManager.choose') : t('projectManager.chooseDirectory') }}</span>
         </button>
       </div>
       <datalist id="codex-manager-workspace-suggestions">
@@ -111,14 +113,14 @@ const selectedEngineOption = computed(() => {
     </label>
 
     <label class="theme-muted-text block text-xs">
-      <span>执行引擎</span>
+      <span>{{ t('projectManager.engineField') }}</span>
       <div class="mt-1">
         <WorkbenchSelect
           :model-value="engine"
           :options="engineOptions"
           :disabled="busy || !canEditEngine"
-          placeholder="请选择执行引擎"
-          empty-text="暂无可用执行引擎"
+          :placeholder="t('projectManager.selectEngine')"
+          :empty-text="t('projectManager.noEngines')"
           :get-option-value="(item) => item?.value || ''"
           @update:model-value="emit('update:engine', $event)"
         >
@@ -128,13 +130,13 @@ const selectedEngineOption = computed(() => {
                 class="min-w-0 flex-1 truncate"
                 :class="disabled ? 'theme-muted-text' : 'text-[var(--theme-textPrimary)]'"
               >
-                {{ selectedEngineOption?.label || '请选择执行引擎' }}
+                {{ selectedEngineOption?.label || t('projectManager.selectEngine') }}
               </span>
               <span
                 v-if="selectedEngineOption && selectedEngineOption.enabled === false"
                 class="theme-muted-text rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
               >
-                即将支持
+                {{ t('projectManager.comingSoon') }}
               </span>
             </div>
           </template>
@@ -153,7 +155,7 @@ const selectedEngineOption = computed(() => {
                   v-if="option?.enabled === false"
                   class="theme-muted-text rounded-sm border border-dashed px-1.5 py-0.5 text-[10px]"
                 >
-                  即将支持
+                  {{ t('projectManager.comingSoon') }}
                 </span>
               </div>
             </button>

@@ -102,7 +102,7 @@ function registerCodexRoutes(app, options = {}) {
   app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
     const session = getPromptxCodexSessionById(request.params.sessionId)
     if (!session) {
-      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+      return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }
 
     return listWorkspaceTree(session.cwd, {
@@ -114,7 +114,7 @@ function registerCodexRoutes(app, options = {}) {
   app.get('/api/codex/sessions/:sessionId/files/search', async (request, reply) => {
     const session = getPromptxCodexSessionById(request.params.sessionId)
     if (!session) {
-      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+      return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }
 
     return searchWorkspaceEntries(session.cwd, {
@@ -134,7 +134,7 @@ function registerCodexRoutes(app, options = {}) {
   app.patch('/api/codex/sessions/:sessionId', async (request, reply) => {
     const session = updatePromptxCodexSession(request.params.sessionId, request.body || {})
     if (!session) {
-      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+      return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }
 
     broadcastServerEvent('sessions.changed', {
@@ -145,13 +145,16 @@ function registerCodexRoutes(app, options = {}) {
 
   app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
     if (getRunningCodexRunBySessionId(request.params.sessionId)) {
-      return reply.code(409).send({ message: '当前项目正在执行中，请先停止后再删除。' })
+      return reply.code(409).send({
+        messageKey: 'errors.currentProjectDeleteWhileRunning',
+        message: '当前项目正在执行中，请先停止后再删除。',
+      })
     }
 
     const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId)
     const session = deletePromptxCodexSession(request.params.sessionId)
     if (!session) {
-      return reply.code(404).send({ message: '没有找到对应的 PromptX 项目。' })
+      return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }
 
     broadcastServerEvent('sessions.changed', {
@@ -176,7 +179,7 @@ function registerCodexRoutes(app, options = {}) {
   app.post('/api/codex/runs/:runId/stop', async (request, reply) => {
     const runRecord = getCodexRunById(request.params.runId)
     if (!runRecord) {
-      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+      return reply.code(404).send({ messageKey: 'errors.runNotFound', message: '没有找到对应的执行记录。' })
     }
 
     const stopResult = await runDispatchService.requestRunStop(request.params.runId, {
@@ -199,7 +202,7 @@ function registerCodexRoutes(app, options = {}) {
   app.get('/api/codex/runs/:runId/events', async (request, reply) => {
     const runRecord = getCodexRunById(request.params.runId)
     if (!runRecord) {
-      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+      return reply.code(404).send({ messageKey: 'errors.runNotFound', message: '没有找到对应的执行记录。' })
     }
 
     return {
@@ -213,7 +216,7 @@ function registerCodexRoutes(app, options = {}) {
   app.get('/api/codex/runs/:runId/stream', async (request, reply) => {
     const runRecord = getCodexRunById(request.params.runId)
     if (!runRecord) {
-      return reply.code(404).send({ message: '没有找到对应的执行记录。' })
+      return reply.code(404).send({ messageKey: 'errors.runNotFound', message: '没有找到对应的执行记录。' })
     }
 
     reply.hijack()

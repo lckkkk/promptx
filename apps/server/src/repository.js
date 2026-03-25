@@ -12,6 +12,7 @@ import {
   normalizeTaskAutomationConcurrencyPolicy,
   normalizeTaskAutomationTimezone,
   normalizeTaskNotificationChannel,
+  normalizeTaskNotificationLocale,
   normalizeTaskNotificationMessageMode,
   normalizeTaskNotificationTrigger,
   normalizeExpiry,
@@ -65,6 +66,7 @@ function toTask(row, blocks = [], options = {}) {
       webhookUrl: String(row.notification_webhook_url || ''),
       secret: String(row.notification_secret || ''),
       triggerOn: normalizeTaskNotificationTrigger(row.notification_trigger_on),
+      locale: normalizeTaskNotificationLocale(row.notification_locale),
       messageMode: normalizeTaskNotificationMessageMode(row.notification_message_mode),
       lastStatus: String(row.notification_last_status || ''),
       lastError: String(row.notification_last_error || ''),
@@ -90,6 +92,7 @@ function mapTaskNotificationSummary(row) {
     enabled: Boolean(Number(row.notification_enabled) || 0),
     channelType: normalizeTaskNotificationChannel(row.notification_channel_type),
     triggerOn: normalizeTaskNotificationTrigger(row.notification_trigger_on),
+    locale: normalizeTaskNotificationLocale(row.notification_locale),
     lastStatus: String(row.notification_last_status || ''),
     lastSentAt: String(row.notification_last_sent_at || ''),
   }
@@ -122,6 +125,7 @@ function normalizeNotificationInput(input = {}, fallback = {}) {
     webhookUrl: enabled ? clampText(input?.webhookUrl || '', 2000).trim() : '',
     secret: enabled ? clampText(input?.secret || '', 200).trim() : '',
     triggerOn: normalizeTaskNotificationTrigger(input?.triggerOn || fallback.triggerOn),
+    locale: normalizeTaskNotificationLocale(input?.locale || fallback.locale),
     messageMode: normalizeTaskNotificationMessageMode(input?.messageMode || fallback.messageMode),
     lastStatus: clampText(input?.lastStatus || fallback.lastStatus || '', 32).trim(),
     lastError: clampText(input?.lastError || fallback.lastError || '', 500).trim(),
@@ -359,7 +363,7 @@ export function listTasks(limit = 30) {
   const rows = all(
     `SELECT id, slug, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
      ORDER BY created_at DESC, id DESC
@@ -388,7 +392,7 @@ export function getTaskBySlug(slug) {
   const row = get(
     `SELECT id, slug, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
      WHERE slug = ?`,
@@ -424,10 +428,10 @@ export function createTask(input = {}) {
       `INSERT INTO tasks (
         slug, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
         automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-        notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+        notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
         visibility, expires_at, created_at, updated_at
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         slug,
         editToken,
@@ -447,6 +451,7 @@ export function createTask(input = {}) {
         notification.webhookUrl,
         notification.secret,
         notification.triggerOn,
+        notification.locale,
         notification.messageMode,
         notification.lastStatus,
         notification.lastError,
@@ -469,7 +474,7 @@ export function updateTask(slug, input = {}) {
   const existing = get(
     `SELECT id, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at
      FROM tasks
      WHERE slug = ?`,
@@ -524,6 +529,7 @@ export function updateTask(slug, input = {}) {
         webhookUrl: existing.notification_webhook_url,
         secret: existing.notification_secret,
         triggerOn: existing.notification_trigger_on,
+        locale: existing.notification_locale,
         messageMode: existing.notification_message_mode,
         lastStatus: existing.notification_last_status,
         lastError: existing.notification_last_error,
@@ -535,6 +541,7 @@ export function updateTask(slug, input = {}) {
         webhookUrl: existing.notification_webhook_url,
         secret: existing.notification_secret,
         triggerOn: existing.notification_trigger_on,
+        locale: existing.notification_locale,
         messageMode: existing.notification_message_mode,
         lastStatus: existing.notification_last_status,
         lastError: existing.notification_last_error,
@@ -551,7 +558,7 @@ export function updateTask(slug, input = {}) {
       `UPDATE tasks
        SET title = ?, auto_title = ?, last_prompt_preview = ?, todo_items_json = ?, codex_session_id = ?,
            automation_enabled = ?, automation_cron = ?, automation_timezone = ?, automation_concurrency_policy = ?, automation_last_triggered_at = ?, automation_next_trigger_at = ?,
-           notification_enabled = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
+           notification_enabled = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_locale = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
            visibility = ?, expires_at = ?, updated_at = ?
        WHERE slug = ?`,
       [
@@ -571,6 +578,7 @@ export function updateTask(slug, input = {}) {
         notification.webhookUrl,
         notification.secret,
         notification.triggerOn,
+        notification.locale,
         notification.messageMode,
         notification.lastStatus,
         notification.lastError,
@@ -742,7 +750,7 @@ export function listAutomationEnabledTasks(limit = 200) {
   const rows = all(
     `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
      WHERE automation_enabled = 1

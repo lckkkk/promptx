@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import BlockEditor from './BlockEditor.vue'
 import WorkbenchEditorActions from './WorkbenchEditorActions.vue'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   canAddTodo: {
@@ -51,6 +52,7 @@ const emit = defineEmits([
 ])
 
 const blockEditorRef = ref(null)
+const { t } = useI18n()
 
 const blocks = computed({
   get: () => props.modelValue,
@@ -106,7 +108,7 @@ defineExpose({
     v-if="loading && !modelValue.length"
     class="panel theme-muted-text flex h-full items-center px-5 py-4 text-sm"
   >
-    正在加载任务内容...
+    {{ t('workbench.loadingTaskContent') }}
   </section>
   <BlockEditor
     v-else

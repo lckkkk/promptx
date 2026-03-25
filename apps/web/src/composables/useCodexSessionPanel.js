@@ -6,6 +6,7 @@ import {
 import { useCodexRunHistory } from './useCodexRunHistory.js'
 import { useCodexSessionActions } from './useCodexSessionActions.js'
 import { useTranscriptAutoScroll } from './useTranscriptAutoScroll.js'
+import { getCurrentLocale, translate } from './useI18n.js'
 
 const SERVER_SYNC_DELAY = 150
 
@@ -75,8 +76,8 @@ export function useCodexSessionPanel(props, emit) {
 
   const workingLabel = computed(() => (
     stopping.value
-      ? '正在停止...'
-      : `运行中 (${formatElapsedDuration(sendingElapsedSeconds.value)})`
+      ? translate('sessionPanel.stopping')
+      : `${translate('projectManager.running')} (${formatElapsedDuration(sendingElapsedSeconds.value)})`
   ))
 
   const {
@@ -262,7 +263,7 @@ export function useCodexSessionPanel(props, emit) {
       return ''
     }
 
-    return date.toLocaleTimeString('zh-CN', {
+    return date.toLocaleTimeString(getCurrentLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',

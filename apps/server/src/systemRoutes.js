@@ -2,6 +2,7 @@ import {
   EXPIRY_OPTIONS,
   VISIBILITY_OPTIONS,
 } from '../../../packages/shared/src/index.js'
+import { getApiErrorPayload } from './apiErrors.js'
 import { listAvailableAgentEngines } from './agents/index.js'
 import { assertInternalRequest } from './internalAuth.js'
 import {
@@ -27,6 +28,7 @@ async function fetchRunnerDiagnostics(runnerClient) {
     return {
       ok: false,
       baseUrl: runnerClient.baseUrl,
+      messageKey: error?.messageKey || 'errors.runnerDiagnosticsReadFailed',
       message: String(error?.message || error || '无法读取 runner diagnostics'),
     }
   }
@@ -87,6 +89,7 @@ function registerSystemRoutes(app, options = {}) {
       } catch (error) {
         request.log.warn(error, 'runner config hot update failed')
         return reply.code(error.statusCode || 503).send({
+          messageKey: error?.messageKey || 'errors.systemConfigHotReloadFailed',
           message: `系统配置已保存，但 runner 热更新失败：${error.message || 'unknown error'}`,
           config: effectiveConfig,
           managedByEnv,
@@ -126,6 +129,7 @@ function registerSystemRoutes(app, options = {}) {
     const status = relayClient.getStatus()
     if (!status.enabled) {
       return reply.code(400).send({
+        messageKey: 'errors.relayNotEnabled',
         message: '当前远程访问尚未启用，请先保存完整的 Relay 配置。',
         relay: status,
       })
@@ -146,9 +150,10 @@ function registerSystemRoutes(app, options = {}) {
         managedByEnv: getSystemConfigManagedByEnv(),
       }
     } catch (error) {
-      return reply.code(error.statusCode || 400).send({
+      return reply.code(error.statusCode || 400).send(getApiErrorPayload(error, {
+        messageKey: 'errors.systemConfigReadFailed',
         message: error.message || '系统配置读取失败。',
-      })
+      }))
     }
   })
 }

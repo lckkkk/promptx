@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createApiError } from './apiErrors.js'
 
 const IGNORED_DIRECTORY_NAMES = new Set([
   '.git',
@@ -36,9 +37,7 @@ const MAX_SEARCH_VISITS = 20000
 const DIRECTORY_PICKER_LIMIT = 240
 
 function createHttpError(message, statusCode = 400) {
-  const error = new Error(message)
-  error.statusCode = statusCode
-  return error
+  return createApiError('', message, statusCode)
 }
 
 function toPosixPath(value = '') {
@@ -52,7 +51,7 @@ function normalizeRelativePath(relativePath = '') {
   }
 
   if (value.includes('\0')) {
-    throw createHttpError('路径不合法。')
+    throw createApiError('errors.invalidPath', '路径不合法。')
   }
 
   const cleaned = value
@@ -67,7 +66,7 @@ function normalizeRelativePath(relativePath = '') {
 
   const segments = cleaned.split('/')
   if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
-    throw createHttpError('路径不合法。')
+    throw createApiError('errors.invalidPath', '路径不合法。')
   }
 
   return cleaned
@@ -85,7 +84,7 @@ function ensurePathInsideWorkspace(workspacePath, targetPath) {
     return target
   }
 
-  throw createHttpError('只能访问当前工作目录内的文件。', 403)
+  throw createApiError('errors.pathOutsideWorkspace', '只能访问当前工作目录内的文件。', 403)
 }
 
 function resolveWorkspaceTarget(workspacePath, relativePath = '') {
@@ -213,12 +212,12 @@ function normalizeDirectoryPickerPath(input = '') {
 
   const resolved = path.resolve(value)
   if (!fs.existsSync(resolved)) {
-    throw createHttpError('目录不存在，请重新选择。', 404)
+    throw createApiError('errors.directoryNotFound', '目录不存在，请重新选择。', 404)
   }
 
   const stats = fs.statSync(resolved)
   if (!stats.isDirectory()) {
-    throw createHttpError('只能选择文件夹。')
+    throw createApiError('errors.directoryOnly', '只能选择文件夹。')
   }
 
   return resolved
@@ -423,11 +422,11 @@ export function listWorkspaceTree(workspacePath, options = {}) {
   const type = getPathType(target.absolutePath)
 
   if (!type) {
-    throw createHttpError('目标路径不存在。', 404)
+    throw createApiError('errors.targetPathNotFound', '目标路径不存在。', 404)
   }
 
   if (type !== 'directory') {
-    throw createHttpError('只能展开目录。')
+    throw createApiError('errors.directoryExpandOnly', '只能展开目录。')
   }
 
   const limit = clampLimit(options.limit, DEFAULT_TREE_LIMIT, 500)

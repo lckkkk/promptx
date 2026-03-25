@@ -1,6 +1,7 @@
 <script setup>
-import { onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { TriangleAlert, X } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   open: {
@@ -9,7 +10,7 @@ const props = defineProps({
   },
   title: {
     type: String,
-    default: '确认操作',
+    default: '',
   },
   description: {
     type: String,
@@ -17,11 +18,11 @@ const props = defineProps({
   },
   confirmText: {
     type: String,
-    default: '确认',
+    default: '',
   },
   cancelText: {
     type: String,
-    default: '取消',
+    default: '',
   },
   loading: {
     type: Boolean,
@@ -34,6 +35,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['cancel', 'confirm'])
+const { t } = useI18n()
+
+const resolvedTitle = computed(() => props.title || t('common.confirm'))
+const resolvedConfirmText = computed(() => props.confirmText || t('common.confirm'))
+const resolvedCancelText = computed(() => props.cancelText || t('common.cancel'))
 
 function handleKeydown(event) {
   if (!props.open || props.loading) {
@@ -79,7 +85,7 @@ onBeforeUnmount(() => {
               <TriangleAlert class="h-4 w-4" />
             </span>
             <div>
-              <h2 class="theme-heading text-base font-semibold">{{ title }}</h2>
+              <h2 class="theme-heading text-base font-semibold">{{ resolvedTitle }}</h2>
               <p v-if="description" class="theme-muted-text mt-1 text-sm leading-6">{{ description }}</p>
             </div>
           </div>
@@ -95,7 +101,7 @@ onBeforeUnmount(() => {
 
         <div class="flex justify-end gap-2 px-5 py-4">
           <button type="button" class="tool-button px-4 py-2 text-sm" :disabled="loading" @click="emit('cancel')">
-            {{ cancelText }}
+            {{ resolvedCancelText }}
           </button>
           <button
             type="button"
@@ -104,7 +110,7 @@ onBeforeUnmount(() => {
             :disabled="loading"
             @click="emit('confirm')"
           >
-            {{ loading ? '处理中...' : confirmText }}
+            {{ loading ? t('common.processing') : resolvedConfirmText }}
           </button>
         </div>
       </section>

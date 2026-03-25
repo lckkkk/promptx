@@ -14,6 +14,7 @@ import {
   uploadImage,
 } from '../lib/api.js'
 import { buildCodexPrompt } from '../lib/codex.js'
+import { translate } from './useI18n.js'
 import { useWorkbenchRealtime } from './useWorkbenchRealtime.js'
 
 const ACTIVE_TASK_STORAGE_KEY = 'promptx:active-task-slug'
@@ -119,7 +120,7 @@ export function resolveTaskDisplayTitle(task = {}, blocks = []) {
     return preview.slice(0, 16)
   }
 
-  return '未命名任务'
+  return translate('workbench.untitledTask')
 }
 
 export function isTaskRunning(task = {}) {
@@ -376,7 +377,7 @@ export function useWorkbenchTasks(options = {}) {
   ))
   const hasCurrentDraftContent = computed(() => hasMeaningfulBlocks(draft.value.blocks))
   const currentTodoItems = computed(() => cloneTodoItems(draft.value.todoItems))
-  const pageTitle = computed(() => currentTaskDisplayTitle.value || '未命名任务')
+  const pageTitle = computed(() => currentTaskDisplayTitle.value || translate('workbench.untitledTask'))
   const renderedTasks = computed(() => tasks.value.map((task) => buildRenderedTask(task)))
 
   function normalizeImageContent(content = '') {
@@ -458,7 +459,7 @@ export function useWorkbenchTasks(options = {}) {
       codexSessionId,
       sessionSelectionLocked: Boolean(codexSessionId && Number(task.codexRunCount || 0) > 0),
       sessionSelectionLockReason: codexSessionId && Number(task.codexRunCount || 0) > 0
-        ? '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
+        ? translate('taskActions.sessionLocked')
         : '',
       displayTitle: resolveTaskDisplayTitle({ title, autoTitle, preview }, blocks),
       sending: isTaskRunning(task),
@@ -571,7 +572,7 @@ export function useWorkbenchTasks(options = {}) {
     const previousSessionId = selectedSessionMap.value[targetSlug] || currentSummary?.codexSessionId || ''
     const sessionSelectionLocked = Boolean(previousSessionId && Number(currentSummary?.codexRunCount || 0) > 0)
     if (sessionSelectionLocked && normalizedSessionId !== previousSessionId) {
-      error.value = '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
+      error.value = translate('taskActions.sessionLocked')
       return
     }
 
@@ -986,7 +987,7 @@ export function useWorkbenchTasks(options = {}) {
         hasUnsavedChanges.value = false
         upsertTaskSummary(toTaskSummary(task))
         if (!auto && !silent) {
-          flashToast('任务已保存')
+          flashToast(translate('taskActions.taskSaved'))
         }
         return true
       } catch (err) {
@@ -1007,7 +1008,7 @@ export function useWorkbenchTasks(options = {}) {
 
   async function ensureCurrentTaskReady() {
     if (uploading.value) {
-      error.value = '文件仍在处理中，请稍后再操作任务。'
+      error.value = translate('taskActions.fileProcessing')
       return false
     }
 
@@ -1048,7 +1049,7 @@ export function useWorkbenchTasks(options = {}) {
       setTaskDraftState(task.slug, initialState)
       upsertTaskSummary(toTaskSummary(task), { insertAtStart: true })
       await loadTask(task.slug, { focusEditor: true })
-      flashToast('已创建新任务')
+      flashToast(translate('taskActions.taskCreated'))
       return true
     } catch (err) {
       error.value = err.message
@@ -1131,7 +1132,7 @@ export function useWorkbenchTasks(options = {}) {
       editorRef.value?.focusEditor?.()
     })
     if (!silent) {
-      flashToast('已清空当前任务内容，稍后会自动保存')
+      flashToast(translate('taskActions.taskCleared'))
     }
   }
 
@@ -1163,7 +1164,7 @@ export function useWorkbenchTasks(options = {}) {
     nextTick(() => {
       editorRef.value?.focusEditor?.()
     })
-    flashToast('已加入代办')
+    flashToast(translate('taskActions.todoAdded'))
     return true
   }
 
@@ -1257,9 +1258,10 @@ export function useWorkbenchTasks(options = {}) {
       }
 
       editorRef.value?.insertUploadedBlocks(uploadedBlocks)
-      flashToast(insertedAfterImported
-        ? `已把 ${uploadedBlocks.length} 张图片插入到当前导入块后方，稍后会自动保存`
-        : `已插入 ${uploadedBlocks.length} 张图片，稍后会自动保存`)
+      flashToast(translate('taskActions.imageInserted', {
+        count: uploadedBlocks.length,
+        appended: insertedAfterImported,
+      }))
     } catch (err) {
       error.value = err.message
     } finally {
@@ -1283,23 +1285,24 @@ export function useWorkbenchTasks(options = {}) {
           type: 'imported_text',
           content: text,
           meta: {
-            fileName: file.name || '未命名文件',
+            fileName: file.name || translate('workbench.untitledTask'),
             collapsed: true,
           },
         })
       }
 
       if (!importedBlocks.length) {
-        flashToast('没有读取到可插入的文本内容')
+        flashToast(translate('taskActions.noTextImported'))
         return
       }
 
       editorRef.value?.insertImportedBlocks(importedBlocks)
-      flashToast(insertedAfterImported
-        ? `已把 ${importedBlocks.length} 个文件块插入到当前导入块后方，稍后会自动保存`
-        : `已插入 ${importedBlocks.length} 个文件块，稍后会自动保存`)
+      flashToast(translate('taskActions.importedBlocksInserted', {
+        count: importedBlocks.length,
+        appended: insertedAfterImported,
+      }))
     } catch {
-      error.value = '文件读取失败，请确认使用 UTF-8 编码的 .md 或 .txt 文件。'
+      error.value = translate('taskActions.textImportFailed')
     }
   }
 
@@ -1328,13 +1331,16 @@ export function useWorkbenchTasks(options = {}) {
       }
 
       if (!insertedBlockCount) {
-        flashToast('没有从 PDF 中解析出可插入内容')
+        flashToast(translate('taskActions.noPdfContent'))
         return
       }
 
-      flashToast(`已插入 ${insertedBlockCount} 个图文块${insertedPageCount ? `，共 ${insertedPageCount} 页` : ''}，稍后会自动保存`)
+      flashToast(translate('taskActions.pdfBlocksInserted', {
+        blockCount: insertedBlockCount,
+        pageCount: insertedPageCount,
+      }))
     } catch (err) {
-      error.value = err.message || 'PDF 解析失败，请确认文件不是扫描件，并且内容为单栏图文。'
+      error.value = err.message || translate('taskActions.pdfImportFailed')
     } finally {
       uploading.value = false
     }
@@ -1369,7 +1375,7 @@ export function useWorkbenchTasks(options = {}) {
 
   async function ensureCodexPromptReady(taskSlug) {
     if (uploading.value) {
-      error.value = '文件仍在处理中，请稍后再发送给当前执行引擎。'
+      error.value = translate('taskActions.fileProcessingBeforeSend')
       return false
     }
 

@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { getTaskGitDiff, listTaskCodexRuns } from '../lib/api.js'
+import { formatDateTime, getCurrentLocale, translate } from './useI18n.js'
 import { useWorkbenchRealtime } from './useWorkbenchRealtime.js'
 
 function buildLoadSignature(taskSlug, scope, runId = '') {
@@ -130,6 +131,76 @@ function parsePatchLines(patch = '') {
   return parsed
 }
 
+function localizeLegacyDiffWarning(message = '') {
+  const text = String(message || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  const branchChangedMatch = text.match(/^当前分支已从 (.+) 切换到 (.+)$/)
+  if (branchChangedMatch) {
+    return translate('diffReview.warningBranchChanged', {
+      from: branchChangedMatch[1],
+      to: branchChangedMatch[2],
+    })
+  }
+
+  if (text === '当前 HEAD 已不在基线 commit 的后续历史中，仓库可能经历了 reset、rebase 或切分支') {
+    return translate('diffReview.warningHeadDetachedFromBaseline')
+  }
+
+  return text
+}
+
+function localizeLegacyDiffMessage(message = '') {
+  const text = String(message || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  const directMap = new Map([
+    ['二进制文件暂不支持在线 diff 预览。', 'diffReview.binaryPreviewUnavailable'],
+    ['文件内容较大，暂不展示具体 diff。', 'diffReview.fileTooLarge'],
+    ['diff 内容较长，暂不在页面内完整展示。', 'diffReview.diffTooLong'],
+    ['当前工作目录不是 Git 仓库，暂不支持代码变更审查。', 'diffReview.notGitRepo'],
+    ['任务不存在。', 'diffReview.taskNotFound'],
+    ['请选择一轮执行后再查看本轮代码变更。', 'diffReview.runRequired'],
+    ['没有找到对应的执行记录。', 'diffReview.runNotFound'],
+    ['这轮执行还没有建立代码变更基线，暂时无法查看本轮 diff。', 'diffReview.runBaselineMissing'],
+    ['当前任务还没有建立代码变更基线，请先让 Codex 执行一轮。', 'diffReview.taskBaselineMissing'],
+    ['这轮执行缺少结束快照，暂时无法准确还原本轮代码变更。', 'diffReview.runSnapshotMissing'],
+    ['原工作目录已不是有效的 Git 仓库，暂时无法读取代码变更。', 'diffReview.originalRepoInvalid'],
+    ['基线对应的 commit 已不存在，仓库可能被 reset、rebase 或切换到无关历史，暂时无法准确读取该范围的代码变更。', 'diffReview.baselineCommitMissing'],
+  ])
+
+  const key = directMap.get(text)
+  if (key) {
+    return translate(key)
+  }
+
+  return text
+}
+
+function normalizeDiffPayload(payload = null) {
+  if (!payload || typeof payload !== 'object') {
+    return payload
+  }
+
+  return {
+    ...payload,
+    reason: localizeLegacyDiffMessage(payload.reason),
+    warnings: Array.isArray(payload.warnings)
+      ? payload.warnings.map((item) => localizeLegacyDiffWarning(item)).filter(Boolean)
+      : [],
+    files: Array.isArray(payload.files)
+      ? payload.files.map((file) => ({
+        ...file,
+        message: localizeLegacyDiffMessage(file?.message),
+      }))
+      : [],
+  }
+}
+
 export function useTaskDiffReviewData(props) {
   const diffScope = ref('workspace')
   const selectedRunId = ref('')
@@ -214,16 +285,16 @@ export function useTaskDiffReviewData(props) {
 
     const parts = []
     if (baseline.createdAt) {
-      parts.push(`基线时间：${new Date(baseline.createdAt).toLocaleString('zh-CN')}`)
+      parts.push(translate('diffReview.baselineTime', { value: formatDateTime(baseline.createdAt) }))
     }
     if (baseline.branch) {
-      parts.push(`基线分支：${baseline.branch}`)
+      parts.push(translate('diffReview.baselineBranch', { value: baseline.branch }))
     }
     if (baseline.headShort) {
-      parts.push(`基线 commit：${baseline.headShort}`)
+      parts.push(translate('diffReview.baselineCommit', { value: baseline.headShort }))
     }
     if (baseline.currentHeadShort) {
-      parts.push(`当前 HEAD：${baseline.currentHeadShort}`)
+      parts.push(translate('diffReview.currentHead', { value: baseline.currentHeadShort }))
     }
 
     return parts.join(' · ')
@@ -231,15 +302,15 @@ export function useTaskDiffReviewData(props) {
 
   function getRunStatusLabel(run) {
     if (run?.status === 'completed') {
-      return '已完成'
+      return translate('diffReview.completed')
     }
     if (run?.status === 'error') {
-      return '失败'
+      return translate('diffReview.failed')
     }
     if (run?.status === 'interrupted') {
-      return '已中断'
+      return translate('diffReview.interrupted')
     }
-    return '已停止'
+    return translate('diffReview.stopped')
   }
 
   function setPatchLineRef(lineId, element) {
@@ -284,7 +355,7 @@ export function useTaskDiffReviewData(props) {
   }
 
   function formatRunOptionLabel(run) {
-    return `${new Date(run?.startedAt || run?.createdAt).toLocaleString('zh-CN')} · ${getRunStatusLabel(run)}`
+    return `${new Date(run?.startedAt || run?.createdAt).toLocaleString(getCurrentLocale())} · ${getRunStatusLabel(run)}`
   }
 
   function syncSelectedRun() {
@@ -317,12 +388,12 @@ export function useTaskDiffReviewData(props) {
 
   function getStatusLabel(status = '') {
     if (normalizeFileStatus(status) === 'A') {
-      return '新增'
+      return translate('diffReview.added')
     }
     if (normalizeFileStatus(status) === 'D') {
-      return '删除'
+      return translate('diffReview.deleted')
     }
-    return '修改'
+    return translate('diffReview.modified')
   }
 
   function getStatusClass(status = '') {
@@ -337,15 +408,15 @@ export function useTaskDiffReviewData(props) {
 
   function getFilterLabel(filter = 'all') {
     if (filter === 'A') {
-      return '新增'
+      return translate('diffReview.added')
     }
     if (filter === 'D') {
-      return '删除'
+      return translate('diffReview.deleted')
     }
     if (filter === 'M') {
-      return '修改'
+      return translate('diffReview.modified')
     }
-    return '全部'
+    return translate('diffReview.all')
   }
 
   function getFilterButtonClass(filter = 'all') {
@@ -414,7 +485,7 @@ export function useTaskDiffReviewData(props) {
       if (scope === 'run' && !selectedRunId.value) {
         diffPayload.value = {
           supported: false,
-          reason: '当前还没有可用于审查的历史执行记录。',
+          reason: translate('diffReview.noReviewRuns'),
           repoRoot: '',
           summary: { fileCount: 0, additions: 0, deletions: 0, statsComplete: true },
           files: [],
@@ -459,8 +530,9 @@ export function useTaskDiffReviewData(props) {
         return
       }
 
-      diffPayload.value = payload
-      setCachedValue(diffListCache, signature, payload, 36)
+      const normalizedPayload = normalizeDiffPayload(payload)
+      diffPayload.value = normalizedPayload
+      setCachedValue(diffListCache, signature, normalizedPayload, 36)
       lastLoadedSignature = signature
       lastStatsLoadedSignature = ''
       syncSelectedFile()
@@ -520,16 +592,17 @@ export function useTaskDiffReviewData(props) {
         return
       }
 
+      const normalizedPayload = normalizeDiffPayload(payload)
       diffPayload.value = {
         ...diffPayload.value,
-        baseline: payload.baseline || diffPayload.value.baseline || null,
-        warnings: payload.warnings || diffPayload.value.warnings || [],
-        summary: payload.summary || diffPayload.value.summary,
+        baseline: normalizedPayload.baseline || diffPayload.value.baseline || null,
+        warnings: normalizedPayload.warnings || diffPayload.value.warnings || [],
+        summary: normalizedPayload.summary || diffPayload.value.summary,
       }
       setCachedValue(diffStatsCache, signature, {
-        baseline: payload.baseline || null,
-        warnings: payload.warnings || [],
-        summary: payload.summary || null,
+        baseline: normalizedPayload.baseline || null,
+        warnings: normalizedPayload.warnings || [],
+        summary: normalizedPayload.summary || null,
       }, 36)
       lastStatsLoadedSignature = signature
     } catch {
@@ -585,7 +658,8 @@ export function useTaskDiffReviewData(props) {
         return
       }
 
-      const detailedFile = (payload.files || []).find((file) => file.path === filePath)
+      const normalizedPayload = normalizeDiffPayload(payload)
+      const detailedFile = (normalizedPayload.files || []).find((file) => file.path === filePath)
       if (!detailedFile || !diffPayload.value?.files) {
         return
       }
@@ -593,8 +667,8 @@ export function useTaskDiffReviewData(props) {
       setCachedValue(filePatchCache, patchCacheKey, detailedFile, 120)
       diffPayload.value = {
         ...diffPayload.value,
-        baseline: payload.baseline || diffPayload.value.baseline || null,
-        warnings: payload.warnings || diffPayload.value.warnings || [],
+        baseline: normalizedPayload.baseline || diffPayload.value.baseline || null,
+        warnings: normalizedPayload.warnings || diffPayload.value.warnings || [],
         files: diffPayload.value.files.map((file) => (file.path === filePath ? detailedFile : file)),
       }
     } catch (err) {

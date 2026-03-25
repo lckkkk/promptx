@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { ArrowUpLeft, Clock3, FileText, Image as ImageIcon, List, Trash2, X } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
   items: {
@@ -14,6 +15,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'delete', 'use'])
+const { t } = useI18n()
 
 const formattedItems = computed(() => (
   (props.items || []).map((item) => {
@@ -34,7 +36,7 @@ const formattedItems = computed(() => (
       blockCount: blocks.length,
       imageCount,
       importedCount,
-      preview: preview || (imageCount ? `包含 ${imageCount} 张图片` : '暂时没有可预览的文本内容'),
+      preview: preview || (imageCount ? t('todoDialog.imagePreview', { count: imageCount }) : t('todoDialog.noPreview')),
       textCount,
       timeLabel: formatCreatedAt(item?.createdAt),
     }
@@ -44,11 +46,11 @@ const formattedItems = computed(() => (
 function formatCreatedAt(value = '') {
   const timestamp = Date.parse(String(value || ''))
   if (!timestamp) {
-    return '刚刚添加'
+    return t('todoDialog.justAdded')
   }
 
   try {
-    return new Intl.DateTimeFormat('zh-CN', {
+    return new Intl.DateTimeFormat(undefined, {
       month: 'numeric',
       day: 'numeric',
       hour: '2-digit',
@@ -101,10 +103,10 @@ onBeforeUnmount(() => {
           <div class="min-w-0">
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <List class="h-4 w-4" />
-              <span>管理代办</span>
+              <span>{{ t('todoDialog.title') }}</span>
             </div>
             <p class="theme-muted-text mt-1 text-xs leading-5">
-              把临时想法先挂在当前任务下，需要时再取回编辑区继续整理。
+              {{ t('todoDialog.intro') }}
             </p>
           </div>
 
@@ -118,9 +120,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="theme-divider flex items-center justify-between gap-3 border-b border-dashed px-5 py-3 text-xs">
-          <span class="theme-muted-text">当前任务共 {{ formattedItems.length }} 条代办</span>
+          <span class="theme-muted-text">{{ t('todoDialog.summary', { count: formattedItems.length }) }}</span>
           <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-2 py-1">
-            使用后会回填到编辑区并从列表移除
+            {{ t('todoDialog.summaryHint') }}
           </span>
         </div>
 
@@ -134,7 +136,7 @@ onBeforeUnmount(() => {
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
-                    <span>代办</span>
+                    <span>{{ t('todoDialog.itemTitle') }}</span>
                     <span class="theme-status-neutral inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-0.5 text-[11px]">
                       <Clock3 class="h-3.5 w-3.5" />
                       {{ item.timeLabel }}
@@ -145,28 +147,28 @@ onBeforeUnmount(() => {
                   </p>
                   <div class="theme-muted-text mt-3 flex flex-wrap items-center gap-2 text-[11px]">
                     <span class="rounded-sm border border-dashed px-2 py-1">
-                      共 {{ item.blockCount }} 个块
+                      {{ t('todoDialog.blockCount', { count: item.blockCount }) }}
                     </span>
                     <span
                       v-if="item.textCount"
                       class="inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1"
                     >
                       <FileText class="h-3.5 w-3.5" />
-                      文本 {{ item.textCount }}
+                      {{ t('todoDialog.textCount', { count: item.textCount }) }}
                     </span>
                     <span
                       v-if="item.importedCount"
                       class="inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1"
                     >
                       <FileText class="h-3.5 w-3.5" />
-                      导入 {{ item.importedCount }}
+                      {{ t('todoDialog.importedCount', { count: item.importedCount }) }}
                     </span>
                     <span
                       v-if="item.imageCount"
                       class="inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-1"
                     >
                       <ImageIcon class="h-3.5 w-3.5" />
-                      图片 {{ item.imageCount }}
+                      {{ t('todoDialog.imageCount', { count: item.imageCount }) }}
                     </span>
                   </div>
                 </div>
@@ -178,7 +180,7 @@ onBeforeUnmount(() => {
                     @click="emit('use', item.id)"
                   >
                     <ArrowUpLeft class="h-4 w-4" />
-                    <span>使用</span>
+                    <span>{{ t('todoDialog.use') }}</span>
                   </button>
                   <button
                     type="button"
@@ -186,7 +188,7 @@ onBeforeUnmount(() => {
                     @click="emit('delete', item.id)"
                   >
                     <Trash2 class="h-4 w-4" />
-                    <span>删除</span>
+                    <span>{{ t('todoDialog.delete') }}</span>
                   </button>
                 </div>
               </div>
@@ -195,7 +197,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else class="theme-empty-state flex min-h-0 flex-1 items-center justify-center px-6 py-10 text-sm">
-          还没有代办，先把编辑区里的临时想法收进来吧。
+          {{ t('todoDialog.empty') }}
         </div>
       </section>
     </div>

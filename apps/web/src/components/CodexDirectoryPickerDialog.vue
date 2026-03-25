@@ -8,6 +8,7 @@ import {
   Search,
   X,
 } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 import {
   listCodexDirectoryTree,
   searchCodexDirectories,
@@ -25,6 +26,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'select'])
+const { t } = useI18n()
 
 const homePath = ref('')
 const rootNode = ref(null)
@@ -142,7 +144,7 @@ function getParentPath(pathValue = '') {
 }
 
 function getDisplayName(item) {
-  return item?.name || item?.path || '未命名目录'
+  return item?.name || item?.path || t('directoryPicker.unnamedDirectory')
 }
 
 function getRootDisplayName(pathValue = '') {
@@ -288,7 +290,7 @@ async function loadDirectoryNode(node, options = {}) {
     node.children = (payload.items || []).map((item) => createTreeNode(item, node.depth + 1))
     node.loaded = true
   } catch (err) {
-    treeError.value = err.message || '目录加载失败。'
+    treeError.value = err.message || t('directoryPicker.loadFailed')
   } finally {
     node.loading = false
     refreshTree()
@@ -316,7 +318,7 @@ async function loadHomeRoot() {
     rootNode.value.expanded = true
     updateSelectedDirectory(rootNode.value)
   } catch (err) {
-    treeError.value = err.message || '目录树加载失败。'
+    treeError.value = err.message || t('directoryPicker.treeLoadFailed')
     rootNode.value = null
     homePath.value = ''
   } finally {
@@ -432,7 +434,7 @@ async function refreshSearch() {
       return
     }
 
-    searchError.value = err.message || '搜索失败。'
+    searchError.value = err.message || t('directoryPicker.searchFailed')
     searchResults.value = []
     searchTruncated.value = false
   } finally {
@@ -536,10 +538,10 @@ onBeforeUnmount(() => {
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <FolderOpen class="h-4 w-4" />
-              <span>选择工作目录</span>
+              <span>{{ t('directoryPicker.title') }}</span>
             </div>
             <p class="theme-muted-text mt-1 text-xs leading-5">
-              默认只在当前用户目录下浏览和搜索；特殊路径继续用手动输入。
+              {{ t('directoryPicker.intro') }}
             </p>
           </div>
 
@@ -556,15 +558,15 @@ onBeforeUnmount(() => {
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5">
           <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-2">
             <div class="flex items-start gap-2 text-xs leading-5">
-              <span class="theme-muted-text shrink-0">当前选中</span>
+              <span class="theme-muted-text shrink-0">{{ t('directoryPicker.currentSelection') }}</span>
               <span class="min-w-0 break-all font-mono text-[var(--theme-textPrimary)]">
-                {{ selectedPath || '请在目录树或搜索结果里选择目录' }}
+                {{ selectedPath || t('directoryPicker.selectionPlaceholder') }}
               </span>
             </div>
           </div>
 
           <label class="theme-muted-text mt-4 block text-xs">
-            <span>搜索目录</span>
+            <span>{{ t('directoryPicker.searchLabel') }}</span>
             <div
               class="theme-input-shell mt-1 flex h-10 items-center gap-2 rounded-sm border px-3 transition focus-within:ring-2"
             >
@@ -572,7 +574,7 @@ onBeforeUnmount(() => {
               <input
                 v-model="query"
                 type="text"
-                placeholder="输入目录名或路径片段，例如 promptx / code"
+                :placeholder="t('directoryPicker.searchPlaceholder')"
                 class="min-w-0 flex-1 border-0 bg-transparent px-0 text-sm text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
               >
             </div>
@@ -586,7 +588,7 @@ onBeforeUnmount(() => {
               @click="activeTab = 'search'"
             >
               <Search class="h-3.5 w-3.5" />
-              <span>搜索</span>
+              <span>{{ t('directoryPicker.searchTab') }}</span>
             </button>
             <button
               type="button"
@@ -595,7 +597,7 @@ onBeforeUnmount(() => {
               @click="activeTab = 'tree'"
             >
               <FolderOpen class="h-3.5 w-3.5" />
-              <span>目录树</span>
+              <span>{{ t('directoryPicker.treeTab') }}</span>
             </button>
           </div>
 
@@ -619,7 +621,7 @@ onBeforeUnmount(() => {
               class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
             >
               <LoaderCircle class="h-4 w-4 animate-spin" />
-              <span>搜索中...</span>
+              <span>{{ t('directoryPicker.searching') }}</span>
             </div>
 
             <div
@@ -627,28 +629,28 @@ onBeforeUnmount(() => {
               class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
             >
               <LoaderCircle class="h-4 w-4 animate-spin" />
-              <span>目录树加载中...</span>
+              <span>{{ t('directoryPicker.treeLoading') }}</span>
             </div>
 
             <div
               v-else-if="showSearchPromptState"
               class="theme-empty-state px-3 py-8 text-sm"
             >
-              输入关键词后，只会在当前用户目录下搜索。
+              {{ t('directoryPicker.searchPrompt') }}
             </div>
 
             <div
               v-else-if="showSearchEmptyState"
               class="theme-empty-state px-3 py-8 text-sm"
             >
-              没搜到匹配目录，试试更短的关键词，或者直接用目录树浏览。
+              {{ t('directoryPicker.noSearchResults') }}
             </div>
 
             <div
               v-else-if="showTreeEmptyState"
               class="theme-empty-state px-3 py-8 text-sm"
             >
-              当前没有可显示的目录。
+              {{ t('directoryPicker.emptyTree') }}
             </div>
 
             <div v-else-if="activeTab === 'search'" class="space-y-1">
@@ -677,7 +679,7 @@ onBeforeUnmount(() => {
                 </div>
               </button>
               <p v-if="searchTruncated" class="theme-muted-text px-1 pt-2 text-xs">
-                搜索结果已截断，只展示最相关的一部分目录。
+                {{ t('directoryPicker.truncatedHint') }}
               </p>
             </div>
 
@@ -750,7 +752,7 @@ onBeforeUnmount(() => {
               :disabled="treeLoading || searchLoading"
               @click="emit('close')"
             >
-              取消
+              {{ t('directoryPicker.cancel') }}
             </button>
             <button
               type="button"
@@ -759,7 +761,7 @@ onBeforeUnmount(() => {
               @click="handlePick"
             >
               <Check class="h-4 w-4" />
-              <span>使用当前目录</span>
+              <span>{{ t('directoryPicker.useCurrentDirectory') }}</span>
             </button>
           </div>
         </div>

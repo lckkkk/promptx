@@ -1,5 +1,6 @@
 <script setup>
 import { ChevronDown, ChevronUp } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 
 defineProps({
   activeHunkIndex: {
@@ -47,6 +48,7 @@ defineProps({
     default: () => {},
   },
 })
+const { t } = useI18n()
 </script>
 
 <template>
@@ -61,7 +63,7 @@ defineProps({
         </div>
         <div class="flex items-center justify-between gap-3">
           <span class="opacity-75">
-            {{ selectedFile.statsLoaded ? `+${selectedFile.additions} / -${selectedFile.deletions}` : '行数按需统计' }}
+            {{ selectedFile.statsLoaded ? `+${selectedFile.additions} / -${selectedFile.deletions}` : t('diffReview.statsOnDemand') }}
           </span>
           <div
             class="inline-flex h-8 shrink-0 items-center gap-1 rounded-sm border px-1.5 py-1"
@@ -78,7 +80,7 @@ defineProps({
               <ChevronUp class="h-4 w-4" />
             </button>
             <span class="min-w-[64px] text-center text-[11px] text-[var(--theme-textSecondary)]">
-              改动 {{ Math.min(activeHunkIndex + 1, selectedPatchHunks.length) }}/{{ selectedPatchHunks.length }}
+              {{ t('diffReview.changeIndex', { current: Math.min(activeHunkIndex + 1, selectedPatchHunks.length), total: selectedPatchHunks.length }) }}
             </span>
             <button
               type="button"
@@ -99,7 +101,7 @@ defineProps({
           </span>
           <span class="break-all font-medium text-[var(--theme-textPrimary)]">{{ selectedFile.path }}</span>
           <span class="opacity-75">
-            {{ selectedFile.statsLoaded ? `+${selectedFile.additions} / -${selectedFile.deletions}` : '行数按需统计' }}
+            {{ selectedFile.statsLoaded ? `+${selectedFile.additions} / -${selectedFile.deletions}` : t('diffReview.statsOnDemand') }}
           </span>
         </div>
         <div
@@ -117,7 +119,7 @@ defineProps({
             <ChevronUp class="h-4 w-4" />
           </button>
           <span class="min-w-[64px] text-center text-[11px] text-[var(--theme-textSecondary)]">
-            改动 {{ Math.min(activeHunkIndex + 1, selectedPatchHunks.length) }}/{{ selectedPatchHunks.length }}
+            {{ t('diffReview.changeIndex', { current: Math.min(activeHunkIndex + 1, selectedPatchHunks.length), total: selectedPatchHunks.length }) }}
           </span>
           <button
             type="button"
@@ -136,9 +138,7 @@ defineProps({
         {{ selectedFile.message }}
       </div>
     </div>
-    <div v-else-if="patchLoading && !selectedFile.patchLoaded" class="theme-muted-text flex-1 overflow-y-auto px-4 py-4 text-sm">
-      正在加载该文件的 diff...
-    </div>
+    <div v-else-if="patchLoading && !selectedFile.patchLoaded" class="theme-muted-text flex-1 overflow-y-auto px-4 py-4 text-sm">{{ t('diffReview.loadingFileDiff') }}</div>
     <div v-else-if="selectedPatchLines.length" :ref="setPatchViewportRef" class="flex-1 overflow-auto">
       <div class="min-w-max px-4 py-4 font-mono text-[11px] leading-5">
         <div
@@ -165,12 +165,12 @@ defineProps({
     </div>
     <div v-else class="theme-secondary-text flex-1 overflow-y-auto px-4 py-4 text-sm">
       <div class="theme-empty-state px-4 py-4">
-        当前文件没有可展示的 diff 内容。
+        {{ t('diffReview.noFileDiffContent') }}
       </div>
     </div>
   </div>
 
   <div v-else class="theme-muted-text flex h-full items-center justify-center px-5 text-sm">
-    请选择一个文件查看 diff。
+    {{ t('diffReview.selectFile') }}
   </div>
 </template>

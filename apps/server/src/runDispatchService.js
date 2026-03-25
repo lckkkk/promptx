@@ -2,6 +2,7 @@ import {
   extractRunnerDispatchPatch,
   reconcileRunAfterRunnerDispatchError,
 } from './runnerDispatch.js'
+import { createApiError } from './apiErrors.js'
 
 export function createRunDispatchService(options = {}) {
   const runnerClient = options.runnerClient
@@ -23,28 +24,28 @@ export function createRunDispatchService(options = {}) {
     const promptBlocks = Array.isArray(payload.promptBlocks) ? payload.promptBlocks : []
 
     if (!normalizedTaskSlug) {
-      throw new Error('任务不存在。')
+      throw createApiError('errors.taskNotFound', '任务不存在。', 404)
     }
     if (!normalizedSessionId) {
-      throw new Error('请先选择一个 PromptX 项目。')
+      throw createApiError('errors.sessionRequired', '请先选择一个 PromptX 项目。')
     }
     if (!normalizedPrompt) {
-      throw new Error('没有可发送的提示词。')
+      throw createApiError('errors.noPromptToSend', '没有可发送的提示词。')
     }
 
     const task = getTaskBySlug(normalizedTaskSlug)
     if (!task || task.expired) {
-      throw new Error('任务不存在。')
+      throw createApiError('errors.taskNotFound', '任务不存在。', 404)
     }
 
     const session = getPromptxCodexSessionById(normalizedSessionId)
     if (!session) {
-      throw new Error('没有找到对应的 PromptX 项目。')
+      throw createApiError('errors.sessionNotFound', '没有找到对应的 PromptX 项目。', 404)
     }
 
     const runningRunOnSession = getRunningCodexRunBySessionId(normalizedSessionId)
     if (runningRunOnSession) {
-      throw new Error('当前项目正在执行中，请等待完成后再发送。')
+      throw createApiError('errors.currentProjectRunning', '当前项目正在执行中，请等待完成后再发送。', 409)
     }
 
     const runRecord = createCodexRun({

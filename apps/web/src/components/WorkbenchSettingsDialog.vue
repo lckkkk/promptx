@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Cpu, Eye, EyeOff, Info, LoaderCircle, Palette, Settings2, Wifi, X } from 'lucide-vue-next'
 import DialogSideNav from './DialogSideNav.vue'
 import ThemeToggle from './ThemeToggle.vue'
+import WorkbenchSelect from './WorkbenchSelect.vue'
+import { formatDateTime as formatLocaleDateTime, useI18n } from '../composables/useI18n.js'
 import {
   getMeta,
   getRelayConfig,
@@ -21,6 +23,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
+const { locale, localeOptions, setLocale, t } = useI18n()
 const version = ref('')
 const versionLoading = ref(false)
 const versionError = ref('')
@@ -59,56 +62,116 @@ let relayCopyTimer = null
 let systemCopyTimer = null
 let systemDiagnosticsTimer = null
 
-const settingsSections = [
+const settingsSections = computed(() => ([
   {
     id: 'theme',
-    label: '主题',
-    description: '界面风格与配色',
+    label: t('theme.title'),
+    description: t('theme.sectionDescription'),
     icon: Palette,
   },
   {
     id: 'relay',
-    label: '远程',
-    description: 'Relay 与手机访问',
+    label: t('settingsDialog.relay.sectionLabel'),
+    description: t('settingsDialog.relay.sectionDescription'),
     icon: Wifi,
   },
   {
     id: 'system',
-    label: '系统',
-    description: 'Runner 与性能配置',
+    label: t('settingsDialog.system.sectionLabel'),
+    description: t('settingsDialog.system.sectionDescription'),
     icon: Cpu,
   },
   {
     id: 'about',
-    label: '关于',
-    description: '版本与说明',
+    label: t('settingsDialog.about.sectionLabel'),
+    description: t('settingsDialog.about.sectionDescription'),
     icon: Info,
   },
-]
+]))
+
+function resolvePayloadMessage(payload = null, fallbackKey = '') {
+  const messageKey = String(payload?.messageKey || '').trim()
+  if (messageKey) {
+    const translated = t(messageKey)
+    if (translated && translated !== messageKey) {
+      return translated
+    }
+  }
+
+  return String(payload?.message || '').trim() || (fallbackKey ? t(fallbackKey) : '')
+}
+
+function resolveRelayReason(code = '', fallback = '') {
+  const normalizedCode = String(code || '').trim()
+  if (normalizedCode) {
+    const key = `settingsDialog.relay.reason.${normalizedCode}`
+    const translated = t(key)
+    if (translated !== key) {
+      return translated
+    }
+  }
+
+  return String(fallback || '').trim() || t('common.notAvailable')
+}
+
+function resolveRelayEventLabel(event = null) {
+  const type = String(event?.type || '').trim() || 'unknown'
+  const key = `settingsDialog.relay.event.${type}`
+  const translated = t(key)
+  return translated !== key ? translated : type
+}
+
+function resolveRelayErrorText(status = null) {
+  const errorKey = String(status?.lastErrorKey || '').trim()
+  const params = status?.lastErrorParams && typeof status.lastErrorParams === 'object'
+    ? status.lastErrorParams
+    : {}
+
+  if (errorKey === 'connect_failed') {
+    return t('settingsDialog.relay.error.connect_failed')
+  }
+  if (errorKey === 'disconnected') {
+    return t('settingsDialog.relay.error.disconnected', {
+      reason: resolveRelayReason(params.reasonCode, status?.lastCloseReason),
+    })
+  }
+  if (errorKey === 'rejected') {
+    return t('settingsDialog.relay.error.rejected', {
+      reason: resolveRelayReason(params.reasonCode, status?.lastCloseReason),
+    })
+  }
+  if (errorKey === 'closed_with_code') {
+    return t('settingsDialog.relay.error.closedWithCode', {
+      code: params.code || status?.lastCloseCode || 0,
+    })
+  }
+
+  return String(status?.lastError || '').trim()
+}
 
 const relayStatusLabel = computed(() => {
   if (relayReconnecting.value) {
-    return '重连中...'
+    return t('settingsDialog.relay.status.reconnecting')
   }
   if (relaySaving.value || relayToggleSaving.value) {
-    return '保存中...'
+    return t('settingsDialog.relay.status.saving')
   }
   if (relayLoading.value) {
-    return '读取中...'
+    return t('settingsDialog.relay.status.loading')
   }
   if (relayStatus.value?.reconnectPaused) {
-    return '已暂停重连'
+    return t('settingsDialog.relay.status.paused')
   }
   if (relayStatus.value?.connected) {
-    return '已连接'
+    return t('settingsDialog.relay.status.connected')
   }
   if ((relayStatus.value?.enabled ?? relayForm.enabled) && Number(relayStatus.value?.nextReconnectDelayMs || 0) > 0) {
-    return '等待重连'
+    return t('settingsDialog.relay.status.waitingReconnect')
   }
   if (relayForm.enabled) {
-    return '未连接'
+    return t('settingsDialog.relay.status.disconnected')
   }
-  return '未启用'
+  return t('settingsDialog.relay.status.disabled')
 })
 
 const relayStatusClass = computed(() => {
@@ -174,7 +237,7 @@ const systemDiagnosticsText = computed(() => JSON.stringify({
 function formatDateTime(value) {
   const normalized = String(value || '').trim()
   if (!normalized) {
-    return '-'
+    return t('common.notAvailable')
   }
 
   const parsed = new Date(normalized)
@@ -182,28 +245,35 @@ function formatDateTime(value) {
     return normalized
   }
 
-  return parsed.toLocaleString('zh-CN')
+  return formatLocaleDateTime(parsed.toISOString(), {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 const runnerStopReasonRows = computed(() => ([
   {
     key: 'queued_cancelled',
-    label: '排队前取消',
+    label: t('settingsDialog.system.stopReasons.queued_cancelled'),
     value: Math.max(0, Number(runnerMetrics.value?.stopReasons?.queued_cancelled) || 0),
   },
   {
     key: 'user_requested',
-    label: '用户主动停止',
+    label: t('settingsDialog.system.stopReasons.user_requested'),
     value: Math.max(0, Number(runnerMetrics.value?.stopReasons?.user_requested) || 0),
   },
   {
     key: 'user_requested_after_error',
-    label: '停止后报错',
+    label: t('settingsDialog.system.stopReasons.user_requested_after_error'),
     value: Math.max(0, Number(runnerMetrics.value?.stopReasons?.user_requested_after_error) || 0),
   },
   {
     key: 'stop_timeout',
-    label: '停止超时',
+    label: t('settingsDialog.system.stopReasons.stop_timeout'),
     value: Math.max(0, Number(runnerMetrics.value?.stopReasons?.stop_timeout) || 0),
   },
 ]))
@@ -211,30 +281,36 @@ const runnerStopReasonRows = computed(() => ([
 const runnerStopTimeoutPhaseRows = computed(() => ([
   {
     key: 'runner_timeout_without_stop_request',
-    label: '未记录 stop 请求',
+    label: t('settingsDialog.system.stopTimeoutPhases.runner_timeout_without_stop_request'),
     value: Math.max(0, Number(runnerMetrics.value?.stopTimeoutPhases?.runner_timeout_without_stop_request) || 0),
   },
   {
     key: 'runner_timeout_before_cancel',
-    label: 'cancel 前超时',
+    label: t('settingsDialog.system.stopTimeoutPhases.runner_timeout_before_cancel'),
     value: Math.max(0, Number(runnerMetrics.value?.stopTimeoutPhases?.runner_timeout_before_cancel) || 0),
   },
   {
     key: 'cli_not_exiting',
-    label: 'CLI 不退出',
+    label: t('settingsDialog.system.stopTimeoutPhases.cli_not_exiting'),
     value: Math.max(0, Number(runnerMetrics.value?.stopTimeoutPhases?.cli_not_exiting) || 0),
   },
   {
     key: 'os_kill_slow',
-    label: 'OS kill 慢',
+    label: t('settingsDialog.system.stopTimeoutPhases.os_kill_slow'),
     value: Math.max(0, Number(runnerMetrics.value?.stopTimeoutPhases?.os_kill_slow) || 0),
   },
   {
     key: 'runner_finalize_after_exit',
-    label: '退出后收尾慢',
+    label: t('settingsDialog.system.stopTimeoutPhases.runner_finalize_after_exit'),
     value: Math.max(0, Number(runnerMetrics.value?.stopTimeoutPhases?.runner_finalize_after_exit) || 0),
   },
 ]))
+
+const localeFieldOptions = computed(() => localeOptions.value.map((item) => ({
+  value: item.value,
+  label: item.value === 'zh-CN' ? t('locale.zhHans') : t('locale.enUs'),
+  englishLabel: item.englishLabel,
+})))
 
 async function loadMeta() {
   versionLoading.value = true
@@ -245,11 +321,11 @@ async function loadMeta() {
     const nextVersion = String(payload?.version || '').trim()
     version.value = nextVersion
     if (!nextVersion) {
-      versionError.value = '当前服务暂未返回版本号，请确认已重启到最新版本。'
+      versionError.value = t('settingsDialog.about.versionPending')
     }
   } catch (error) {
     version.value = ''
-    versionError.value = error?.message || '版本信息读取失败。'
+    versionError.value = error?.message || t('settingsDialog.about.versionLoadFailed')
   } finally {
     versionLoading.value = false
   }
@@ -277,7 +353,7 @@ async function loadRelayConfig() {
     relayManagedByEnv.value = Boolean(payload?.managedByEnv)
     relayStatus.value = payload?.relay || null
   } catch (error) {
-    relayError.value = error?.message || '远程访问配置读取失败。'
+    relayError.value = error?.message || t('settingsDialog.relay.relayConfigLoadFailed')
     relayStatus.value = null
   } finally {
     relayLoading.value = false
@@ -295,7 +371,7 @@ async function loadSystemConfig() {
     systemManagedByEnv.runnerMaxConcurrentRuns = Boolean(payload?.managedByEnv?.runner?.maxConcurrentRuns)
     loadRuntimeDiagnostics()
   } catch (error) {
-    systemError.value = error?.message || '系统配置读取失败。'
+    systemError.value = error?.message || t('settingsDialog.system.systemConfigLoadFailed')
   } finally {
     systemLoading.value = false
   }
@@ -308,7 +384,7 @@ async function loadRuntimeDiagnostics() {
   try {
     systemDiagnostics.value = await getRuntimeDiagnostics()
   } catch (error) {
-    systemDiagnosticsError.value = error?.message || '系统诊断信息读取失败。'
+    systemDiagnosticsError.value = error?.message || t('settingsDialog.system.systemDiagnosticsLoadFailed')
   } finally {
     systemDiagnosticsLoading.value = false
   }
@@ -330,10 +406,10 @@ async function handleSaveRelay() {
     relayManagedByEnv.value = Boolean(payload?.managedByEnv)
     relayStatus.value = payload?.relay || null
     relaySuccess.value = relayForm.enabled
-      ? '远程访问配置已保存，PromptX 正在尝试连接 Relay。'
-      : '远程访问已关闭。'
+      ? t('settingsDialog.relay.relayConfigSavedEnabled')
+      : t('settingsDialog.relay.relayConfigSavedDisabled')
   } catch (error) {
-    relayError.value = error?.message || '远程访问配置保存失败。'
+    relayError.value = error?.message || t('settingsDialog.relay.relayConfigSaveFailed')
   } finally {
     relaySaving.value = false
   }
@@ -347,12 +423,12 @@ async function handleReconnectRelay() {
   try {
     const payload = await reconnectRelay()
     relayStatus.value = payload?.relay || null
-    relaySuccess.value = '已触发重连，PromptX 正在重新建立 Relay 连接。'
+    relaySuccess.value = t('settingsDialog.relay.relayReconnectTriggered')
     setTimeout(() => {
       loadRelayConfig()
     }, 1200)
   } catch (error) {
-    relayError.value = error?.message || '触发 Relay 重连失败。'
+    relayError.value = error?.message || t('settingsDialog.relay.relayReconnectFailed')
   } finally {
     relayReconnecting.value = false
   }
@@ -371,10 +447,10 @@ async function handleSaveSystem() {
     })
     syncSystemForm(payload?.config || {})
     systemManagedByEnv.runnerMaxConcurrentRuns = Boolean(payload?.managedByEnv?.runner?.maxConcurrentRuns)
-    systemSuccess.value = '系统配置已保存，runner 并发上限已更新。'
+    systemSuccess.value = t('settingsDialog.system.systemConfigSaved')
     loadRuntimeDiagnostics()
   } catch (error) {
-    systemError.value = error?.message || '系统配置保存失败。'
+    systemError.value = error?.message || t('settingsDialog.system.systemConfigSaveFailed')
   } finally {
     systemSaving.value = false
   }
@@ -398,7 +474,7 @@ async function handleToggleRelayEnabled() {
 
   if (relayForm.enabled && !hasCompleteRelayFields()) {
     relayForm.enabled = false
-    relayError.value = '请先填写完整的 Relay 地址、设备 ID 和设备 Token，再启用远程访问。'
+    relayError.value = t('settingsDialog.relay.relayFieldsRequired')
     return
   }
 
@@ -414,11 +490,11 @@ async function handleToggleRelayEnabled() {
     relayManagedByEnv.value = Boolean(payload?.managedByEnv)
     relayStatus.value = payload?.relay || null
     relaySuccess.value = relayForm.enabled
-      ? '远程访问已启用，PromptX 正在尝试连接 Relay。'
-      : '远程访问已关闭。'
+      ? t('settingsDialog.relay.relayEnabledSaved')
+      : t('settingsDialog.relay.relayConfigSavedDisabled')
   } catch (error) {
     relayForm.enabled = Boolean(relayStatus.value?.enabled)
-    relayError.value = error?.message || '远程访问开关保存失败。'
+    relayError.value = error?.message || t('settingsDialog.relay.relayToggleFailed')
   } finally {
     relayToggleSaving.value = false
   }
@@ -454,7 +530,7 @@ async function handleCopyRelayDiagnostics() {
       relayCopyTimer = null
     }, 2000)
   } catch (error) {
-    relayError.value = error?.message || 'Relay 诊断信息复制失败。'
+    relayError.value = error?.message || t('settingsDialog.relay.relayDiagnosticsCopyFailed')
   }
 }
 
@@ -470,8 +546,12 @@ async function handleCopySystemDiagnostics() {
       systemCopyTimer = null
     }, 2000)
   } catch (error) {
-    systemDiagnosticsError.value = error?.message || '系统诊断信息复制失败。'
+    systemDiagnosticsError.value = error?.message || t('settingsDialog.system.systemDiagnosticsCopyFailed')
   }
+}
+
+function handleLocaleChange(nextLocale) {
+  setLocale(nextLocale)
 }
 
 function stopSystemDiagnosticsPolling() {
@@ -561,7 +641,7 @@ onBeforeUnmount(() => {
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <Settings2 class="h-4 w-4" />
-              <span>设置</span>
+              <span>{{ t('common.settings') }}</span>
             </div>
           </div>
 
@@ -586,12 +666,52 @@ onBeforeUnmount(() => {
               class="space-y-4"
             >
               <div>
-                <div class="theme-heading text-base font-medium">主题</div>
-                <p class="theme-muted-text mt-1 text-xs leading-5">这里先放界面主题，后面如果有排版、字号等偏好，也继续归到这一类。</p>
+                <div class="theme-heading text-base font-medium">{{ t('theme.title') }}</div>
+                <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('theme.sectionDescription') }}</p>
               </div>
 
               <section class="settings-section-card px-4 py-4">
                 <ThemeToggle />
+              </section>
+
+              <section class="settings-section-card space-y-4 px-4 py-4">
+                <div>
+                  <div class="theme-heading text-sm font-medium">{{ t('locale.title') }}</div>
+                  <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('locale.description') }}</p>
+                </div>
+
+                <label class="block space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('locale.field') }}</span>
+                  <WorkbenchSelect
+                    :model-value="locale"
+                    :options="localeFieldOptions"
+                    :get-option-value="(option) => option.value"
+                    @update:model-value="handleLocaleChange"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                    <template #option="{ option, selected, select }">
+                      <button
+                        type="button"
+                        class="workbench-select-option theme-filter-idle w-full rounded-sm border border-dashed px-3 py-2 text-left text-sm"
+                        @click="select()"
+                      >
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="min-w-0">
+                            <div class="truncate text-[var(--theme-textPrimary)]">{{ option.label }}</div>
+                            <div class="theme-muted-text mt-1 truncate text-xs">{{ option.englishLabel }}</div>
+                          </div>
+                          <span v-if="selected" class="theme-status-success rounded-sm border border-dashed px-2 py-0.5 text-[10px]">{{ t('common.enabled') }}</span>
+                        </div>
+                      </button>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <p class="theme-muted-text theme-note-text">{{ t('locale.immediateHint') }}</p>
               </section>
             </section>
 
@@ -600,10 +720,10 @@ onBeforeUnmount(() => {
               class="space-y-4"
             >
               <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
-                    <Wifi class="h-4 w-4" />
-                    <span>远程访问 Relay</span>
+                  <div>
+                    <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
+                      <Wifi class="h-4 w-4" />
+                    <span>{{ t('settingsDialog.relay.title') }}</span>
                   </div>
                 </div>
                 <span
@@ -617,8 +737,8 @@ onBeforeUnmount(() => {
               <section class="settings-section-card space-y-4 px-4 py-4">
                 <label class="settings-form-card flex items-center justify-between gap-3 px-3 py-2">
                   <div>
-                    <div class="text-sm font-medium text-[var(--theme-textPrimary)]">启用远程访问</div>
-                    <p class="theme-muted-text mt-1 text-xs">关闭后，本机会主动断开当前 Relay 连接。</p>
+                    <div class="text-sm font-medium text-[var(--theme-textPrimary)]">{{ t('settingsDialog.relay.enableTitle') }}</div>
+                    <p class="theme-muted-text mt-1 text-xs">{{ t('settingsDialog.relay.enableDescription') }}</p>
                   </div>
                   <input
                     v-model="relayForm.enabled"
@@ -631,7 +751,7 @@ onBeforeUnmount(() => {
 
                 <div class="grid gap-4 sm:grid-cols-2">
                   <label class="space-y-1.5 sm:col-span-2">
-                    <span class="theme-muted-text text-xs">Relay 地址</span>
+                    <span class="theme-muted-text text-xs">{{ t('settingsDialog.relay.relayUrl') }}</span>
                     <input
                       v-model="relayForm.relayUrl"
                       type="text"
@@ -642,7 +762,7 @@ onBeforeUnmount(() => {
                   </label>
 
                   <label class="space-y-1.5">
-                    <span class="theme-muted-text text-xs">设备 ID</span>
+                    <span class="theme-muted-text text-xs">{{ t('settingsDialog.relay.deviceId') }}</span>
                     <input
                       v-model="relayForm.deviceId"
                       type="text"
@@ -653,12 +773,12 @@ onBeforeUnmount(() => {
                   </label>
 
                   <label class="space-y-1.5">
-                    <span class="theme-muted-text text-xs">设备 Token</span>
+                    <span class="theme-muted-text text-xs">{{ t('settingsDialog.relay.deviceToken') }}</span>
                     <div class="relative">
                       <input
                         v-model="relayForm.deviceToken"
                         :type="relayTokenVisible ? 'text' : 'password'"
-                        placeholder="请输入云端 Relay 的设备 token"
+                        :placeholder="t('settingsDialog.relay.deviceTokenPlaceholder')"
                         class="tool-input pr-10"
                         :disabled="relayManagedByEnv"
                       >
@@ -681,13 +801,13 @@ onBeforeUnmount(() => {
                       v-if="relayStatus?.reconnectPausedReason"
                       class="theme-danger-text theme-note-text"
                     >
-                      当前已暂停自动重连：{{ relayStatus.reconnectPausedReason }}
+                      {{ t('settingsDialog.relay.pausedReconnect', { reason: resolveRelayReason(relayStatus.reconnectPausedReasonCode, relayStatus.reconnectPausedReason) }) }}
                     </p>
                     <p
                       v-if="relayManagedByEnv"
                       class="theme-status-warning theme-note-text"
                     >
-                      当前 Relay 配置由环境变量接管，设置页仅展示实际值，修改环境变量后需重启服务。
+                      {{ t('settingsDialog.relay.managedByEnv') }}
                     </p>
                     <p v-if="relayError" class="theme-danger-text theme-note-text">{{ relayError }}</p>
                     <p v-else-if="relaySuccess" class="theme-status-success theme-note-text">{{ relaySuccess }}</p>
@@ -695,34 +815,34 @@ onBeforeUnmount(() => {
                       v-else-if="relayStatus?.lastError"
                       class="theme-danger-text theme-note-text"
                     >
-                      最近错误：{{ relayStatus.lastError }}
+                      {{ t('settingsDialog.relay.lastError', { value: resolveRelayErrorText(relayStatus) }) }}
                     </p>
                     <p
                       v-else-if="relayStatus?.lastCloseReason"
                       class="theme-muted-text theme-note-text"
                     >
-                      最近断开：{{ relayStatus.lastCloseReason }}<span v-if="relayStatus.lastCloseCode">（code {{ relayStatus.lastCloseCode }}）</span>
+                      {{ t('settingsDialog.relay.lastClosed', { reason: resolveRelayReason(relayStatus.lastCloseReasonCode, relayStatus.lastCloseReason), code: relayStatus.lastCloseCode }) }}
                     </p>
                     <p
                       v-else-if="relayStatus?.lastConnectedAt"
                       class="theme-muted-text theme-note-text"
                     >
-                      最近连接：{{ new Date(relayStatus.lastConnectedAt).toLocaleString('zh-CN') }}
+                      {{ t('settingsDialog.relay.lastConnected', { value: formatDateTime(relayStatus.lastConnectedAt) }) }}
                     </p>
                     <p
                       v-if="relayStatus?.recentEvents?.length"
                       class="theme-muted-text theme-note-text"
                     >
-                      最近事件：{{ relayStatus.recentEvents[0]?.type || 'unknown' }}
+                      {{ t('settingsDialog.relay.recentEvent', { value: resolveRelayEventLabel(relayStatus.recentEvents[0]) }) }}
                     </p>
                     <p
                       v-if="relayCopied"
                       class="theme-status-success theme-note-text"
                     >
-                      Relay 诊断信息已复制，可直接发给我排查。
+                      {{ t('settingsDialog.relay.copied') }}
                     </p>
                     <p v-if="showRelayDefaultHint" class="theme-muted-text theme-note-text">
-                      建议公网 Relay 使用 HTTPS，并确保云端与本机使用同一个设备 Token；多租户时每个人填写自己的子域名地址。
+                      {{ t('settingsDialog.relay.defaultHint') }}
                     </p>
                   </div>
 
@@ -734,7 +854,7 @@ onBeforeUnmount(() => {
                       @click="handleReconnectRelay"
                     >
                       <LoaderCircle v-if="relayReconnecting" class="h-4 w-4 animate-spin" />
-                      <span>{{ relayReconnecting ? '重连中...' : '立即重连' }}</span>
+                      <span>{{ relayReconnecting ? t('settingsDialog.relay.reconnecting') : t('settingsDialog.relay.reconnectNow') }}</span>
                     </button>
                     <button
                       type="button"
@@ -742,7 +862,7 @@ onBeforeUnmount(() => {
                       :disabled="relayLoading || relayReconnecting"
                       @click="handleCopyRelayDiagnostics"
                     >
-                      <span>{{ relayCopied ? '已复制诊断信息' : '复制 Relay 诊断信息' }}</span>
+                      <span>{{ relayCopied ? t('settingsDialog.relay.diagnosticsCopied') : t('settingsDialog.relay.copyDiagnostics') }}</span>
                     </button>
                     <button
                       type="button"
@@ -751,7 +871,7 @@ onBeforeUnmount(() => {
                       @click="handleSaveRelay"
                     >
                       <LoaderCircle v-if="relaySaving" class="h-4 w-4 animate-spin" />
-                      <span>{{ relaySaving ? '保存中...' : '保存远程访问配置' }}</span>
+                      <span>{{ relaySaving ? t('common.saving') : t('settingsDialog.relay.saveConfig') }}</span>
                     </button>
                   </div>
                 </div>
@@ -765,16 +885,16 @@ onBeforeUnmount(() => {
               <div>
                 <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
                   <Cpu class="h-4 w-4" />
-                  <span>系统配置</span>
+                  <span>{{ t('settingsDialog.system.title') }}</span>
                 </div>
                 <p class="theme-muted-text mt-1 text-xs leading-5">
-                  这里同时放 runner 并发上限和运行诊断。后续排查卡顿、排队、stop 回收问题时，优先看下面这组实时统计。
+                  {{ t('settingsDialog.system.intro') }}
                 </p>
               </div>
 
               <section class="settings-section-card space-y-4 px-4 py-4">
                 <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">真实 agent 最大并发数</span>
+                  <span class="theme-muted-text text-xs">{{ t('settingsDialog.system.maxConcurrentRuns') }}</span>
                   <input
                     v-model.number="systemForm.runnerMaxConcurrentRuns"
                     type="number"
@@ -785,7 +905,7 @@ onBeforeUnmount(() => {
                     :disabled="systemManagedByEnv.runnerMaxConcurrentRuns || systemLoading || systemSaving"
                   >
                   <p class="theme-muted-text text-xs leading-5">
-                    超过这个数量的新 run 会进入 queued，等待 runner 空闲后再启动。
+                    {{ t('settingsDialog.system.maxConcurrentRunsHint') }}
                   </p>
                 </label>
 
@@ -795,12 +915,12 @@ onBeforeUnmount(() => {
                       v-if="systemManagedByEnv.runnerMaxConcurrentRuns"
                       class="theme-status-warning theme-note-text"
                     >
-                      当前并发上限由环境变量 `PROMPTX_RUNNER_MAX_CONCURRENT_RUNS` 接管，设置页只展示实际值。
+                      {{ t('settingsDialog.system.managedByEnv') }}
                     </p>
                     <p v-else-if="systemError" class="theme-danger-text theme-note-text">{{ systemError }}</p>
                     <p v-else-if="systemSuccess" class="theme-status-success theme-note-text">{{ systemSuccess }}</p>
                     <p v-else class="theme-muted-text theme-note-text">
-                      `active` 代表真实占用并发槽位的 run，`queued` 代表排队中，`tracked` 代表 runner 内存里尚未结束的全部上下文。
+                      {{ t('settingsDialog.system.diagnosticsHint') }}
                     </p>
                   </div>
 
@@ -812,7 +932,7 @@ onBeforeUnmount(() => {
                       @click="handleSaveSystem"
                     >
                       <LoaderCircle v-if="systemSaving" class="h-4 w-4 animate-spin" />
-                      <span>{{ systemSaving ? '保存中...' : '保存系统配置' }}</span>
+                      <span>{{ systemSaving ? t('common.saving') : t('settingsDialog.system.saveConfig') }}</span>
                     </button>
                   </div>
                 </div>
@@ -821,9 +941,9 @@ onBeforeUnmount(() => {
               <section class="settings-section-card space-y-4 px-4 py-4">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div class="theme-heading text-sm font-medium">运行诊断</div>
+                    <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.system.runtimeDiagnostics') }}</div>
                     <p class="theme-muted-text mt-1 text-xs leading-5">
-                      自动每 5 秒刷新一次，可直接观察 runner、恢复器和清理任务的运行情况。
+                      {{ t('settingsDialog.system.runtimeDiagnosticsHint') }}
                     </p>
                   </div>
 
@@ -835,14 +955,14 @@ onBeforeUnmount(() => {
                       @click="loadRuntimeDiagnostics"
                     >
                       <LoaderCircle v-if="systemDiagnosticsLoading" class="h-4 w-4 animate-spin" />
-                      <span>{{ systemDiagnosticsLoading ? '刷新中...' : '刷新诊断' }}</span>
+                      <span>{{ systemDiagnosticsLoading ? t('settingsDialog.system.refreshingDiagnostics') : t('settingsDialog.system.refreshDiagnostics') }}</span>
                     </button>
                     <button
                       type="button"
                       class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
                       @click="handleCopySystemDiagnostics"
                     >
-                      <span>{{ systemCopied ? '已复制诊断信息' : '复制诊断信息' }}</span>
+                      <span>{{ systemCopied ? t('settingsDialog.system.diagnosticsCopied') : t('settingsDialog.system.copyDiagnostics') }}</span>
                     </button>
                   </div>
                 </div>
@@ -850,10 +970,10 @@ onBeforeUnmount(() => {
                 <div class="min-w-0 space-y-1">
                   <p v-if="systemDiagnosticsError" class="theme-danger-text theme-note-text">{{ systemDiagnosticsError }}</p>
                   <p v-else-if="systemCopied" class="theme-status-success theme-note-text">
-                    系统诊断信息已复制，可直接发给我排查。
+                    {{ t('settingsDialog.system.diagnosticsCopiedHint') }}
                   </p>
                   <p v-else class="theme-muted-text theme-note-text">
-                    诊断口径已经和真实并发控制对齐：`active` 不再把 queued 误算进去。
+                    {{ t('settingsDialog.system.diagnosticsHint') }}
                   </p>
                 </div>
 
@@ -864,22 +984,22 @@ onBeforeUnmount(() => {
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">active</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerDiagnostics?.activeRunCount || 0 }}</div>
-                    <p class="theme-muted-text text-xs">真实占用并发槽位</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.active') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">tracked</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerDiagnostics?.trackedRunCount || 0 }}</div>
-                    <p class="theme-muted-text text-xs">runner 内存中的全部上下文</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.tracked') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">queued</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerDiagnostics?.queuedRunCount || 0 }}</div>
-                    <p class="theme-muted-text text-xs">等待启动的 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.queued') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">maxConcurrent</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerDiagnostics?.config?.maxConcurrentRuns || systemForm.runnerMaxConcurrentRuns }}</div>
-                    <p class="theme-muted-text text-xs">当前生效并发上限</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.maxConcurrent') }}</p>
                   </div>
                 </div>
 
@@ -890,22 +1010,22 @@ onBeforeUnmount(() => {
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">completed</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerMetrics?.totalCompleted || 0 }}</div>
-                    <p class="theme-muted-text text-xs">已完成 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.completed') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">stopped</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerMetrics?.totalStopped || 0 }}</div>
-                    <p class="theme-muted-text text-xs">已停止 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.stopped') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">error</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerMetrics?.totalErrored || 0 }}</div>
-                    <p class="theme-muted-text text-xs">异常结束 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.error') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">stop_timeout</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerMetrics?.totalStopTimeout || 0 }}</div>
-                    <p class="theme-muted-text text-xs">停止超时 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.stopTimeout') }}</p>
                   </div>
                 </div>
 
@@ -916,23 +1036,23 @@ onBeforeUnmount(() => {
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">event flush failures</div>
                     <div class="theme-heading text-lg font-medium">{{ runnerMetrics?.eventFlushFailureCount || 0 }}</div>
-                    <p class="theme-muted-text text-xs">事件批量回写失败次数</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.eventWriteFailures') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">recovered runs</div>
                     <div class="theme-heading text-lg font-medium">{{ recoveryDiagnostics?.metrics?.totalRecovered || 0 }}</div>
-                    <p class="theme-muted-text text-xs">服务端回收的失联 run</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.recoveredRuns') }}</p>
                   </div>
                   <div class="settings-form-card space-y-1 px-3 py-3">
                     <div class="theme-muted-text text-xs">last cleanup</div>
                     <div class="theme-heading text-sm font-medium">{{ formatDateTime(maintenanceDiagnostics?.lastCleanup?.finishedAt) }}</div>
-                    <p class="theme-muted-text text-xs">最近一次维护清理完成时间</p>
+                    <p class="theme-muted-text text-xs">{{ t('settingsDialog.system.lastMaintenanceAt') }}</p>
                   </div>
                 </div>
 
                 <div class="grid gap-4 lg:grid-cols-2">
                   <div class="settings-form-card space-y-3 px-3 py-3">
-                    <div class="theme-heading text-sm font-medium">基础状态</div>
+                    <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.system.baseStatus') }}</div>
                     <div class="space-y-2 text-xs">
                       <div class="flex items-center justify-between gap-3">
                         <span class="theme-muted-text">runner baseUrl</span>
@@ -948,7 +1068,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="flex items-center justify-between gap-3">
                         <span class="theme-muted-text">git diff worker</span>
-                        <span class="text-right text-[var(--theme-textPrimary)]">{{ gitDiffWorkerDiagnostics ? '可用' : '未知' }}</span>
+                        <span class="text-right text-[var(--theme-textPrimary)]">{{ gitDiffWorkerDiagnostics ? t('settingsDialog.system.available') : t('settingsDialog.system.unknown') }}</span>
                       </div>
                       <div class="flex items-center justify-between gap-3">
                         <span class="theme-muted-text">db vacuum</span>
@@ -958,7 +1078,7 @@ onBeforeUnmount(() => {
                   </div>
 
                   <div class="settings-form-card space-y-3 px-3 py-3">
-                    <div class="theme-heading text-sm font-medium">Stop 原因分类</div>
+                    <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.system.stopReasonTitle') }}</div>
                     <div class="space-y-2 text-xs">
                       <div
                         v-for="item in runnerStopReasonRows"
@@ -976,7 +1096,7 @@ onBeforeUnmount(() => {
                   v-if="runnerDiagnosticsOk"
                   class="settings-form-card space-y-3 px-3 py-3"
                 >
-                  <div class="theme-heading text-sm font-medium">Stop Timeout 阶段</div>
+                  <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.system.stopTimeoutPhaseTitle') }}</div>
                   <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 text-xs">
                     <div
                       v-for="item in runnerStopTimeoutPhaseRows"
@@ -993,9 +1113,9 @@ onBeforeUnmount(() => {
                   v-if="!runnerDiagnosticsOk && !systemDiagnosticsLoading"
                   class="settings-form-card space-y-2 px-3 py-3"
                 >
-                  <div class="theme-heading text-sm font-medium">runner 暂不可用</div>
+                  <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.system.runnerUnavailable') }}</div>
                   <p class="theme-muted-text text-xs leading-5">
-                    {{ systemDiagnostics?.runner?.message || '当前还没有拿到 runner diagnostics。' }}
+                    {{ resolvePayloadMessage(systemDiagnostics?.runner, 'settingsDialog.system.runnerUnavailableDescription') }}
                   </p>
                   <p class="theme-muted-text text-xs leading-5">
                     baseUrl: {{ systemDiagnostics?.runner?.baseUrl || '-' }}
@@ -1009,20 +1129,20 @@ onBeforeUnmount(() => {
               class="space-y-4"
             >
               <div>
-                <div class="theme-heading text-base font-medium">关于</div>
-                <p class="theme-muted-text mt-1 text-xs leading-5">这里先放版本信息，后面像更新日志、环境说明也可以继续往这里放。</p>
+                <div class="theme-heading text-base font-medium">{{ t('settingsDialog.about.title') }}</div>
+                <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('settingsDialog.about.intro') }}</p>
               </div>
 
               <section class="settings-section-card px-4 py-4">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="theme-heading text-sm font-medium">版本信息</div>
+                    <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.about.versionTitle') }}</div>
                     <p class="theme-muted-text mt-1 text-xs leading-5">
-                      {{ versionError || '当前已安装的 PromptX 版本。' }}
+                      {{ versionError || t('settingsDialog.about.versionDescription') }}
                     </p>
                   </div>
                   <span class="theme-badge-strong rounded-sm border border-dashed px-2.5 py-1 text-xs font-medium">
-                    {{ versionLoading ? '读取中...' : version ? `v${version}` : '不可用' }}
+                    {{ versionLoading ? t('common.loading') : version ? `v${version}` : t('common.unavailable') }}
                   </span>
                 </div>
               </section>

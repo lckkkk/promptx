@@ -1,5 +1,6 @@
 <script setup>
 import { Check, LoaderCircle } from 'lucide-vue-next'
+import { useI18n } from '../composables/useI18n.js'
 import WorkbenchSelect from './WorkbenchSelect.vue'
 import { getAgentEngineLabel } from '../lib/agentEngines.js'
 
@@ -23,17 +24,18 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'refresh-intent'])
+const { t } = useI18n()
 
 function getSessionTitle(session) {
-  return session?.title || '未命名项目'
+  return session?.title || t('projectManager.untitledProject')
 }
 
 function getSessionCwd(session) {
-  return session?.cwd || '未设置路径'
+  return session?.cwd || t('projectManager.notSet')
 }
 
 function getRuntimeStatusLabel(session) {
-  return session?.running ? '运行中' : '空闲'
+  return session?.running ? t('projectManager.running') : t('projectManager.idle')
 }
 
 function getRuntimeStatusClass(session) {
@@ -51,8 +53,8 @@ function getOptionClass(selected) {
     :options="sessions"
     :loading="loading"
     :disabled="disabled"
-    placeholder="请选择项目"
-    empty-text="还没有项目，请先到管理弹窗里新建。"
+    :placeholder="t('projectManager.selectProject')"
+    :empty-text="t('projectManager.noProjectsInSelect')"
     :get-option-value="(session) => session?.id || ''"
     @update:model-value="emit('update:modelValue', $event)"
     @refresh-intent="emit('refresh-intent')"
@@ -74,14 +76,14 @@ function getOptionClass(selected) {
       </template>
       <template v-else>
         <div class="theme-muted-text text-sm">
-          {{ loading ? '正在同步项目...' : '请选择项目' }}
+          {{ loading ? t('projectManager.syncingProjects') : t('projectManager.selectProject') }}
         </div>
       </template>
     </template>
 
     <template #header>
       <div class="theme-divider theme-muted-text flex items-center justify-between gap-3 border-b border-dashed px-3 py-2 text-[11px]">
-        <span>{{ loading ? '正在同步最新项目...' : `共 ${sessions.length} 个项目` }}</span>
+        <span>{{ loading ? t('projectManager.syncingLatestProjects') : t('projectManager.projectCount', { count: sessions.length }) }}</span>
         <LoaderCircle v-if="loading" class="h-3.5 w-3.5 animate-spin" />
       </div>
     </template>

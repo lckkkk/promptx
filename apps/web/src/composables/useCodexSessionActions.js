@@ -8,6 +8,7 @@ import {
   stopCodexRun,
   updateCodexSession,
 } from '../lib/api.js'
+import { translate } from './useI18n.js'
 import { sortSessions } from './codexSessionPanelTurns.js'
 
 const SESSION_REFRESH_TTL = 1500
@@ -43,7 +44,7 @@ export function useCodexSessionActions(options = {}) {
   const sortedSessions = computed(() => sortSessions(sessions.value, selectedSessionId.value))
   const helperText = computed(() => {
     if (!hasSessions.value) {
-      return '还没有 PromptX 项目，请先在管理弹窗里新建一个固定工作目录。'
+      return translate('projectManager.noProjects')
     }
     return ''
   })
@@ -157,7 +158,7 @@ export function useCodexSessionActions(options = {}) {
       && normalizedSessionId
       && normalizedSessionId !== selectedSessionId.value
     ) {
-      sessionError.value = props.sessionSelectionLockReason || '该任务已有项目历史，不能再切换项目；如需使用新项目，请新建任务。'
+      sessionError.value = props.sessionSelectionLockReason || translate('taskActions.sessionLocked')
       return
     }
 
@@ -248,7 +249,7 @@ export function useCodexSessionActions(options = {}) {
 
     if (!selectedSessionId.value) {
       openManager()
-      sessionError.value = '请先选择一个 PromptX 项目。'
+      sessionError.value = translate('projectManager.selectProject')
       return false
     }
 
@@ -261,12 +262,12 @@ export function useCodexSessionActions(options = {}) {
 
       const latestSelectedSession = sessions.value.find((session) => session.id === selectedSessionId.value) || null
       if (!latestSelectedSession) {
-        sessionError.value = '当前项目不存在，请重新选择。'
+        sessionError.value = translate('projectManager.projectMissing')
         return false
       }
 
       if (latestSelectedSession.running) {
-        sessionError.value = '当前项目正在运行中，请等待完成后再发送。'
+        sessionError.value = translate('sessionTurns.currentProjectRunning')
         return false
       }
 
@@ -278,7 +279,7 @@ export function useCodexSessionActions(options = {}) {
         : []
 
       if (!String(prompt || '').trim()) {
-        sessionError.value = '没有可发送的提示词。'
+        sessionError.value = translate('sessionTurns.noPromptToSend')
         return false
       }
 

@@ -1,3 +1,5 @@
+import { translate } from '../composables/useI18n.js'
+
 const importMetaEnv = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {}
 
 function resolveDefaultApiBase() {
@@ -24,6 +26,18 @@ function resolveDefaultApiBase() {
 
 const API_BASE = (importMetaEnv.VITE_API_BASE_URL || resolveDefaultApiBase()).replace(/\/$/, '')
 
+export function resolveRequestErrorMessage(payload = {}, fallbackKey = 'errors.requestFailed') {
+  const messageKey = String(payload?.messageKey || '').trim()
+  if (messageKey) {
+    const translated = translate(messageKey)
+    if (translated && translated !== messageKey) {
+      return translated
+    }
+  }
+
+  return payload?.message || translate(fallbackKey)
+}
+
 export async function request(path, options = {}) {
   const hasJsonBody = typeof options.body !== 'undefined' && !(options.body instanceof FormData)
   const response = await fetch(`${API_BASE}${path}`, {
@@ -36,7 +50,7 @@ export async function request(path, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || '请求失败。')
+    throw new Error(resolveRequestErrorMessage(payload))
   }
 
   if (response.status === 204) {

@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from 'lucide-vue-next'
+import { compareByLocale, formatDateTime, useI18n } from '../composables/useI18n.js'
 import { useMediaQuery } from '../composables/useMediaQuery.js'
 import ConfirmDialog from './ConfirmDialog.vue'
 import CodexDirectoryPickerDialog from './CodexDirectoryPickerDialog.vue'
@@ -72,6 +73,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'project-created', 'select-session'])
+const { locale, t } = useI18n()
 
 const mode = ref('edit')
 const editingSessionId = ref('')
@@ -141,30 +143,34 @@ const duplicateCwdMessage = computed(() => {
 
   const labels = duplicateCwdSessions.value
     .slice(0, 3)
-    .map((session) => `「${session.title || '未命名项目'}」`)
-    .join('、')
-  const suffix = duplicateCwdSessions.value.length > 3 ? '等项目' : '项目'
-
-  return `该目录已被${labels}${suffix}使用，建议优先复用，避免把同一目录拆成多个项目。`
+    .map((session) => {
+      const title = session.title || t('projectManager.untitledProject')
+      return locale.value === 'en-US' ? `"${title}"` : `「${title}」`
+    })
+    .join(locale.value === 'en-US' ? ', ' : '、')
+  return t('projectManager.duplicateDirectory', {
+    labels,
+    count: duplicateCwdSessions.value.length,
+  })
 })
 const cwdReadonlyMessage = computed(() => {
   if (mode.value !== 'edit' || canEditCwd.value) {
     return ''
   }
 
-  return '当前项目已绑定执行引擎会话，工作目录不能再修改；如需使用新目录，请新建项目。'
+  return t('projectManager.cwdReadonly')
 })
 const engineReadonlyMessage = computed(() => {
   if (mode.value !== 'edit' || !activeSession.value || canEditEngine.value) {
     return ''
   }
 
-  return '当前项目已绑定执行引擎会话，执行引擎不能再修改；如需更换，请新建项目。'
+  return t('projectManager.engineReadonly')
 })
 const desktopSubmitLabel = computed(() => (mode.value === 'create'
-  ? (creating.value ? '创建中...' : '创建项目')
-  : (saving.value ? '保存中...' : '保存修改')))
-const mobileTitle = computed(() => (mode.value === 'create' ? '新建项目' : activeSession.value?.title || '未命名项目'))
+  ? (creating.value ? t('projectManager.creatingProject') : t('projectManager.createProject'))
+  : (saving.value ? t('projectManager.savingChanges') : t('projectManager.saveChanges'))))
+const mobileTitle = computed(() => (mode.value === 'create' ? t('projectManager.newProject') : activeSession.value?.title || t('projectManager.untitledProject')))
 function getDateOrderValue(value = '') {
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? timestamp : 0
@@ -211,12 +217,12 @@ function sortSessions(items = []) {
       return updatedDiff
     }
 
-    return String(left.title || left.cwd || left.id).localeCompare(String(right.title || right.cwd || right.id), 'zh-CN')
+    return compareByLocale(String(left.title || left.cwd || left.id), String(right.title || right.cwd || right.id))
   })
 }
 
 function getRuntimeStatusLabel(sessionId) {
-  return isSessionRunning(sessionId) ? '运行中' : '空闲'
+  return isSessionRunning(sessionId) ? t('projectManager.running') : t('projectManager.idle')
 }
 
 function getRuntimeStatusClass(sessionId) {
@@ -224,7 +230,7 @@ function getRuntimeStatusClass(sessionId) {
 }
 
 function getThreadStatusLabel(session) {
-  return session?.started ? '已绑定线程' : '未启动'
+  return session?.started ? t('projectManager.threadBound') : t('projectManager.notStarted')
 }
 
 function getThreadStatusClass(session) {
@@ -233,7 +239,7 @@ function getThreadStatusClass(session) {
 
 function formatUpdatedAt(value = '') {
   if (!value) {
-    return '未知'
+    return t('projectManager.unknown')
   }
 
   const date = new Date(value)
@@ -241,7 +247,13 @@ function formatUpdatedAt(value = '') {
     return value
   }
 
-  return date.toLocaleString('zh-CN')
+  return formatDateTime(date.toISOString(), {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function syncFormFromSession(session) {
@@ -396,7 +408,7 @@ function createSubmitAction() {
   if (mode.value === 'create') {
     const cwd = String(form.cwd || '').trim()
     if (!cwd) {
-      error.value = '请先填写工作目录。'
+      error.value = t('projectManager.directoryRequired')
       return null
     }
 
@@ -412,7 +424,7 @@ function createSubmitAction() {
   }
 
   if (!activeSession.value) {
-    error.value = '当前项目不存在，请重新选择。'
+    error.value = t('projectManager.projectMissing')
     return null
   }
 
@@ -582,12 +594,12 @@ onBeforeUnmount(() => {
       <section class="panel flex h-full w-full max-w-5xl flex-col overflow-hidden sm:h-auto sm:max-h-[88vh]">
         <ConfirmDialog
           :open="showDeleteDialog"
-          title="确认删除 PromptX 项目？"
+          :title="t('projectManager.confirmDeleteTitle')"
           :description="activeSession
-            ? `将删除「${activeSession.title || '未命名项目'}」这条本地记录，不会删除工作目录，也不会删除对应执行引擎的历史数据。`
+            ? t('projectManager.confirmDeleteDescription', { title: activeSession.title || t('projectManager.untitledProject') })
             : ''"
-          confirm-text="确认删除"
-          cancel-text="先保留"
+          :confirm-text="t('projectManager.confirmDelete')"
+          :cancel-text="t('projectManager.keep')"
           :loading="deleting"
           danger
           @cancel="showDeleteDialog = false"
@@ -604,7 +616,7 @@ onBeforeUnmount(() => {
           <div>
             <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
               <Bot class="h-4 w-4" />
-              <span>PromptX 项目管理</span>
+              <span>{{ t('projectManager.managingTitle') }}</span>
             </div>
           </div>
 
@@ -645,7 +657,7 @@ onBeforeUnmount(() => {
               <div>
                 <div class="theme-heading inline-flex items-center gap-2 text-sm font-medium">
                   <PencilLine class="h-4 w-4" />
-                  <span>{{ mode === 'create' ? '新建项目' : '编辑项目' }}</span>
+                  <span>{{ mode === 'create' ? t('projectManager.createTitle') : t('projectManager.editTitle') }}</span>
                 </div>
               </div>
 
@@ -686,7 +698,7 @@ onBeforeUnmount(() => {
                   @click="showDeleteDialog = true"
                 >
                   <Trash2 class="h-4 w-4" />
-                  <span>{{ deleting ? '删除中...' : '删除项目' }}</span>
+                  <span>{{ deleting ? t('projectManager.deletingProject') : t('projectManager.deleteProject') }}</span>
                 </button>
               </div>
 
@@ -697,7 +709,7 @@ onBeforeUnmount(() => {
                   :disabled="busy"
                   @click="emit('close')"
                 >
-                  关闭
+                  {{ t('projectManager.close') }}
                 </button>
                 <button
                   v-if="mode === 'create' && hasSessions"
@@ -706,7 +718,7 @@ onBeforeUnmount(() => {
                   :disabled="busy"
                   @click="initializeDialog"
                 >
-                  返回列表
+                  {{ t('projectManager.backToList') }}
                 </button>
                 <button
                   type="button"
@@ -753,7 +765,7 @@ onBeforeUnmount(() => {
                 @click="returnToMobileList"
               >
                 <ArrowLeft class="h-4 w-4" />
-                <span>列表</span>
+                <span>{{ t('projectManager.projectList') }}</span>
               </button>
               <div class="min-w-0 flex-1">
                 <div class="theme-heading truncate text-sm font-medium">
@@ -773,7 +785,7 @@ onBeforeUnmount(() => {
                   :class="mobileDetailTab === 'basic' ? 'tool-button-accent-subtle' : ''"
                   @click="mobileDetailTab = 'basic'"
                 >
-                  基本信息
+                  {{ t('projectManager.basicInfo') }}
                 </button>
                 <button
                   type="button"
@@ -782,7 +794,7 @@ onBeforeUnmount(() => {
                   :disabled="mode === 'create'"
                   @click="mobileDetailTab = 'status'"
                 >
-                  状态
+                  {{ t('projectManager.status') }}
                 </button>
               </div>
             </div>
@@ -829,7 +841,7 @@ onBeforeUnmount(() => {
                     :disabled="busy || activeSessionRunning"
                     @click="showDeleteDialog = true"
                   >
-                    {{ deleting ? '删除中...' : '删除项目' }}
+                    {{ deleting ? t('projectManager.deletingProject') : t('projectManager.deleteProject') }}
                   </button>
                 </div>
               </div>
