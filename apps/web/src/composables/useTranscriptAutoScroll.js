@@ -9,11 +9,10 @@ export function useTranscriptAutoScroll(options = {}) {
 
   let pendingScrollJobId = 0
   let pendingScrollFrameIds = []
-  let stickToBottom = true
-  let touchActive = false
-  let touchStartY = null
-  let touchStartedAtBottom = true
-  let touchMovedAwayFromBottom = false
+  let userInteracting = false
+  let detachedHasNewMessages = false
+  let interactionReleaseJobId = 0
+  let followingBottom = true
 
   function clearPendingScrollFrames() {
     if (typeof window === 'undefined' || !pendingScrollFrameIds.length) {
@@ -32,15 +31,18 @@ export function useTranscriptAutoScroll(options = {}) {
     clearPendingScrollFrames()
   }
 
-  function resetAutoStickToBottom() {
-    stickToBottom = true
-    touchActive = false
-    touchStartY = null
-    touchStartedAtBottom = true
-    touchMovedAwayFromBottom = false
+  function setHasNewerMessages(nextValue) {
+    detachedHasNewMessages = Boolean(nextValue)
     if (hasNewerMessages?.value !== undefined) {
-      hasNewerMessages.value = false
+      hasNewerMessages.value = detachedHasNewMessages
     }
+  }
+
+  function resetAutoStickToBottom() {
+    userInteracting = false
+    interactionReleaseJobId += 1
+    followingBottom = true
+    setHasNewerMessages(false)
   }
 
   function isTranscriptNearBottom(element = transcriptRef?.value) {
@@ -52,76 +54,60 @@ export function useTranscriptAutoScroll(options = {}) {
     return distanceToBottom <= threshold
   }
 
+  function shouldAutoFollow() {
+    return followingBottom && !userInteracting
+  }
+
+  function clearDetachedMessagesIfNeeded() {
+    if (followingBottom && !userInteracting) {
+      setHasNewerMessages(false)
+    }
+  }
+
   function handleTranscriptScroll() {
-    const nextStickToBottom = isTranscriptNearBottom()
-    if (!nextStickToBottom) {
+    followingBottom = isTranscriptNearBottom()
+    if (!followingBottom) {
       cancelScheduledScrollToBottom()
-    }
-
-    stickToBottom = nextStickToBottom
-    syncHasNewerMessagesState()
-  }
-
-  function syncHasNewerMessagesState() {
-    if (hasNewerMessages?.value === undefined) {
       return
     }
 
-    hasNewerMessages.value = !stickToBottom
+    clearDetachedMessagesIfNeeded()
   }
 
-  function getTouchClientY(event) {
-    const touch = event?.touches?.[0] || event?.changedTouches?.[0] || null
-    const value = Number(touch?.clientY)
-    return Number.isFinite(value) ? value : null
-  }
-
-  function handleTranscriptTouchStart(event) {
-    touchActive = true
-    touchStartY = getTouchClientY(event)
-    touchStartedAtBottom = stickToBottom || isTranscriptNearBottom()
-    touchMovedAwayFromBottom = false
-  }
-
-  function handleTranscriptTouchMove(event) {
-    if (!touchActive) {
-      return
-    }
-
-    const currentY = getTouchClientY(event)
-    if (!Number.isFinite(currentY) || !Number.isFinite(touchStartY)) {
-      return
-    }
-
-    if (currentY >= touchStartY - 4) {
-      return
-    }
-
+  function handleTranscriptTouchStart() {
+    interactionReleaseJobId += 1
+    userInteracting = true
     cancelScheduledScrollToBottom()
-    stickToBottom = false
-    touchMovedAwayFromBottom = true
-    syncHasNewerMessagesState()
+  }
+
+  function scheduleInteractionRelease() {
+    const jobId = interactionReleaseJobId + 1
+    interactionReleaseJobId = jobId
+
+    nextTick(() => {
+      if (jobId !== interactionReleaseJobId) {
+        return
+      }
+
+      requestAnimationFrame(() => {
+        if (jobId !== interactionReleaseJobId) {
+          return
+        }
+
+        userInteracting = false
+        followingBottom = isTranscriptNearBottom()
+        clearDetachedMessagesIfNeeded()
+      })
+    })
+  }
+
+  function handleTranscriptTouchMove() {
+    userInteracting = true
+    cancelScheduledScrollToBottom()
   }
 
   function handleTranscriptTouchEnd() {
-    const wasTouchActive = touchActive
-    const shouldRestoreFollow = wasTouchActive && touchStartedAtBottom && !touchMovedAwayFromBottom
-
-    touchActive = false
-    touchStartY = null
-    touchStartedAtBottom = true
-    touchMovedAwayFromBottom = false
-
-    if (shouldRestoreFollow) {
-      const element = transcriptRef?.value
-      if (element) {
-        element.scrollTop = element.scrollHeight
-      }
-      stickToBottom = true
-    } else {
-      stickToBottom = isTranscriptNearBottom()
-    }
-    syncHasNewerMessagesState()
+    scheduleInteractionRelease()
   }
 
   function scheduleScrollToBottom(options = {}) {
@@ -139,10 +125,8 @@ export function useTranscriptAutoScroll(options = {}) {
         return
       }
 
-      if (!force && (!stickToBottom || touchActive)) {
-        if (hasNewerMessages?.value !== undefined) {
-          hasNewerMessages.value = true
-        }
+      if (!force && !shouldAutoFollow()) {
+        setHasNewerMessages(true)
         return
       }
 
@@ -153,14 +137,8 @@ export function useTranscriptAutoScroll(options = {}) {
         }
 
         currentElement.scrollTop = currentElement.scrollHeight
-        stickToBottom = true
-        touchActive = false
-        touchStartY = null
-        touchStartedAtBottom = true
-        touchMovedAwayFromBottom = false
-        if (hasNewerMessages?.value !== undefined) {
-          hasNewerMessages.value = false
-        }
+        followingBottom = true
+        setHasNewerMessages(false)
       }
 
       run()
@@ -178,6 +156,7 @@ export function useTranscriptAutoScroll(options = {}) {
   }
 
   function destroy() {
+    interactionReleaseJobId += 1
     cancelScheduledScrollToBottom()
   }
 

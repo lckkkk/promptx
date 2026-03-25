@@ -74,6 +74,7 @@ test('执行过程面板遵循 IM 式滚动跟随规则', async (t) => {
 
     const scrolledUpState = await readTranscriptState(page)
     assert.ok(scrolledUpState.distanceToBottom > 0)
+    assert.equal(scrolledUpState.hasNewerButton, false)
 
     await appendRunPayloads(fixture.run.id, [
       buildCommandStartedEvent('echo step-up'),
