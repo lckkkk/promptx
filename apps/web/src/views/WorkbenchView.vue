@@ -56,6 +56,7 @@ const {
   createTaskAndSelect,
   creatingTask,
   currentSelectedSessionId,
+  currentTaskSendState,
   currentTaskAutoTitle,
   currentTaskDisplayTitle,
   currentTaskSlug,
@@ -140,6 +141,7 @@ const inputPanelProps = computed(() => ({
   canAddTodo: hasCurrentDraftContent.value,
   codexSessionId: currentSelectedSessionId.value,
   isCurrentTaskSending: isCurrentTaskSending.value,
+  sendState: currentTaskSendState.value,
   loading: loadingTask.value,
   todoCount: currentTodoItems.value.length,
   uploading: uploading.value,
@@ -510,6 +512,7 @@ const taskListPanelListeners = {
 
 const activityPanelListeners = {
   'open-diff': ({ scope, runId }) => openTaskDiff(scope, runId),
+  'project-created': () => flashToast('已新建项目'),
   'selected-session-change': handleCurrentTaskSessionChange,
   'sending-change': handleCurrentTaskSendingChange,
 }

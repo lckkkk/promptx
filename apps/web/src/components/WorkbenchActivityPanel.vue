@@ -43,6 +43,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'sending-change',
+  'project-created',
   'selected-session-change',
   'open-diff',
 ])
@@ -81,6 +82,7 @@ defineExpose({
       :session-selection-lock-reason="sessionSelectionLockReason"
       :diff-supported="diffSupported"
       :task-running="taskRunning"
+      @project-created="emit('project-created', $event)"
       @sending-change="emit('sending-change', $event)"
       @selected-session-change="emit('selected-session-change', $event)"
       @open-diff="emit('open-diff', $event)"

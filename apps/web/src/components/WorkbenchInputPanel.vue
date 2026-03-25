@@ -16,6 +16,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  sendState: {
+    type: String,
+    default: 'idle',
+  },
   modelValue: {
     type: Array,
     default: () => [],
@@ -119,6 +123,7 @@ defineExpose({
       <WorkbenchEditorActions
         :can-add-todo="canAddTodo"
         :is-current-task-sending="isCurrentTaskSending"
+        :send-state="sendState"
         :todo-count="todoCount"
         @add-todo="emit('add-todo')"
         @open-file-picker="openFilePicker"

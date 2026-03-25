@@ -1,7 +1,8 @@
 <script setup>
-import { List, Plus, SendHorizontal, Upload, WandSparkles } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { LoaderCircle, List, Plus, SendHorizontal, Upload, WandSparkles } from 'lucide-vue-next'
 
-defineProps({
+const props = defineProps({
   canAddTodo: {
     type: Boolean,
     default: false,
@@ -9,6 +10,10 @@ defineProps({
   isCurrentTaskSending: {
     type: Boolean,
     default: false,
+  },
+  sendState: {
+    type: String,
+    default: 'idle',
   },
   todoCount: {
     type: Number,
@@ -24,6 +29,16 @@ const emit = defineEmits([
   'manage-todo',
   'send-request',
 ])
+
+const sendLabel = computed(() => {
+  if (props.sendState === 'sending') {
+    return '发送中'
+  }
+  if (props.sendState === 'running') {
+    return '执行中'
+  }
+  return '发送'
+})
 </script>
 
 <template>
@@ -66,7 +81,8 @@ const emit = defineEmits([
     :disabled="isCurrentTaskSending"
     @click="emit('send-request')"
   >
-    <SendHorizontal class="h-4 w-4" />
-    <span>发送</span>
+    <LoaderCircle v-if="sendState === 'sending' || sendState === 'running'" class="h-4 w-4 animate-spin" />
+    <SendHorizontal v-else class="h-4 w-4" />
+    <span>{{ sendLabel }}</span>
   </button>
 </template>

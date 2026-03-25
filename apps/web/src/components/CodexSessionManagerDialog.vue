@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bot,
@@ -71,7 +71,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'select-session'])
+const emit = defineEmits(['close', 'project-created', 'select-session'])
 
 const mode = ref('edit')
 const editingSessionId = ref('')
@@ -440,6 +440,9 @@ async function submitSession(submitAction) {
       if (session?.id) {
         openEditMode(session.id)
         emit('select-session', session.id)
+        await nextTick()
+        emit('project-created', session)
+        emit('close')
       }
       return
     } finally {

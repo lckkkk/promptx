@@ -130,6 +130,18 @@ export function isCurrentTaskSendingState(task = {}, localSending = false) {
   return Boolean(isTaskRunning(task) || localSending)
 }
 
+export function getCurrentTaskSendState(task = {}, localSending = false) {
+  if (Boolean(localSending) && !isTaskRunning(task)) {
+    return 'sending'
+  }
+
+  if (isTaskRunning(task)) {
+    return 'running'
+  }
+
+  return 'idle'
+}
+
 export function isActiveRunStatus(status = '') {
   return ['queued', 'starting', 'running', 'stopping'].includes(String(status || '').trim())
 }
@@ -353,10 +365,11 @@ export function useWorkbenchTasks(options = {}) {
     preview: deriveTaskPreview(draft.value.blocks),
   }, draft.value.blocks))
   const currentSelectedSessionId = computed(() => selectedSessionMap.value[currentTaskSlug.value] || '')
-  const isCurrentTaskSending = computed(() => isCurrentTaskSendingState(
+  const currentTaskSendState = computed(() => getCurrentTaskSendState(
     getTaskSummary(currentTaskSlug.value),
     sendingTaskMap.value[currentTaskSlug.value]
   ))
+  const isCurrentTaskSending = computed(() => currentTaskSendState.value !== 'idle')
   const hasAnyTaskSending = computed(() => (
     tasks.value.some((task) => isTaskRunning(task))
     || Object.values(sendingTaskMap.value).some(Boolean)
@@ -1445,6 +1458,7 @@ export function useWorkbenchTasks(options = {}) {
     clearCurrentTaskContent,
     createTaskAndSelect,
     currentSelectedSessionId,
+    currentTaskSendState,
     currentTaskAutoTitle,
     currentTaskDisplayTitle,
     currentTaskSlug,

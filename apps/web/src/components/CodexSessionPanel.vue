@@ -20,7 +20,7 @@ import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
 
 const CodexSessionManagerDialog = defineAsyncComponent(() => import('./CodexSessionManagerDialog.vue'))
 
-const emit = defineEmits(['selected-session-change', 'sending-change', 'open-diff'])
+const emit = defineEmits(['project-created', 'selected-session-change', 'sending-change', 'open-diff'])
 
 const props = defineProps({
   prompt: {
@@ -227,6 +227,7 @@ defineExpose({
       :on-update="handleUpdateSession"
       :on-delete="handleDeleteSession"
       @close="closeManager"
+      @project-created="emit('project-created', $event)"
       @select-session="handleSelectSession"
     />
 

@@ -15,6 +15,7 @@ const SUPPORTED_NODE_RANGES = [
   { min: [24, 0, 0], maxExclusiveMajor: 25, label: '24.x' },
 ]
 const RECOMMENDED_NODE_MAJOR = 22
+const HUMAN_READABLE_NODE_SUPPORT = '推荐 Node 22 LTS，当前兼容 Node 20 / 22 / 24 稳定版本'
 const CODEX_BIN = process.env.CODEX_BIN || 'codex'
 const CLAUDE_CODE_BIN = process.env.CLAUDE_CODE_BIN || 'claude'
 const OPENCODE_BIN = process.env.OPENCODE_BIN || 'opencode'
@@ -158,12 +159,12 @@ function checkNodeVersion() {
     return createCheck(
       'Node.js',
       'fail',
-      `当前 ${process.version}，支持范围是 20.19+ / 22.13+ / 24.x，推荐 Node ${RECOMMENDED_NODE_MAJOR}`
+      `当前 ${process.version}，${HUMAN_READABLE_NODE_SUPPORT}（详细范围：20.19+ / 22.13+ / 24.x）`
     )
   }
 
-  const recommendation = current[0] === RECOMMENDED_NODE_MAJOR ? '，当前就是推荐版本线' : `，推荐 Node ${RECOMMENDED_NODE_MAJOR}`
-  return createCheck('Node.js', 'pass', `当前 ${process.version}（支持 ${matchedRange.label}${recommendation}）`)
+  const recommendation = current[0] === RECOMMENDED_NODE_MAJOR ? '，当前就是推荐版本线' : `，推荐 Node ${RECOMMENDED_NODE_MAJOR} LTS`
+  return createCheck('Node.js', 'pass', `当前 ${process.version}（可用；${HUMAN_READABLE_NODE_SUPPORT}${recommendation}）`)
 }
 
 function checkStorageWritable() {
