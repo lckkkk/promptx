@@ -83,6 +83,9 @@ export function useCodexSessionPanel(props, emit) {
   const {
     destroy: destroyTranscriptAutoScroll,
     handleTranscriptScroll,
+    handleTranscriptTouchEnd,
+    handleTranscriptTouchMove,
+    handleTranscriptTouchStart,
     resetAutoStickToBottom,
     scheduleScrollToBottom,
     scrollToBottom,
@@ -467,6 +470,9 @@ export function useCodexSessionPanel(props, emit) {
     sessions,
     loadSessions,
     handleTranscriptScroll,
+    handleTranscriptTouchEnd,
+    handleTranscriptTouchMove,
+    handleTranscriptTouchStart,
     scrollToBottom,
   }
 }

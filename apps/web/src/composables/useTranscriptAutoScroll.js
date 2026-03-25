@@ -10,6 +10,10 @@ export function useTranscriptAutoScroll(options = {}) {
   let pendingScrollJobId = 0
   let pendingScrollFrameIds = []
   let stickToBottom = true
+  let touchActive = false
+  let touchStartY = null
+  let touchStartedAtBottom = true
+  let touchMovedAwayFromBottom = false
 
   function clearPendingScrollFrames() {
     if (typeof window === 'undefined' || !pendingScrollFrameIds.length) {
@@ -30,6 +34,10 @@ export function useTranscriptAutoScroll(options = {}) {
 
   function resetAutoStickToBottom() {
     stickToBottom = true
+    touchActive = false
+    touchStartY = null
+    touchStartedAtBottom = true
+    touchMovedAwayFromBottom = false
     if (hasNewerMessages?.value !== undefined) {
       hasNewerMessages.value = false
     }
@@ -51,9 +59,69 @@ export function useTranscriptAutoScroll(options = {}) {
     }
 
     stickToBottom = nextStickToBottom
-    if (stickToBottom && hasNewerMessages?.value !== undefined) {
-      hasNewerMessages.value = false
+    syncHasNewerMessagesState()
+  }
+
+  function syncHasNewerMessagesState() {
+    if (hasNewerMessages?.value === undefined) {
+      return
     }
+
+    hasNewerMessages.value = !stickToBottom
+  }
+
+  function getTouchClientY(event) {
+    const touch = event?.touches?.[0] || event?.changedTouches?.[0] || null
+    const value = Number(touch?.clientY)
+    return Number.isFinite(value) ? value : null
+  }
+
+  function handleTranscriptTouchStart(event) {
+    touchActive = true
+    touchStartY = getTouchClientY(event)
+    touchStartedAtBottom = stickToBottom || isTranscriptNearBottom()
+    touchMovedAwayFromBottom = false
+  }
+
+  function handleTranscriptTouchMove(event) {
+    if (!touchActive) {
+      return
+    }
+
+    const currentY = getTouchClientY(event)
+    if (!Number.isFinite(currentY) || !Number.isFinite(touchStartY)) {
+      return
+    }
+
+    if (currentY >= touchStartY - 4) {
+      return
+    }
+
+    cancelScheduledScrollToBottom()
+    stickToBottom = false
+    touchMovedAwayFromBottom = true
+    syncHasNewerMessagesState()
+  }
+
+  function handleTranscriptTouchEnd() {
+    const wasTouchActive = touchActive
+    const shouldRestoreFollow = wasTouchActive && touchStartedAtBottom && !touchMovedAwayFromBottom
+
+    touchActive = false
+    touchStartY = null
+    touchStartedAtBottom = true
+    touchMovedAwayFromBottom = false
+
+    if (shouldRestoreFollow) {
+      const element = transcriptRef?.value
+      if (element) {
+        element.scrollTop = element.scrollHeight
+      }
+      stickToBottom = true
+    } else {
+      stickToBottom = isTranscriptNearBottom()
+    }
+    syncHasNewerMessagesState()
   }
 
   function scheduleScrollToBottom(options = {}) {
@@ -71,7 +139,7 @@ export function useTranscriptAutoScroll(options = {}) {
         return
       }
 
-      if (!force && !stickToBottom) {
+      if (!force && (!stickToBottom || touchActive)) {
         if (hasNewerMessages?.value !== undefined) {
           hasNewerMessages.value = true
         }
@@ -86,6 +154,10 @@ export function useTranscriptAutoScroll(options = {}) {
 
         currentElement.scrollTop = currentElement.scrollHeight
         stickToBottom = true
+        touchActive = false
+        touchStartY = null
+        touchStartedAtBottom = true
+        touchMovedAwayFromBottom = false
         if (hasNewerMessages?.value !== undefined) {
           hasNewerMessages.value = false
         }
@@ -113,6 +185,9 @@ export function useTranscriptAutoScroll(options = {}) {
     cancelScheduledScrollToBottom,
     destroy,
     handleTranscriptScroll,
+    handleTranscriptTouchEnd,
+    handleTranscriptTouchMove,
+    handleTranscriptTouchStart,
     isTranscriptNearBottom,
     resetAutoStickToBottom,
     scheduleScrollToBottom,

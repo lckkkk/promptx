@@ -88,6 +88,9 @@ const {
   handleSelectSession,
   handleSend,
   handleTranscriptScroll,
+  handleTranscriptTouchEnd,
+  handleTranscriptTouchMove,
+  handleTranscriptTouchStart,
   handleUpdateSession,
   helperText,
   loadTurnEvents,
@@ -288,7 +291,15 @@ defineExpose({
     </div>
 
     <div class="min-h-0 flex-1">
-      <div ref="transcriptRef" class="h-full space-y-4 overflow-y-auto px-4 py-4" @scroll="handleTranscriptScroll">
+      <div
+        ref="transcriptRef"
+        class="h-full space-y-4 overflow-y-auto px-4 py-4"
+        @scroll="handleTranscriptScroll"
+        @touchstart.passive="handleTranscriptTouchStart"
+        @touchmove.passive="handleTranscriptTouchMove"
+        @touchend.passive="handleTranscriptTouchEnd"
+        @touchcancel.passive="handleTranscriptTouchEnd"
+      >
         <div
           v-if="!turns.length"
           class="theme-empty-state px-4 py-6 text-sm"
