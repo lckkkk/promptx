@@ -328,7 +328,6 @@ export function useCodexSessionPanel(props, emit) {
         loadSessionResources({
           forceSessions: true,
         }).catch(() => {})
-        refreshRunHistory({ force: true, scrollToLatest: true }).catch(() => {})
         return
       }
 

@@ -696,18 +696,22 @@ export function useWorkspacePickerData(options) {
   function handleSessionChange() {
     rootNodes.value = []
     treeError.value = ''
+    treeLoading.value = false
     searchResults.value = []
     searchError.value = ''
+    searchLoading.value = false
     loadRecentPaths()
     loadPersistedExpandedPaths()
     if (!props.sessionId) {
       return
     }
 
-    loadInitialTree({ force: true })
-    if (props.open) {
-      scheduleSearch()
+    if (!props.open) {
+      return
     }
+
+    loadInitialTree({ force: true })
+    scheduleSearch()
   }
 
   function handleQueryChange() {

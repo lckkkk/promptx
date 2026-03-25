@@ -43,6 +43,7 @@ export function useCodexRunHistory(options = {}) {
   let turnId = 0
   let logId = 0
   let runsLoadPromise = null
+  let runsLoadTaskSlug = ''
   let runPollTimer = null
   let lastRunFingerprint = ''
   let lastFallbackSessionPollAt = 0
@@ -76,6 +77,7 @@ export function useCodexRunHistory(options = {}) {
     sendingStartedAt.value = 0
     currentRunningRunId.value = ''
     lastRunFingerprint = ''
+    runsLoadTaskSlug = ''
     turnId = 0
     logId = 0
     resetAutoStickToBottom()
@@ -282,10 +284,15 @@ export function useCodexRunHistory(options = {}) {
       return
     }
 
+    if (runsLoadPromise && runsLoadTaskSlug === taskSlug) {
+      return runsLoadPromise
+    }
+
     if (runsLoadPromise && !force) {
       return runsLoadPromise
     }
 
+    runsLoadTaskSlug = taskSlug
     runsLoadPromise = (async () => {
       try {
         const payload = await listTaskCodexRuns(taskSlug, {
@@ -317,6 +324,7 @@ export function useCodexRunHistory(options = {}) {
         sessionError.value = err.message
       } finally {
         runsLoadPromise = null
+        runsLoadTaskSlug = ''
       }
     })()
 
