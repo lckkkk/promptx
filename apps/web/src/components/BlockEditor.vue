@@ -1,16 +1,20 @@
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ChevronDown,
   FileText,
   Image as ImageIcon,
-  LoaderCircle,
   ScanText,
   Trash2,
 } from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@promptx/shared'
 import { useI18n } from '../composables/useI18n.js'
 import { useMentionPicker } from '../composables/useMentionPicker.js'
+import {
+  computeScrollTopForTarget,
+  getRelativeOffsetTop,
+  isTargetVisibleInContainer,
+} from './blockEditorScroll.js'
 import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
 import PathMentionPicker from './PathMentionPicker.vue'
 
@@ -40,12 +44,22 @@ const composingBlockIndex = ref(-1)
 const focusedBlockIndex = ref(-1)
 const surfaceRef = ref(null)
 const contentRef = ref(null)
+const contentBodyRef = ref(null)
 const fileInputRef = ref(null)
 const mentionPickerRef = ref(null)
 const selectionMap = ref({})
 const previewImageUrl = ref('')
 const lastInputAt = ref(0)
 const EDITING_GRACE_PERIOD_MS = 1500
+const focusFollowTargetIndex = ref(-1)
+const focusFollowAlign = ref('nearest')
+const focusFollowMode = ref('visible')
+const focusFollowAnchorOffset = ref(null)
+
+let focusFollowResetTimer = null
+let contentResizeObserver = null
+let queuedFocusFollowFrame = 0
+let suppressScrollHandlingUntil = 0
 
 const {
   mentionState,
@@ -202,27 +216,248 @@ function resizeAllTextareas() {
   textareas.value.forEach((element) => resizeTextarea(element))
 }
 
-function scrollTextBlockIntoView(index) {
+function handleContentScroll() {
+  if (Date.now() <= suppressScrollHandlingUntil) {
+    return
+  }
+
+  const targetIndex = focusFollowTargetIndex.value
+  if (targetIndex < 0 || isTextBlockVisible(targetIndex)) {
+    return
+  }
+
+  stopFocusFollow()
+}
+
+function clearFocusFollowResetTimer() {
+  if (focusFollowResetTimer) {
+    window.clearTimeout(focusFollowResetTimer)
+    focusFollowResetTimer = null
+  }
+}
+
+function stopFocusFollow() {
+  focusFollowTargetIndex.value = -1
+  focusFollowAlign.value = 'nearest'
+  focusFollowMode.value = 'visible'
+  focusFollowAnchorOffset.value = null
+  clearFocusFollowResetTimer()
+  if (queuedFocusFollowFrame) {
+    window.cancelAnimationFrame?.(queuedFocusFollowFrame)
+    queuedFocusFollowFrame = 0
+  }
+}
+
+function scheduleFocusFollowReset(duration = 8000) {
+  clearFocusFollowResetTimer()
+  const timeoutMs = Math.max(0, Number(duration) || 0)
+  if (!timeoutMs) {
+    return
+  }
+
+  focusFollowResetTimer = window.setTimeout(() => {
+    stopFocusFollow()
+  }, timeoutMs)
+}
+
+function disconnectContentResizeObserver() {
+  if (!contentResizeObserver) {
+    return
+  }
+
+  contentResizeObserver.disconnect()
+  contentResizeObserver = null
+}
+
+function setContentScrollTop(nextScrollTop) {
+  const container = contentRef.value
+  if (!container) {
+    return
+  }
+
+  const normalizedScrollTop = Math.max(0, Number(nextScrollTop) || 0)
+  if (Math.abs(container.scrollTop - normalizedScrollTop) < 1) {
+    return
+  }
+
+  suppressScrollHandlingUntil = Date.now() + 120
+  container.scrollTop = normalizedScrollTop
+}
+
+function isTextBlockVisible(index, options = {}) {
+  const container = contentRef.value
+  const target = textareas.value[index]
+  if (!container || !target) {
+    return false
+  }
+
+  return isTargetVisibleInContainer({
+    containerScrollTop: container.scrollTop,
+    containerClientHeight: container.clientHeight,
+    targetTop: getRelativeOffsetTop(target, container),
+    targetHeight: target.offsetHeight,
+    padding: options.padding,
+  })
+}
+
+function getFocusFollowPreserveThreshold() {
+  const container = contentRef.value
+  if (!container) {
+    return 120
+  }
+
+  return Math.max(120, Math.round(container.clientHeight * 0.2))
+}
+
+function captureTextareaViewportOffset(index) {
+  const container = contentRef.value
+  const target = textareas.value[index]
+  if (!container || !target) {
+    return null
+  }
+
+  return getRelativeOffsetTop(target, container) - container.scrollTop
+}
+
+function captureFocusFollowAnchor(index) {
+  const offset = captureTextareaViewportOffset(index)
+  if (offset === null) {
+    return null
+  }
+
+  return {
+    mode: 'preserve',
+    anchorOffset: offset,
+  }
+}
+
+function ensureFocusFollowVisible() {
+  const targetTextIndex = focusFollowTargetIndex.value
+  if (targetTextIndex < 0) {
+    return
+  }
+
+  const container = contentRef.value
+  const target = textareas.value[targetTextIndex]
+  if (!container || !target) {
+    return
+  }
+
+  if (focusFollowMode.value === 'preserve' && focusFollowAnchorOffset.value !== null) {
+    const targetTop = getRelativeOffsetTop(target, container)
+    const currentOffset = targetTop - container.scrollTop
+    const expectedOffset = Number(focusFollowAnchorOffset.value) || 0
+    const shiftDistance = Math.abs(currentOffset - expectedOffset)
+
+    if (shiftDistance <= getFocusFollowPreserveThreshold()) {
+      setContentScrollTop(targetTop - expectedOffset)
+      return
+    }
+  }
+
+  scrollTextBlockIntoView(targetTextIndex, { align: focusFollowAlign.value || 'nearest' })
+}
+
+function queueEnsureFocusFollowVisible() {
+  if (focusFollowTargetIndex.value < 0) {
+    return
+  }
+
+  nextTick(() => {
+    ensureFocusFollowVisible()
+    if (queuedFocusFollowFrame) {
+      window.cancelAnimationFrame?.(queuedFocusFollowFrame)
+    }
+    queuedFocusFollowFrame = window.requestAnimationFrame?.(() => {
+      queuedFocusFollowFrame = 0
+      ensureFocusFollowVisible()
+    }) || 0
+  })
+}
+
+function startFocusFollow(index, options = {}) {
+  const nextIndex = Math.max(-1, Number(index) || -1)
+  if (nextIndex < 0) {
+    stopFocusFollow()
+    return
+  }
+
+  focusFollowTargetIndex.value = nextIndex
+  focusFollowAlign.value = options.align === 'end' ? 'end' : 'nearest'
+  focusFollowMode.value = options.mode === 'preserve' ? 'preserve' : 'visible'
+  focusFollowAnchorOffset.value = typeof options.anchorOffset === 'number'
+    ? options.anchorOffset
+    : null
+  scheduleFocusFollowReset(options.duration)
+  queueEnsureFocusFollowVisible()
+}
+
+function connectContentResizeObserver(element) {
+  disconnectContentResizeObserver()
+  if (!element || typeof window === 'undefined' || typeof window.ResizeObserver === 'undefined') {
+    return
+  }
+
+  contentResizeObserver = new window.ResizeObserver(() => {
+    if (focusFollowTargetIndex.value >= 0) {
+      queueEnsureFocusFollowVisible()
+    }
+  })
+
+  contentResizeObserver.observe(element)
+}
+
+function scrollTextBlockIntoView(index, options = {}) {
   const target = textareas.value[index]
   if (!target) {
     return
   }
 
-  target.scrollIntoView({
-    block: 'nearest',
-    inline: 'nearest',
+  const { align = 'nearest' } = options
+  const container = contentRef.value
+
+  if (!container) {
+    target.scrollIntoView({
+      block: align === 'end' ? 'end' : 'nearest',
+      inline: 'nearest',
+    })
+    return
+  }
+
+  const nextScrollTop = computeScrollTopForTarget({
+    containerScrollTop: container.scrollTop,
+    containerClientHeight: container.clientHeight,
+    targetTop: getRelativeOffsetTop(target, container),
+    targetHeight: target.offsetHeight,
+    align,
   })
+
+  if (nextScrollTop !== container.scrollTop) {
+    setContentScrollTop(nextScrollTop)
+  }
 }
 
-function placeCursor(index, position = null) {
+function placeCursor(index, position = null, options = {}) {
   const target = textareas.value[index]
   if (!target) {
     return
   }
   const nextPosition = position ?? target.value.length
-  target.focus()
+  try {
+    target.focus({ preventScroll: true })
+  } catch {
+    target.focus()
+  }
   target.setSelectionRange(nextPosition, nextPosition)
-  scrollTextBlockIntoView(index)
+  scrollTextBlockIntoView(index, options)
+  if (options.follow !== false) {
+    startFocusFollow(index, {
+      align: options.align,
+      mode: options.followMode,
+      anchorOffset: options.followAnchorOffset,
+      duration: options.followDuration,
+    })
+  }
   selectionMap.value[index] = {
     start: nextPosition,
     end: nextPosition,
@@ -355,6 +590,7 @@ function getImportedStats(content = '') {
 
 function splitTextBlockForInsertion(currentIndex, incomingBlocks, options = {}) {
   const { focusAfterInserted = false } = options
+  const followAnchor = focusAfterInserted ? captureFocusFollowAnchor(currentIndex) : null
   const nextBlocks = [...blocks.value]
   const currentBlock = nextBlocks[currentIndex]
   const selection = selectionMap.value[currentIndex] || {
@@ -387,7 +623,11 @@ function splitTextBlockForInsertion(currentIndex, incomingBlocks, options = {}) 
     )
     if (nextTextIndex >= 0) {
       activeIndex.value = nextTextIndex
-      placeCursor(nextTextIndex, 0)
+      placeCursor(nextTextIndex, 0, {
+        align: 'nearest',
+        followMode: followAnchor?.mode,
+        followAnchorOffset: followAnchor?.anchorOffset,
+      })
     }
   })
 }
@@ -400,6 +640,7 @@ function insertBlocksAtSelection(incomingBlocks, options = {}) {
 
   const currentIndex = Math.min(activeIndex.value ?? 0, Math.max(blocks.value.length - 1, 0))
   const currentBlock = blocks.value[currentIndex]
+  const followAnchor = focusAfterInserted ? captureFocusFollowAnchor(currentIndex) : null
 
   if (!currentBlock || currentBlock.type === BLOCK_TYPES.IMPORTED_TEXT) {
     const nextBlocks = [...blocks.value]
@@ -413,7 +654,11 @@ function insertBlocksAtSelection(incomingBlocks, options = {}) {
         )
         if (nextTextIndex >= 0) {
           activeIndex.value = nextTextIndex
-          placeCursor(nextTextIndex, 0)
+          placeCursor(nextTextIndex, 0, {
+            align: 'nearest',
+            followMode: followAnchor?.mode,
+            followAnchorOffset: followAnchor?.anchorOffset,
+          })
         }
       })
     }
@@ -432,7 +677,11 @@ function insertBlocksAtSelection(incomingBlocks, options = {}) {
         )
         if (nextTextIndex >= 0) {
           activeIndex.value = nextTextIndex
-          placeCursor(nextTextIndex, 0)
+          placeCursor(nextTextIndex, 0, {
+            align: 'nearest',
+            followMode: followAnchor?.mode,
+            followAnchorOffset: followAnchor?.anchorOffset,
+          })
         }
       })
     }
@@ -709,6 +958,9 @@ function handleTextInput(index, event) {
       }
     : undefined)
   syncMentionState(index, event.target)
+  startFocusFollow(index, {
+    align: index === blocks.value.length - 1 ? 'end' : 'nearest',
+  })
 }
 
 function handleTextCompositionStart(index) {
@@ -732,11 +984,17 @@ function handleTextCompositionEnd(index, event) {
 
 function handleTextFocusState(index) {
   focusedBlockIndex.value = index
+  if (!isTextBlockVisible(index, { padding: 0 })) {
+    scrollTextBlockIntoView(index, { align: 'nearest' })
+  }
 }
 
 function handleTextBlurState(index) {
   if (focusedBlockIndex.value === index) {
     focusedBlockIndex.value = -1
+  }
+  if (!isComposing(index) && focusFollowTargetIndex.value === index) {
+    stopFocusFollow()
   }
 }
 
@@ -928,6 +1186,19 @@ watch(
   }
 )
 
+watch(
+  contentBodyRef,
+  (element) => {
+    connectContentResizeObserver(element)
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  stopFocusFollow()
+  disconnectContentResizeObserver()
+})
+
 defineExpose({
   clearContent,
   flushPendingInput,
@@ -962,12 +1233,6 @@ defineExpose({
           <slot name="header-actions" />
         </div>
       </div>
-      <div v-if="uploading" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-        <span class="theme-status-neutral inline-flex items-center gap-1.5 rounded-sm border border-dashed px-2 py-1">
-          <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
-          <span>{{ t('blockEditor.uploading') }}</span>
-        </span>
-      </div>
       <input
         ref="fileInputRef"
         class="hidden"
@@ -978,8 +1243,8 @@ defineExpose({
       />
     </div>
 
-    <div ref="contentRef" class="flex-1 overflow-y-auto px-5 py-5">
-      <div class="flex flex-col gap-5">
+    <div ref="contentRef" class="flex-1 overflow-y-auto px-5 py-5" @scroll="handleContentScroll">
+      <div ref="contentBodyRef" class="flex flex-col gap-5">
       <template v-for="(block, index) in blocks" :key="String(block.id || block.clientId || `${block.type}-${index}`)">
         <div v-if="block.type === BLOCK_TYPES.TEXT" class="group relative">
           <textarea

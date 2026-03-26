@@ -132,6 +132,7 @@ defineExpose({
         :is-current-task-sending="isCurrentTaskSending"
         :send-state="sendState"
         :todo-count="todoCount"
+        :uploading="uploading"
         @add-todo="emit('add-todo')"
         @open-file-picker="openFilePicker"
         @clear-request="emit('clear-request')"
