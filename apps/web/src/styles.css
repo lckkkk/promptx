@@ -1394,7 +1394,7 @@ body {
   }
 
   .workbench-mobile-tabs {
-    padding: 0.55rem 0.7rem;
+    padding: 0;
   }
 
   .workbench-mobile-tabs .tool-button {

@@ -6,11 +6,11 @@ import {
   ChevronDown,
   ChevronUp,
   CircleAlert,
+  CircleStop,
   FileDiff,
   Image as ImageIcon,
   LoaderCircle,
   PencilLine,
-  Square,
 } from 'lucide-vue-next'
 import CodexSessionSelect from './CodexSessionSelect.vue'
 import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
@@ -506,36 +506,33 @@ defineExpose({
         </div>
       </div>
 
-      <button
-        v-if="hasNewerMessages"
-        type="button"
-        class="tool-button absolute right-4 z-10 inline-flex items-center gap-2 border-[var(--theme-borderStrong)] bg-[var(--theme-appOverlay)] px-3 py-2 text-xs shadow-sm backdrop-blur"
-        :class="sending ? 'bottom-20' : 'bottom-4'"
-        @click="scrollToBottom"
-      >
-        <ArrowDown class="h-4 w-4" />
-        <span>{{ t('sessionPanel.jumpToLatest') }}</span>
-      </button>
-    </div>
-
-    <div
-      v-if="sending"
-      class="theme-status-warning flex shrink-0 items-center justify-between gap-3 border-t border-dashed px-4 py-3 text-sm"
-    >
-      <div class="flex items-center gap-2">
-        <LoaderCircle class="h-4 w-4 animate-spin" />
-        <span>{{ workingLabel }}</span>
+      <div class="pointer-events-none absolute bottom-1 right-1 z-10 flex flex-col items-end gap-1.5 sm:bottom-3 sm:right-3">
+        <button
+          v-if="hasNewerMessages"
+          type="button"
+          class="tool-button pointer-events-auto inline-flex items-center gap-1.5 border-[var(--theme-borderStrong)] bg-[var(--theme-appOverlay)] px-2.5 py-1.5 text-[11px] shadow-sm backdrop-blur"
+          @click="scrollToBottom"
+        >
+          <ArrowDown class="h-3.5 w-3.5" />
+          <span>{{ t('sessionPanel.jumpToLatest') }}</span>
+        </button>
+        <button
+          v-if="sending"
+          type="button"
+          class="tool-button tool-button-warning-subtle pointer-events-auto inline-flex items-center gap-1.5 border-[var(--theme-borderStrong)] bg-[var(--theme-appOverlay)] px-2.5 py-1.5 text-[11px] shadow-sm backdrop-blur"
+          :disabled="stopping"
+          @click="stopSending"
+        >
+          <LoaderCircle v-if="stopping" class="h-3.5 w-3.5 animate-spin" />
+          <CircleStop v-else class="h-3.5 w-3.5" />
+          <span>{{ stopping ? t('sessionPanel.stopping') : t('sessionPanel.stop') }}</span>
+          <span v-if="!stopping" class="task-loading-dots" aria-hidden="true">
+            <span class="task-loading-dots__dot"></span>
+            <span class="task-loading-dots__dot"></span>
+            <span class="task-loading-dots__dot"></span>
+          </span>
+        </button>
       </div>
-      <button
-        type="button"
-        class="tool-button tool-button-warning-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
-        :disabled="stopping"
-        @click="stopSending"
-      >
-        <LoaderCircle v-if="stopping" class="h-4 w-4 animate-spin" />
-        <Square v-else class="h-4 w-4" />
-        <span>{{ stopping ? t('sessionPanel.stopping') : t('sessionPanel.stop') }}</span>
-      </button>
     </div>
 
     <ImagePreviewOverlay

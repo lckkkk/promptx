@@ -650,32 +650,30 @@ const mobileDetailHeaderListeners = {
         v-on="taskListPanelListeners"
       />
 
-      <div v-else class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+      <div v-else class="flex h-full min-h-0 flex-col gap-1.5 overflow-hidden">
         <WorkbenchMobileDetailHeader
           v-bind="mobileDetailHeaderProps"
           v-on="mobileDetailHeaderListeners"
         />
 
-        <section class="panel workbench-mobile-tabs-panel shrink-0 overflow-hidden">
-          <div class="workbench-panel-header workbench-mobile-tabs theme-divider border-b px-3 py-3">
-            <div class="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                class="tool-button px-3 py-2 text-sm"
-                :class="mobileDetailTab === 'activity' ? 'tool-button-accent-subtle' : ''"
-                @click="mobileDetailTab = 'activity'"
-              >
-                {{ t('workbench.activity') }}
-              </button>
-              <button
-                type="button"
-                class="tool-button px-3 py-2 text-sm"
-                :class="mobileDetailTab === 'input' ? 'tool-button-accent-subtle' : ''"
-                @click="mobileDetailTab = 'input'"
-              >
-                {{ t('workbench.input') }}
-              </button>
-            </div>
+        <section class="workbench-mobile-tabs-panel shrink-0">
+          <div class="workbench-mobile-tabs grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              class="tool-button px-3 py-1.5 text-sm"
+              :class="mobileDetailTab === 'activity' ? 'tool-button-accent-subtle' : ''"
+              @click="mobileDetailTab = 'activity'"
+            >
+              {{ t('workbench.activity') }}
+            </button>
+            <button
+              type="button"
+              class="tool-button px-3 py-1.5 text-sm"
+              :class="mobileDetailTab === 'input' ? 'tool-button-accent-subtle' : ''"
+              @click="mobileDetailTab = 'input'"
+            >
+              {{ t('workbench.input') }}
+            </button>
           </div>
         </section>
 
