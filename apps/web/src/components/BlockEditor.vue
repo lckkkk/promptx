@@ -2,9 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ChevronDown,
-  FileText,
   Image as ImageIcon,
-  ScanText,
   Trash2,
 } from 'lucide-vue-next'
 import { BLOCK_TYPES } from '@promptx/shared'
@@ -33,8 +31,104 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:modelValue', 'upload-files', 'import-text-files', 'import-pdf-files', 'clear-request'])
+const emit = defineEmits([
+  'update:modelValue',
+  'upload-files',
+  'import-text-files',
+  'import-pdf-files',
+  'clear-request',
+  'file-feedback',
+])
 const { t } = useI18n()
+
+const TEXT_IMPORT_EXTENSIONS = new Set([
+  '.md',
+  '.markdown',
+  '.txt',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.mts',
+  '.cts',
+  '.jsx',
+  '.tsx',
+  '.vue',
+  '.json',
+  '.css',
+  '.scss',
+  '.sass',
+  '.less',
+  '.html',
+  '.htm',
+  '.xml',
+  '.svg',
+  '.yml',
+  '.yaml',
+  '.toml',
+  '.ini',
+  '.conf',
+  '.env',
+  '.py',
+  '.java',
+  '.go',
+  '.rs',
+  '.rb',
+  '.php',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.sql',
+  '.c',
+  '.cc',
+  '.cpp',
+  '.h',
+  '.hpp',
+  '.cs',
+  '.kt',
+  '.swift',
+  '.log',
+  '.csv',
+])
+const TEXT_IMPORT_MIME_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/typescript',
+  'application/x-typescript',
+  'application/yaml',
+  'application/x-yaml',
+  'application/toml',
+  'application/x-toml',
+  'application/x-sh',
+  'application/x-shellscript',
+  'application/sql',
+])
+const MAX_IMAGE_FILE_SIZE = 10 * 1024 * 1024
+const MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024
+const MAX_PDF_FILE_SIZE = 8 * 1024 * 1024
+const FILE_INPUT_ACCEPT = [
+  'image/*',
+  '.md,.markdown,.txt,.js,.mjs,.cjs,.ts,.mts,.cts,.jsx,.tsx,.vue,.json,.css,.scss,.sass,.less,.html,.htm,.xml,.svg,.yml,.yaml,.toml,.ini,.conf,.env,.py,.java,.go,.rs,.rb,.php,.sh,.bash,.zsh,.sql,.c,.cc,.cpp,.h,.hpp,.cs,.kt,.swift,.log,.csv',
+  '.pdf',
+  'text/plain',
+  'text/markdown',
+  'text/*',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/typescript',
+  'application/yaml',
+  'application/x-yaml',
+  'application/toml',
+  'application/x-toml',
+  'application/x-sh',
+  'application/x-shellscript',
+  'application/sql',
+  'application/pdf',
+].join(',')
 
 const blocks = computed(() => props.modelValue)
 const mentionSessionId = computed(() => props.codexSessionId)
@@ -789,13 +883,37 @@ function insertImages(files) {
   }
 }
 
+function getFileExtension(file) {
+  const name = String(file?.name || '').trim().toLowerCase()
+  if (!name.includes('.')) {
+    return ''
+  }
+
+  return `.${name.split('.').pop()}`
+}
+
+function getDisplayFileName(file, fallbackLabel) {
+  return String(file?.name || '').trim() || t(fallbackLabel)
+}
+
+function formatFileSize(bytes) {
+  const normalized = Math.max(0, Number(bytes) || 0)
+  if (normalized >= 1024 * 1024) {
+    return `${(normalized / (1024 * 1024)).toFixed(normalized >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+  }
+  if (normalized >= 1024) {
+    return `${Math.round(normalized / 1024)} KB`
+  }
+  return `${normalized} B`
+}
+
 function isTextImportFile(file) {
   if (!file) {
     return false
   }
-  const name = String(file.name || '').toLowerCase()
   const type = String(file.type || '').toLowerCase()
-  return name.endsWith('.md') || name.endsWith('.markdown') || name.endsWith('.txt') || type.startsWith('text/')
+  const extension = getFileExtension(file)
+  return type.startsWith('text/') || TEXT_IMPORT_EXTENSIONS.has(extension) || TEXT_IMPORT_MIME_TYPES.has(type)
 }
 
 function isPdfImportFile(file) {
@@ -808,12 +926,110 @@ function isPdfImportFile(file) {
 }
 
 function splitIncomingFiles(fileList) {
-  const files = [...fileList].filter(Boolean)
-  return {
-    imageFiles: files.filter((file) => file.type.startsWith('image/')),
-    textFiles: files.filter((file) => isTextImportFile(file)),
-    pdfFiles: files.filter((file) => isPdfImportFile(file)),
+  const files = Array.from(fileList || []).filter(Boolean)
+  const accepted = {
+    imageFiles: [],
+    textFiles: [],
+    pdfFiles: [],
   }
+  const unsupportedFiles = []
+  const oversizedFiles = []
+
+  files.forEach((file) => {
+    if (file.type.startsWith('image/')) {
+      if (file.size > MAX_IMAGE_FILE_SIZE) {
+        oversizedFiles.push({
+          name: getDisplayFileName(file, 'blockEditor.unnamedImage'),
+          limit: formatFileSize(MAX_IMAGE_FILE_SIZE),
+        })
+        return
+      }
+      accepted.imageFiles.push(file)
+      return
+    }
+
+    if (isPdfImportFile(file)) {
+      if (file.size > MAX_PDF_FILE_SIZE) {
+        oversizedFiles.push({
+          name: getDisplayFileName(file, 'blockEditor.unnamedPdf'),
+          limit: formatFileSize(MAX_PDF_FILE_SIZE),
+        })
+        return
+      }
+      accepted.pdfFiles.push(file)
+      return
+    }
+
+    if (isTextImportFile(file)) {
+      if (file.size > MAX_TEXT_FILE_SIZE) {
+        oversizedFiles.push({
+          name: getDisplayFileName(file, 'blockEditor.unnamedFile'),
+          limit: formatFileSize(MAX_TEXT_FILE_SIZE),
+        })
+        return
+      }
+      accepted.textFiles.push(file)
+      return
+    }
+
+    unsupportedFiles.push(getDisplayFileName(file, 'blockEditor.unnamedFile'))
+  })
+
+  return {
+    ...accepted,
+    unsupportedFiles,
+    oversizedFiles,
+  }
+}
+
+function emitFileFeedback(message) {
+  const text = String(message || '').trim()
+  if (!text) {
+    return
+  }
+
+  emit('file-feedback', text)
+}
+
+function notifyRejectedFiles({ unsupportedFiles = [], oversizedFiles = [] } = {}) {
+  if (unsupportedFiles.length) {
+    emitFileFeedback(t('blockEditor.unsupportedFiles', {
+      names: unsupportedFiles.slice(0, 3).join('、'),
+      extra: Math.max(0, unsupportedFiles.length - 3),
+    }))
+  }
+
+  if (oversizedFiles.length) {
+    emitFileFeedback(t('blockEditor.oversizedFiles', {
+      names: oversizedFiles.slice(0, 2).map((item) => item.name).join('、'),
+      extra: Math.max(0, oversizedFiles.length - 2),
+      limit: oversizedFiles[0]?.limit || '',
+    }))
+  }
+}
+
+function dispatchIncomingFiles(fileList) {
+  const {
+    imageFiles,
+    textFiles,
+    pdfFiles,
+    unsupportedFiles,
+    oversizedFiles,
+  } = splitIncomingFiles(fileList)
+
+  notifyRejectedFiles({ unsupportedFiles, oversizedFiles })
+
+  if (textFiles.length) {
+    emit('import-text-files', textFiles)
+  }
+  if (pdfFiles.length) {
+    emit('import-pdf-files', pdfFiles)
+  }
+  if (imageFiles.length) {
+    insertImages(imageFiles)
+  }
+
+  return imageFiles.length + textFiles.length + pdfFiles.length > 0
 }
 
 function handleSurfacePaste(event) {
@@ -827,34 +1043,16 @@ function handleSurfacePaste(event) {
   }
 
   event.preventDefault()
-  insertImages(files)
+  dispatchIncomingFiles(files)
 }
 
 function handleSurfaceDrop(event) {
   event.preventDefault()
-  const { imageFiles, textFiles, pdfFiles } = splitIncomingFiles(event.dataTransfer.files)
-  if (textFiles.length) {
-    emit('import-text-files', textFiles)
-  }
-  if (pdfFiles.length) {
-    emit('import-pdf-files', pdfFiles)
-  }
-  if (imageFiles.length) {
-    insertImages(imageFiles)
-  }
+  dispatchIncomingFiles(event.dataTransfer.files)
 }
 
 function handleFileInput(event) {
-  const { imageFiles, textFiles, pdfFiles } = splitIncomingFiles(event.target.files)
-  if (textFiles.length) {
-    emit('import-text-files', textFiles)
-  }
-  if (pdfFiles.length) {
-    emit('import-pdf-files', pdfFiles)
-  }
-  if (imageFiles.length) {
-    insertImages(imageFiles)
-  }
+  dispatchIncomingFiles(event.target.files)
   event.target.value = ''
 }
 
@@ -1223,12 +1421,8 @@ defineExpose({
     @dragover.prevent
     @paste="handleSurfacePaste"
   >
-    <div class="theme-divider theme-secondary-text border-b px-5 py-4 text-sm">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <p class="theme-heading inline-flex items-center gap-2 font-medium">
-          <ScanText class="h-4 w-4" />
-          <span>{{ t('blockEditor.title') }}</span>
-        </p>
+    <div class="theme-divider theme-secondary-text border-b px-5 py-3 text-sm">
+      <div class="flex justify-end">
         <div class="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           <slot name="header-actions" />
         </div>
@@ -1237,7 +1431,7 @@ defineExpose({
         ref="fileInputRef"
         class="hidden"
         type="file"
-        accept="image/*,.md,.markdown,.txt,.pdf,text/plain,text/markdown,application/pdf"
+        :accept="FILE_INPUT_ACCEPT"
         multiple
         @change="handleFileInput"
       />

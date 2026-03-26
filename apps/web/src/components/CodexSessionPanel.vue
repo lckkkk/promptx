@@ -2,7 +2,6 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import {
   ArrowDown,
-  Bot,
   ChevronDown,
   ChevronUp,
   CircleAlert,
@@ -237,41 +236,9 @@ defineExpose({
     />
 
     <div class="workbench-panel-header theme-divider theme-muted-panel border-b p-3">
-      <div class="flex flex-col gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="min-w-0 shrink-0">
-            <div class="theme-heading flex items-center gap-2 text-sm font-medium">
-              <Bot class="h-4 w-4" />
-              <span>{{ t('sessionPanel.project') }}</span>
-            </div>
-            <p v-if="helperText" class="theme-muted-text mt-1 text-xs">{{ helperText }}</p>
-          </div>
-
-          <div class="ml-auto flex items-center gap-2">
-            <button
-              v-if="diffSupported"
-              type="button"
-              class="tool-button tool-button-info-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
-              :disabled="!taskSlug"
-              @click="openTaskDiff"
-            >
-              <FileDiff class="h-4 w-4" />
-              <span>{{ t('sessionPanel.diff') }}</span>
-            </button>
-            <button
-              type="button"
-              class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
-              :disabled="managerBusy"
-              @click="openManager"
-            >
-              <PencilLine class="h-4 w-4" />
-              <span>{{ t('sessionPanel.manageProjects') }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div class="min-w-0 flex-1">
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center gap-2">
+          <div class="min-w-0 flex-1" :title="helperText || ''">
             <CodexSessionSelect
               v-model="selectedSessionId"
               :sessions="sortedSessions"
@@ -281,6 +248,29 @@ defineExpose({
             />
           </div>
 
+          <div class="flex shrink-0 items-center gap-1.5">
+            <button
+              v-if="diffSupported"
+              type="button"
+              class="tool-button tool-button-info-subtle inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
+              :disabled="!taskSlug"
+              @click="openTaskDiff"
+            >
+              <FileDiff class="h-4 w-4" />
+              <span class="sm:hidden">代码</span>
+              <span class="hidden sm:inline">{{ t('sessionPanel.diff') }}</span>
+            </button>
+            <button
+              type="button"
+              class="tool-button inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
+              :disabled="managerBusy"
+              @click="openManager"
+            >
+              <PencilLine class="h-4 w-4" />
+              <span class="sm:hidden">项目</span>
+              <span class="hidden sm:inline">{{ t('sessionPanel.manageProjects') }}</span>
+            </button>
+          </div>
         </div>
 
         <p v-if="sessionError" class="theme-danger-text inline-flex items-center gap-2 text-sm">

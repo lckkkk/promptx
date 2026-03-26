@@ -523,6 +523,7 @@ const inputPanelListeners = {
   'add-todo': handleAddTodo,
   'clear-request': openClearDialog,
   'copy-request': copyCodexPrompt,
+  'file-feedback': flashToast,
   'import-pdf-files': handleImportPdfFiles,
   'import-text-files': handleImportTextFiles,
   'manage-todo': openTodoDialog,

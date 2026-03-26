@@ -45,6 +45,7 @@ const emit = defineEmits([
   'upload-files',
   'import-text-files',
   'import-pdf-files',
+  'file-feedback',
   'clear-request',
   'copy-request',
   'manage-todo',
@@ -124,6 +125,7 @@ defineExpose({
     @upload-files="emit('upload-files', $event)"
     @import-text-files="emit('import-text-files', $event)"
     @import-pdf-files="emit('import-pdf-files', $event)"
+    @file-feedback="emit('file-feedback', $event)"
     @clear-request="emit('clear-request')"
   >
     <template #header-actions>
