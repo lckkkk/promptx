@@ -389,7 +389,7 @@ watch(
     backdrop-class="z-[75] items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
     panel-class="settings-dialog-panel h-full max-w-5xl sm:h-[42rem] sm:max-h-[88vh]"
     header-class="settings-dialog-header px-5 py-4"
-    body-class="settings-dialog-body min-h-0 flex flex-1 flex-col sm:flex-row"
+    body-class="settings-dialog-body min-h-0 flex flex-1 flex-col overflow-hidden"
     @close="emit('close')"
   >
     <template #title>
@@ -402,257 +402,259 @@ watch(
       </div>
     </template>
 
-    <DialogSideNav
-      v-model="activeSection"
-      :sections="taskSections"
-    />
+    <div class="min-h-0 flex flex-1 flex-col overflow-hidden sm:flex-row">
+      <DialogSideNav
+        v-model="activeSection"
+        :sections="taskSections"
+      />
 
-    <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
-      <div v-if="loading" class="theme-muted-text flex items-center gap-2 py-4 text-sm">
-        <LoaderCircle class="h-4 w-4 animate-spin" />
-        <span>{{ t('taskDialog.loading') }}</span>
-      </div>
+      <div class="settings-dialog-content min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <div v-if="loading" class="theme-muted-text flex items-center gap-2 py-4 text-sm">
+          <LoaderCircle class="h-4 w-4 animate-spin" />
+          <span>{{ t('taskDialog.loading') }}</span>
+        </div>
 
-      <div v-else class="space-y-4">
-        <section v-if="activeSection === 'basic'" class="space-y-4">
-          <div>
-            <div class="theme-heading text-base font-medium">{{ t('taskDialog.sections.basic.title') }}</div>
-            <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.basic.intro') }}</p>
-          </div>
-
-          <section class="settings-section-card px-4 py-4">
-            <label class="block space-y-1.5">
-              <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.basic.taskTitle') }}</span>
-              <input
-                v-model="form.title"
-                type="text"
-                maxlength="140"
-                class="tool-input"
-                :placeholder="t('taskDialog.sections.basic.taskTitlePlaceholder')"
-              />
-            </label>
-          </section>
-        </section>
-
-        <section v-else-if="activeSection === 'automation'" class="space-y-4">
-          <div class="flex items-start justify-between gap-3">
+        <div v-else class="space-y-4">
+          <section v-if="activeSection === 'basic'" class="space-y-4">
             <div>
-              <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
-                <Clock3 class="h-4 w-4" />
-                <span>{{ t('taskDialog.sections.automation.title') }}</span>
-              </div>
-              <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.automation.intro') }}</p>
+              <div class="theme-heading text-base font-medium">{{ t('taskDialog.sections.basic.title') }}</div>
+              <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.basic.intro') }}</p>
             </div>
 
-            <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
-              <input v-model="form.automationEnabled" type="checkbox" class="h-4 w-4" />
-              <span>{{ t('taskDialog.enabled') }}</span>
-            </label>
-          </div>
-
-          <section class="settings-section-card px-4 py-4">
-            <div class="grid gap-4 sm:grid-cols-2">
-              <label class="space-y-1.5 sm:col-span-2">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.mode') }}</span>
-                <WorkbenchSelect
-                  v-model="form.automationMode"
-                  :options="automationModeOptions"
-                  :disabled="!form.automationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.time') }}</span>
+            <section class="settings-section-card px-4 py-4">
+              <label class="block space-y-1.5">
+                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.basic.taskTitle') }}</span>
                 <input
-                  v-model="form.automationTime"
-                  type="time"
-                  class="tool-input"
-                  :disabled="!form.automationEnabled"
-                />
-              </label>
-
-              <label
-                v-if="form.automationMode === 'weekly'"
-                class="space-y-1.5"
-              >
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.weekday') }}</span>
-                <WorkbenchSelect
-                  v-model="form.automationWeekday"
-                  :options="weekdayOptions"
-                  :disabled="!form.automationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.timezone') }}</span>
-                <WorkbenchSelect
-                  v-model="form.automationTimezone"
-                  :options="timezoneOptions"
-                  :disabled="!form.automationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5" :class="form.automationMode === 'weekly' ? '' : 'sm:col-span-2'">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.concurrencyPolicy') }}</span>
-                <WorkbenchSelect
-                  v-model="form.automationConcurrencyPolicy"
-                  :options="concurrencyPolicyOptions"
-                  :disabled="!form.automationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-            </div>
-
-            <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
-              <p>{{ t('taskDialog.sections.automation.lastTriggered', { value: formatTime(form.automationLastTriggeredAt) }) }}</p>
-              <p>{{ t('taskDialog.sections.automation.nextTriggered', { value: formatTime(form.automationNextTriggerAt) }) }}</p>
-            </div>
-          </section>
-        </section>
-
-        <section v-else class="space-y-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
-                <Bell class="h-4 w-4" />
-                <span>{{ t('taskDialog.sections.notification.title') }}</span>
-              </div>
-              <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.notification.intro') }}</p>
-            </div>
-
-            <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
-              <input v-model="form.notificationEnabled" type="checkbox" class="h-4 w-4" />
-              <span>{{ t('taskDialog.enabled') }}</span>
-            </label>
-          </div>
-
-          <section class="settings-section-card px-4 py-4">
-            <div class="grid gap-4 sm:grid-cols-2">
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.channelType') }}</span>
-                <WorkbenchSelect
-                  v-model="form.notificationChannelType"
-                  :options="notificationChannelOptions"
-                  :disabled="!form.notificationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.triggerOn') }}</span>
-                <WorkbenchSelect
-                  v-model="form.notificationTriggerOn"
-                  :options="notificationTriggerOptions"
-                  :disabled="!form.notificationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5 sm:col-span-2">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.webhookUrl') }}</span>
-                <input
-                  v-model="form.notificationWebhookUrl"
+                  v-model="form.title"
                   type="text"
+                  maxlength="140"
                   class="tool-input"
-                  :placeholder="t('taskDialog.sections.notification.webhookUrlPlaceholder')"
-                  :disabled="!form.notificationEnabled"
+                  :placeholder="t('taskDialog.sections.basic.taskTitlePlaceholder')"
                 />
               </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.secret') }}</span>
-                <input
-                  v-model="form.notificationSecret"
-                  type="text"
-                  class="tool-input"
-                  :placeholder="t('taskDialog.sections.notification.secretPlaceholder')"
-                  :disabled="!form.notificationEnabled"
-                />
-              </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.locale') }}</span>
-                <WorkbenchSelect
-                  v-model="form.notificationLocale"
-                  :options="notificationLocaleOptions"
-                  :disabled="!form.notificationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-
-              <label class="space-y-1.5">
-                <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.messageMode') }}</span>
-                <WorkbenchSelect
-                  v-model="form.notificationMessageMode"
-                  :options="notificationMessageModeOptions"
-                  :disabled="!form.notificationEnabled"
-                  :get-option-value="(option) => option.value"
-                >
-                  <template #trigger="{ selectedOption }">
-                    <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                      {{ selectedOption?.label || t('common.select') }}
-                    </div>
-                  </template>
-                </WorkbenchSelect>
-              </label>
-            </div>
-
-            <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
-              <p>{{ t('taskDialog.sections.notification.status', { value: notificationStatusText }) }}</p>
-              <p>{{ t('taskDialog.sections.notification.lastSent', { value: formatTime(form.notificationLastSentAt) }) }}</p>
-              <p v-if="form.notificationLastError" class="theme-danger-text">
-                {{ t('taskDialog.sections.notification.lastError', { value: form.notificationLastError }) }}
-              </p>
-            </div>
+            </section>
           </section>
-        </section>
 
-        <p v-if="error" class="theme-danger-text text-sm">{{ error }}</p>
+          <section v-else-if="activeSection === 'automation'" class="space-y-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
+                  <Clock3 class="h-4 w-4" />
+                  <span>{{ t('taskDialog.sections.automation.title') }}</span>
+                </div>
+                <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.automation.intro') }}</p>
+              </div>
+
+              <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
+                <input v-model="form.automationEnabled" type="checkbox" class="h-4 w-4" />
+                <span>{{ t('taskDialog.enabled') }}</span>
+              </label>
+            </div>
+
+            <section class="settings-section-card px-4 py-4">
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="space-y-1.5 sm:col-span-2">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.mode') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.automationMode"
+                    :options="automationModeOptions"
+                    :disabled="!form.automationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.time') }}</span>
+                  <input
+                    v-model="form.automationTime"
+                    type="time"
+                    class="tool-input"
+                    :disabled="!form.automationEnabled"
+                  />
+                </label>
+
+                <label
+                  v-if="form.automationMode === 'weekly'"
+                  class="space-y-1.5"
+                >
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.weekday') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.automationWeekday"
+                    :options="weekdayOptions"
+                    :disabled="!form.automationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.timezone') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.automationTimezone"
+                    :options="timezoneOptions"
+                    :disabled="!form.automationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5" :class="form.automationMode === 'weekly' ? '' : 'sm:col-span-2'">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.automation.concurrencyPolicy') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.automationConcurrencyPolicy"
+                    :options="concurrencyPolicyOptions"
+                    :disabled="!form.automationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+              </div>
+
+              <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
+                <p>{{ t('taskDialog.sections.automation.lastTriggered', { value: formatTime(form.automationLastTriggeredAt) }) }}</p>
+                <p>{{ t('taskDialog.sections.automation.nextTriggered', { value: formatTime(form.automationNextTriggerAt) }) }}</p>
+              </div>
+            </section>
+          </section>
+
+          <section v-else class="space-y-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
+                  <Bell class="h-4 w-4" />
+                  <span>{{ t('taskDialog.sections.notification.title') }}</span>
+                </div>
+                <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('taskDialog.sections.notification.intro') }}</p>
+              </div>
+
+              <label class="inline-flex items-center gap-2 text-sm text-[var(--theme-textPrimary)]">
+                <input v-model="form.notificationEnabled" type="checkbox" class="h-4 w-4" />
+                <span>{{ t('taskDialog.enabled') }}</span>
+              </label>
+            </div>
+
+            <section class="settings-section-card px-4 py-4">
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.channelType') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.notificationChannelType"
+                    :options="notificationChannelOptions"
+                    :disabled="!form.notificationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.triggerOn') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.notificationTriggerOn"
+                    :options="notificationTriggerOptions"
+                    :disabled="!form.notificationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5 sm:col-span-2">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.webhookUrl') }}</span>
+                  <input
+                    v-model="form.notificationWebhookUrl"
+                    type="text"
+                    class="tool-input"
+                    :placeholder="t('taskDialog.sections.notification.webhookUrlPlaceholder')"
+                    :disabled="!form.notificationEnabled"
+                  />
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.secret') }}</span>
+                  <input
+                    v-model="form.notificationSecret"
+                    type="text"
+                    class="tool-input"
+                    :placeholder="t('taskDialog.sections.notification.secretPlaceholder')"
+                    :disabled="!form.notificationEnabled"
+                  />
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.locale') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.notificationLocale"
+                    :options="notificationLocaleOptions"
+                    :disabled="!form.notificationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.messageMode') }}</span>
+                  <WorkbenchSelect
+                    v-model="form.notificationMessageMode"
+                    :options="notificationMessageModeOptions"
+                    :disabled="!form.notificationEnabled"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('common.select') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                </label>
+              </div>
+
+              <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">
+                <p>{{ t('taskDialog.sections.notification.status', { value: notificationStatusText }) }}</p>
+                <p>{{ t('taskDialog.sections.notification.lastSent', { value: formatTime(form.notificationLastSentAt) }) }}</p>
+                <p v-if="form.notificationLastError" class="theme-danger-text">
+                  {{ t('taskDialog.sections.notification.lastError', { value: form.notificationLastError }) }}
+                </p>
+              </div>
+            </section>
+          </section>
+
+          <p v-if="error" class="theme-danger-text text-sm">{{ error }}</p>
+        </div>
       </div>
     </div>
 

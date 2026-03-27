@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   ArrowLeft,
   Bot,
@@ -81,6 +81,7 @@ const form = reactive({
   title: '',
   engine: 'codex',
   cwd: '',
+  sessionId: '',
 })
 const error = ref('')
 const creating = ref(false)
@@ -88,10 +89,12 @@ const saving = ref(false)
 const deleting = ref(false)
 const showDeleteDialog = ref(false)
 const showDirectoryPicker = ref(false)
+const threadIdCopied = ref(false)
 const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
 const mobileView = ref('list')
 const mobileDetailTab = ref('basic')
 const loadedEngineOptions = ref(getEnabledAgentEngineOptions())
+let threadIdCopyTimer = null
 
 const sortedSessions = computed(() => sortSessions(props.sessions))
 const activeSession = computed(() => props.sessions.find((session) => session.id === editingSessionId.value) || null)
@@ -100,7 +103,9 @@ const currentSession = computed(() => props.sessions.find((session) => session.i
 const activeSessionRunning = computed(() => Boolean(activeSession.value && isSessionRunning(activeSession.value.id)))
 const canEditCwd = computed(() => !activeSession.value?.started)
 const canEditEngine = computed(() => !activeSession.value?.started)
+const canEditSessionId = computed(() => !activeSession.value?.started)
 const busy = computed(() => props.loading || creating.value || saving.value || deleting.value)
+const activeFormSessionId = computed(() => String(form.sessionId || '').trim())
 const workspaceSuggestions = computed(() => {
   const seen = new Set()
   const items = []
@@ -166,6 +171,13 @@ const engineReadonlyMessage = computed(() => {
   }
 
   return t('projectManager.engineReadonly')
+})
+const sessionIdReadonlyMessage = computed(() => {
+  if (mode.value !== 'edit' || !activeSession.value || canEditSessionId.value) {
+    return ''
+  }
+
+  return t('projectManager.sessionIdReadonly')
 })
 const desktopSubmitLabel = computed(() => (mode.value === 'create'
   ? (creating.value ? t('projectManager.creatingProject') : t('projectManager.createProject'))
@@ -260,6 +272,13 @@ function syncFormFromSession(session) {
   form.title = String(session?.title || '')
   form.engine = normalizeAgentEngine(session?.engine)
   form.cwd = String(session?.cwd || '')
+  form.sessionId = String(
+    session?.sessionId
+    || session?.engineSessionId
+    || session?.engineThreadId
+    || session?.codexThreadId
+    || ''
+  ).trim()
 }
 
 function openCreateMode() {
@@ -269,6 +288,7 @@ function openCreateMode() {
   form.title = ''
   form.engine = 'codex'
   form.cwd = ''
+  form.sessionId = ''
 }
 
 function openEditMode(sessionId) {
@@ -335,9 +355,14 @@ function updateFormCwd(value) {
   form.cwd = String(value || '')
 }
 
+function updateFormSessionId(value) {
+  form.sessionId = String(value || '')
+}
+
 function initializeDialog() {
   error.value = ''
   showDeleteDialog.value = false
+  threadIdCopied.value = false
   mobileDetailTab.value = 'basic'
   mobileView.value = isMobileLayout.value ? 'list' : 'detail'
 
@@ -375,6 +400,45 @@ async function loadEngineOptions() {
   }
 }
 
+async function copyText(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
+async function handleCopyThreadId() {
+  const value = activeFormSessionId.value
+  if (!value) {
+    return
+  }
+
+  try {
+    await copyText(value)
+    threadIdCopied.value = true
+    if (threadIdCopyTimer) {
+      clearTimeout(threadIdCopyTimer)
+    }
+    threadIdCopyTimer = setTimeout(() => {
+      threadIdCopied.value = false
+      threadIdCopyTimer = null
+    }, 1800)
+  } catch (err) {
+    error.value = err?.message || t('projectManager.copySessionIdFailed')
+  }
+}
+
 async function handleSubmit() {
   if (busy.value) {
     return
@@ -409,6 +473,7 @@ function createSubmitAction() {
         title: form.title,
         engine: form.engine,
         cwd,
+        sessionId: String(form.sessionId || '').trim(),
       },
     }
   }
@@ -425,6 +490,9 @@ function createSubmitAction() {
 
   if (canEditCwd.value) {
     payload.cwd = form.cwd
+  }
+  if (canEditSessionId.value) {
+    payload.sessionId = String(form.sessionId || '').trim()
   }
 
   return {
@@ -514,6 +582,7 @@ watch(
 
     showDirectoryPicker.value = false
     showDeleteDialog.value = false
+    threadIdCopied.value = false
     error.value = ''
   },
   { immediate: true }
@@ -538,6 +607,7 @@ watch(
 
     if (mode.value === 'create') {
       const hasDraft = Boolean(String(form.title || '').trim() || String(form.cwd || '').trim())
+        || Boolean(String(form.sessionId || '').trim())
       if (hasDraft) {
         return
       }
@@ -563,6 +633,13 @@ watch(
     openCreateMode()
   }
 )
+
+onBeforeUnmount(() => {
+  if (threadIdCopyTimer) {
+    clearTimeout(threadIdCopyTimer)
+    threadIdCopyTimer = null
+  }
+})
 
 </script>
 
@@ -637,20 +714,26 @@ watch(
 
             <div class="mt-5">
               <CodexSessionManagerForm
-              :busy="busy"
+                :busy="busy"
                 :can-edit-engine="mode !== 'edit' || canEditEngine"
                 :can-edit-cwd="mode !== 'edit' || canEditCwd"
+                :can-edit-session-id="mode !== 'edit' || canEditSessionId"
                 :cwd="form.cwd"
                 :cwd-readonly-message="cwdReadonlyMessage"
                 :duplicate-cwd-message="duplicateCwdMessage"
                 :engine="form.engine"
                 :engine-options="engineOptions"
                 :engine-readonly-message="engineReadonlyMessage"
+                :session-id="form.sessionId"
+                :session-id-copied="threadIdCopied"
+                :session-id-readonly-message="sessionIdReadonlyMessage"
                 :title="form.title"
                 :workspace-suggestions="workspaceSuggestions"
+                @copy-session-id="handleCopyThreadId"
                 @open-directory-picker="showDirectoryPicker = true"
                 @update:cwd="updateFormCwd"
                 @update:engine="updateFormEngine"
+                @update:session-id="updateFormSessionId"
                 @update:title="updateFormTitle"
               />
             </div>
@@ -778,17 +861,23 @@ watch(
                   :busy="busy"
                   :can-edit-engine="mode !== 'edit' || canEditEngine"
                   :can-edit-cwd="mode !== 'edit' || canEditCwd"
+                  :can-edit-session-id="mode !== 'edit' || canEditSessionId"
                   :cwd="form.cwd"
                   :cwd-readonly-message="cwdReadonlyMessage"
                   :duplicate-cwd-message="duplicateCwdMessage"
                   :engine="form.engine"
                   :engine-options="engineOptions"
                   :engine-readonly-message="engineReadonlyMessage"
+                  :session-id="form.sessionId"
+                  :session-id-copied="threadIdCopied"
+                  :session-id-readonly-message="sessionIdReadonlyMessage"
                   :title="form.title"
                   :workspace-suggestions="workspaceSuggestions"
+                  @copy-session-id="handleCopyThreadId"
                   @open-directory-picker="showDirectoryPicker = true"
                   @update:cwd="updateFormCwd"
                   @update:engine="updateFormEngine"
+                  @update:session-id="updateFormSessionId"
                   @update:title="updateFormTitle"
                 />
 

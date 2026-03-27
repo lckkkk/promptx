@@ -8,6 +8,12 @@ import {
 import { updatePromptxCodexSession } from './codexSessions.js'
 
 function toSafeSessionPatch(session = {}) {
+  const hasIdentityPatch = [
+    'codexThreadId',
+    'engineSessionId',
+    'engineThreadId',
+  ].some((key) => Object.prototype.hasOwnProperty.call(session, key))
+
   return {
     ...(Object.prototype.hasOwnProperty.call(session, 'title')
       ? { title: session.title }
@@ -23,6 +29,9 @@ function toSafeSessionPatch(session = {}) {
       : {}),
     ...(Object.prototype.hasOwnProperty.call(session, 'engineMeta')
       ? { engineMeta: session.engineMeta }
+      : {}),
+    ...(hasIdentityPatch
+      ? { clearManualSessionBinding: true }
       : {}),
     updatedAt: session.updatedAt || new Date().toISOString(),
   }

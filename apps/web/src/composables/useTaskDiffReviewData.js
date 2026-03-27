@@ -12,6 +12,10 @@ function buildPatchCacheKey(signature = '', filePath = '') {
   return `${String(signature || '').trim()}::${String(filePath || '').trim()}`
 }
 
+function buildTaskSignaturePrefix(taskSlug = '') {
+  return `${String(taskSlug || '').trim()}::`
+}
+
 function cloneSerializable(value) {
   if (!value || typeof value !== 'object') {
     return value
@@ -441,6 +445,26 @@ export function useTaskDiffReviewData(props) {
     return 'theme-patch-context'
   }
 
+  function clearCacheEntriesByPrefix(cache, prefix = '') {
+    const normalizedPrefix = String(prefix || '').trim()
+    if (!normalizedPrefix) {
+      return
+    }
+
+    Array.from(cache.keys()).forEach((key) => {
+      if (String(key || '').startsWith(normalizedPrefix)) {
+        cache.delete(key)
+      }
+    })
+  }
+
+  function clearCurrentTaskDiffCache() {
+    const prefix = buildTaskSignaturePrefix(props.taskSlug)
+    clearCacheEntriesByPrefix(diffListCache, prefix)
+    clearCacheEntriesByPrefix(diffStatsCache, prefix)
+    clearCacheEntriesByPrefix(filePatchCache, prefix)
+  }
+
   async function loadRuns() {
     if (!props.taskSlug) {
       runs.value = []
@@ -696,6 +720,19 @@ export function useTaskDiffReviewData(props) {
     loadDiff().catch(() => {})
   }
 
+  async function refreshDiff() {
+    if (!props.taskSlug || !props.active || loading.value) {
+      return
+    }
+
+    clearCurrentTaskDiffCache()
+    lastLoadedSignature = ''
+    lastStatsLoadedSignature = ''
+    runsLoadedTaskSlug = ''
+    runsLoadedVersion = -1
+    await loadDiff()
+  }
+
   watch(
     () => [props.taskSlug, props.active, diffScope.value, selectedRunId.value],
     ([taskSlug, active], previousValue = []) => {
@@ -836,5 +873,6 @@ export function useTaskDiffReviewData(props) {
     statusFilter,
     terminalRuns,
     formatRunOptionLabel,
+    refreshDiff,
   }
 }

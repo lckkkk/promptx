@@ -10,10 +10,66 @@ function createHttpError(message, statusCode = 400) {
   return createApiError('', message, statusCode)
 }
 
+function cloneEngineMeta(input) {
+  return input && typeof input === 'object' && !Array.isArray(input)
+    ? { ...input }
+    : {}
+}
+
+function getSessionIdentityValue(record = {}) {
+  return String(
+    record.engineSessionId
+    || record.engine_session_id
+    || record.engineThreadId
+    || record.engine_thread_id
+    || record.codexThreadId
+    || record.codex_thread_id
+    || ''
+  ).trim()
+}
+
+function hasSessionIdentity(record = {}) {
+  return Boolean(getSessionIdentityValue(record))
+}
+
+function hasManualSessionBinding(engineMeta = {}) {
+  return Boolean(engineMeta?.manualSessionBinding)
+}
+
+function mapSessionIdToEngine(engine, sessionId = '') {
+  const normalizedEngine = normalizeAgentEngine(engine)
+  const normalizedSessionId = String(sessionId || '').trim()
+
+  if (!normalizedSessionId) {
+    return {
+      codexThreadId: '',
+      engineSessionId: '',
+      engineThreadId: '',
+    }
+  }
+
+  if (normalizedEngine === 'codex') {
+    return {
+      codexThreadId: normalizedSessionId,
+      engineSessionId: '',
+      engineThreadId: normalizedSessionId,
+    }
+  }
+
+  return {
+    codexThreadId: '',
+    engineSessionId: normalizedSessionId,
+    engineThreadId: normalizedSessionId,
+  }
+}
+
 function toCodexSession(row) {
   if (!row) {
     return null
   }
+
+  const engineMeta = parseEngineMeta(row.engine_meta_json)
+  const sessionId = getSessionIdentityValue(row)
 
   return {
     id: row.id,
@@ -23,11 +79,12 @@ function toCodexSession(row) {
     codexThreadId: row.codex_thread_id || row.engine_thread_id || '',
     engineSessionId: row.engine_session_id || '',
     engineThreadId: row.engine_thread_id || row.codex_thread_id || '',
-    engineMeta: parseEngineMeta(row.engine_meta_json),
+    sessionId,
+    engineMeta,
     running: false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    started: Boolean(row.engine_thread_id || row.codex_thread_id),
+    started: hasSessionIdentity(row) && !hasManualSessionBinding(engineMeta),
   }
 }
 
@@ -109,6 +166,11 @@ export function createPromptxCodexSession(input = {}) {
   const cwd = normalizeCwd(input.cwd)
   const title = normalizeTitle(input.title, cwd)
   const engine = normalizeAgentEngine(input.engine)
+  const sessionId = String(input.sessionId || '').trim()
+  const sessionFields = mapSessionIdToEngine(engine, sessionId)
+  const engineMeta = sessionId
+    ? { manualSessionBinding: true }
+    : {}
   ensureAgentRunnerAvailable(engine)
   const now = new Date().toISOString()
   const id = `pxcs_${nanoid(12)}`
@@ -118,8 +180,19 @@ export function createPromptxCodexSession(input = {}) {
       `INSERT INTO codex_sessions (
          id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, '', '', '', '{}', ?, ?)`,
-      [id, title, engine, cwd, now, now]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        title,
+        engine,
+        cwd,
+        sessionFields.codexThreadId,
+        sessionFields.engineSessionId,
+        sessionFields.engineThreadId,
+        JSON.stringify(engineMeta),
+        now,
+        now,
+      ]
     )
   })
 
@@ -149,21 +222,56 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
     throw createApiError('errors.startedProjectEngineLocked', '已启动的 PromptX 项目不能直接切换执行引擎，请新建项目。', 409)
   }
 
+  const wantsGenericSessionId = Object.prototype.hasOwnProperty.call(patch, 'sessionId')
+  const wantsCodexThreadId = Object.prototype.hasOwnProperty.call(patch, 'codexThreadId')
+  const wantsEngineSessionId = Object.prototype.hasOwnProperty.call(patch, 'engineSessionId')
+  const wantsEngineThreadId = Object.prototype.hasOwnProperty.call(patch, 'engineThreadId')
+  const wantsExplicitSessionFields = wantsCodexThreadId || wantsEngineSessionId || wantsEngineThreadId
+  const nextSessionId = wantsGenericSessionId
+    ? String(patch.sessionId || '').trim()
+    : existing.sessionId
+  if (existing.started && wantsGenericSessionId && nextSessionId !== existing.sessionId) {
+    throw createApiError('errors.startedProjectSessionLocked', '已启动的 PromptX 项目不能直接修改会话 ID，请新建项目。', 409)
+  }
+
   const title = Object.prototype.hasOwnProperty.call(patch, 'title')
     ? normalizeTitle(patch.title, nextCwd)
     : existing.title
-  const codexThreadId = Object.prototype.hasOwnProperty.call(patch, 'codexThreadId')
-    ? String(patch.codexThreadId || '').trim()
-    : existing.codexThreadId
-  const engineSessionId = Object.prototype.hasOwnProperty.call(patch, 'engineSessionId')
-    ? String(patch.engineSessionId || '').trim()
-    : existing.engineSessionId
-  const engineThreadId = Object.prototype.hasOwnProperty.call(patch, 'engineThreadId')
-    ? String(patch.engineThreadId || '').trim()
-    : (codexThreadId || existing.engineThreadId)
+  let codexThreadId = existing.codexThreadId
+  let engineSessionId = existing.engineSessionId
+  let engineThreadId = existing.engineThreadId
+
+  if (wantsGenericSessionId || (wantsEngine && hasManualSessionBinding(existing.engineMeta) && !wantsExplicitSessionFields)) {
+    const mapped = mapSessionIdToEngine(nextEngine, nextSessionId)
+    codexThreadId = mapped.codexThreadId
+    engineSessionId = mapped.engineSessionId
+    engineThreadId = mapped.engineThreadId
+  } else {
+    if (wantsCodexThreadId) {
+      codexThreadId = String(patch.codexThreadId || '').trim()
+    }
+    if (wantsEngineSessionId) {
+      engineSessionId = String(patch.engineSessionId || '').trim()
+    }
+    if (wantsEngineThreadId) {
+      engineThreadId = String(patch.engineThreadId || '').trim()
+    }
+  }
+
   const engineMeta = Object.prototype.hasOwnProperty.call(patch, 'engineMeta')
-    ? (patch.engineMeta && typeof patch.engineMeta === 'object' ? patch.engineMeta : {})
-    : existing.engineMeta
+    ? cloneEngineMeta(patch.engineMeta)
+    : cloneEngineMeta(existing.engineMeta)
+
+  if (wantsGenericSessionId) {
+    if (nextSessionId) {
+      engineMeta.manualSessionBinding = true
+    } else {
+      delete engineMeta.manualSessionBinding
+    }
+  } else if (patch.clearManualSessionBinding === true || wantsExplicitSessionFields) {
+    delete engineMeta.manualSessionBinding
+  }
+
   const updatedAt = patch.updatedAt || new Date().toISOString()
 
   transaction(() => {

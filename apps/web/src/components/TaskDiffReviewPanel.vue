@@ -47,10 +47,10 @@ const {
   getStatusClass,
   getStatusLabel,
   jumpToAdjacentHunk,
-  loadDiff,
   loading,
   patchLoading,
   patchViewportRef,
+  refreshDiff,
   selectedFile,
   selectedFilePath,
   selectedPatchHunks,
@@ -136,8 +136,8 @@ watch(diffScope, () => {
           <button
             type="button"
             class="tool-button tool-button-info-subtle inline-flex shrink-0 items-center justify-center gap-2 px-3 py-2 text-xs"
-            :disabled="loading || statsLoading"
-            @click="loadDiff"
+            :disabled="loading"
+            @click="refreshDiff"
           >
             <RefreshCw class="h-3.5 w-3.5 sm:hidden" :class="loading ? 'animate-spin' : ''" />
             <span class="sm:hidden">{{ t('diffReview.refresh') }}</span>

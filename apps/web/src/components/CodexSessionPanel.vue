@@ -307,7 +307,7 @@ defineExpose({
             <button
               v-if="diffSupported"
               type="button"
-              class="tool-button tool-button-info-subtle inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
+              class="tool-button inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
               :disabled="!taskSlug"
               @click="openTaskDiff"
             >

@@ -1,5 +1,5 @@
 <script setup>
-import { FolderOpen } from 'lucide-vue-next'
+import { Check, Copy, FolderOpen } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from '../composables/useI18n.js'
 import WorkbenchSelect from './WorkbenchSelect.vue'
@@ -14,6 +14,10 @@ const props = defineProps({
     default: true,
   },
   canEditCwd: {
+    type: Boolean,
+    default: true,
+  },
+  canEditSessionId: {
     type: Boolean,
     default: true,
   },
@@ -45,6 +49,18 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  sessionId: {
+    type: String,
+    default: '',
+  },
+  sessionIdCopied: {
+    type: Boolean,
+    default: false,
+  },
+  sessionIdReadonlyMessage: {
+    type: String,
+    default: '',
+  },
   title: {
     type: String,
     default: '',
@@ -55,12 +71,13 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['open-directory-picker', 'update:cwd', 'update:engine', 'update:title'])
+const emit = defineEmits(['copy-session-id', 'open-directory-picker', 'update:cwd', 'update:engine', 'update:sessionId', 'update:title'])
 const { t } = useI18n()
 const selectedEngineOption = computed(() => {
   const current = String(props.engine || '').trim()
   return props.engineOptions.find((item) => String(item?.value || '').trim() === current) || null
 })
+const normalizedSessionId = computed(() => String(props.sessionId || '').trim())
 </script>
 
 <template>
@@ -164,6 +181,37 @@ const selectedEngineOption = computed(() => {
       </div>
       <p v-if="engineReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
         {{ engineReadonlyMessage }}
+      </p>
+    </label>
+
+    <label class="theme-muted-text block text-xs">
+      <span>{{ t('projectManager.sessionId') }}</span>
+      <div class="mt-1 flex gap-2">
+        <input
+          :value="sessionId"
+          type="text"
+          placeholder=""
+          class="tool-input min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-80"
+          :disabled="busy || !canEditSessionId"
+          @input="emit('update:sessionId', $event.target.value)"
+        >
+        <button
+          v-if="normalizedSessionId"
+          type="button"
+          class="tool-button inline-flex shrink-0 items-center gap-2 px-3 py-2 text-xs"
+          :disabled="busy"
+          @click="emit('copy-session-id')"
+        >
+          <Check v-if="sessionIdCopied" class="h-4 w-4" />
+          <Copy v-else class="h-4 w-4" />
+          <span>{{ sessionIdCopied ? t('projectManager.sessionIdCopied') : t('projectManager.copySessionId') }}</span>
+        </button>
+      </div>
+      <p v-if="sessionIdReadonlyMessage" class="theme-muted-text mt-2 text-[11px] leading-5">
+        {{ sessionIdReadonlyMessage }}
+      </p>
+      <p v-else class="theme-muted-text mt-2 text-[11px] leading-5">
+        {{ t('projectManager.sessionIdHint') }}
       </p>
     </label>
   </div>
