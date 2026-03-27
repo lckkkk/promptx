@@ -121,6 +121,28 @@ const renderedResponseCache = new Map()
 const previewPromptImageUrl = ref('')
 const { t } = useI18n()
 
+function shouldHideSystemEvent(item = {}) {
+  const title = String(item?.title || '').trim()
+  if (!title) {
+    return false
+  }
+
+  return [
+    /^已连接项目：/,
+    /^工作目录：/,
+    /^项目会话已更新$/,
+    /^Codex 会话已创建$/,
+    /^Claude Code 会话已创建$/,
+    /^OpenCode 会话已创建$/,
+    /^线程 ID:/,
+    /^Thread ID:/,
+    /^Connected project:/,
+    /^Working directory:/,
+    /^Project session updated$/,
+    / session created$/,
+  ].some((pattern) => pattern.test(title))
+}
+
 const {
   canCollapsePrompt,
   canCollapseResponse,
@@ -193,6 +215,40 @@ const promptPreviewImages = computed(() => (
     .filter((item) => item?.type === 'image')
     .map((item) => item.content))
 ))
+
+function getVisibleTurnEvents(turn) {
+  const events = Array.isArray(turn?.events) ? turn.events : []
+  const filtered = events.filter((item) => !shouldHideSystemEvent(item))
+  return filtered.length ? filtered : events
+}
+
+function getTurnVisibleEventCount(turn) {
+  if (!turn?.eventsLoaded) {
+    return getTurnEventCount(turn)
+  }
+
+  return getTurnEventCount(turn, getVisibleTurnEvents(turn))
+}
+
+function shouldShowEventToggle(turn) {
+  return hasTurnEventHistory(turn)
+}
+
+function shouldShowEventLoading(turn) {
+  return Boolean(turn?.eventsLoading)
+}
+
+function shouldShowLoadedEvents(turn) {
+  return Boolean(turn?.eventsLoaded) && getVisibleTurnEvents(turn).length > 0 && !isTurnEventsCollapsed(turn)
+}
+
+function shouldShowCollapsedEventHint(turn) {
+  return hasTurnEventHistory(turn) && isTurnEventsCollapsed(turn)
+}
+
+function shouldShowDeferredEventHint(turn) {
+  return hasTurnEventHistory(turn) && !turn?.eventsLoaded && !turn?.eventsLoading
+}
 
 watch(
   turns,
@@ -298,7 +354,7 @@ defineExpose({
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm border border-dashed border-[var(--theme-promptBorder)] bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
+            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
               <div class="flex items-center justify-between gap-3 text-xs opacity-75">
                 <span>{{ t('sessionPanel.promptTitle') }}</span>
                 <div class="flex items-center gap-2">
@@ -364,35 +420,35 @@ defineExpose({
           </div>
 
           <div class="flex justify-start">
-            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm border border-dashed px-4 py-3" :class="getProcessCardClass(turn)">
+            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm px-4 py-3" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span>{{ t('sessionPanel.processTitle') }}</span>
                 <div class="flex items-center gap-2">
                   <button
-                    v-if="hasTurnEventHistory(turn)"
+                    v-if="shouldShowEventToggle(turn)"
                     type="button"
                     class="transcript-card__toggle inline-flex items-center gap-1 rounded-sm border border-dashed border-current/30 px-2 py-1 text-[11px] transition hover:bg-white/15"
                     :disabled="turn.eventsLoading"
                     @click="toggleTurnEvents(turn)"
                   >
-                    <LoaderCircle v-if="turn.eventsLoading" class="h-3 w-3 animate-spin" />
+                    <LoaderCircle v-if="shouldShowEventLoading(turn)" class="h-3 w-3 animate-spin" />
                     <ChevronDown v-else-if="isTurnEventsCollapsed(turn)" class="h-3 w-3" />
                     <ChevronUp v-else class="h-3 w-3" />
-                    <span>{{ turn.eventsLoading ? t('sessionPanel.loading') : isTurnEventsCollapsed(turn) ? `${t('sessionPanel.expand')} (${getTurnEventCount(turn)})` : t('sessionPanel.collapse') }}</span>
+                    <span>{{ turn.eventsLoading ? t('sessionPanel.loading') : isTurnEventsCollapsed(turn) ? `${t('sessionPanel.expand')} (${getTurnVisibleEventCount(turn)})` : t('sessionPanel.collapse') }}</span>
                   </button>
                   <span>{{ getProcessStatus(turn) }}</span>
                 </div>
               </div>
-              <div v-if="turn.eventsLoading && !turn.events.length" class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70">
+              <div v-if="shouldShowEventLoading(turn)" class="transcript-card__subtle mt-3 rounded-sm bg-white/10 px-3 py-2 text-xs text-current/70">
                 {{ t('sessionPanel.loadingEvents') }}
               </div>
-              <div v-else-if="turn.events.length && !isTurnEventsCollapsed(turn)" class="mt-3 space-y-3">
+              <div v-else-if="shouldShowLoadedEvents(turn)" class="mt-3 space-y-3">
                 <div
-                  v-for="item in turn.events"
+                  v-for="item in getVisibleTurnEvents(turn)"
                   :key="item.id"
-                  class="transcript-event-card rounded-sm border border-dashed px-3 py-2"
+                  class="transcript-event-card rounded-sm px-3 py-2"
                   :class="{
-                    'border-[var(--theme-borderMuted)] bg-[var(--theme-appPanelStrong)]': item.kind === 'info' || item.kind === 'command',
+                    'bg-[var(--theme-appPanelStrong)]': item.kind === 'info' || item.kind === 'command',
                     'theme-status-warning': item.kind === 'todo',
                     'theme-status-success': item.kind === 'result',
                     'theme-status-danger': item.kind === 'error',
@@ -403,17 +459,17 @@ defineExpose({
                 </div>
               </div>
               <div
-                v-else-if="hasTurnEventHistory(turn)"
-                class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/10 px-3 py-2 text-xs text-current/70"
+                v-else-if="shouldShowCollapsedEventHint(turn) || shouldShowDeferredEventHint(turn)"
+                class="transcript-card__subtle mt-3 rounded-sm bg-white/10 px-3 py-2 text-xs text-current/70"
               >
                 {{ turn.eventsLoaded
-                  ? t('sessionPanel.hiddenEventsLoaded', { count: getTurnEventCount(turn) })
-                  : t('sessionPanel.hiddenEventsLoadLater', { count: getTurnEventCount(turn) }) }}
+                  ? t('sessionPanel.hiddenEventsLoaded', { count: getTurnVisibleEventCount(turn) })
+                  : t('sessionPanel.hiddenEventsLoadLater', { count: getTurnVisibleEventCount(turn) }) }}
               </div>
               <p v-else class="mt-3 text-xs text-current/80">{{ ['queued', 'starting', 'running', 'stopping'].includes(turn.status) ? t('sessionPanel.waitingEvents', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.noEvents') }}</p>
               <div
                 v-if="hasTurnSummary(turn)"
-                class="transcript-card__subtle mt-3 rounded-sm border border-dashed border-current/15 bg-white/15 px-3 py-2 text-xs text-current/80"
+                class="transcript-card__subtle mt-3 rounded-sm bg-white/15 px-3 py-2 text-xs text-current/80"
               >
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0 flex-1">
@@ -450,10 +506,10 @@ defineExpose({
 
           <div v-if="shouldShowResponse(turn)" class="flex justify-start">
             <div
-              class="transcript-card transcript-card--response min-w-0 w-full max-w-[92%] rounded-sm border border-dashed px-4 py-3 text-sm leading-7"
+              class="transcript-card transcript-card--response min-w-0 w-full max-w-[92%] rounded-sm px-4 py-3 text-sm leading-7"
               :class="turn.errorMessage
-                ? 'border-[var(--theme-danger)] bg-[var(--theme-dangerSoft)] text-[var(--theme-dangerText)]'
-                : 'border-[var(--theme-responseBorder)] bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
+                ? 'bg-[var(--theme-dangerSoft)] text-[var(--theme-dangerText)]'
+                : 'bg-[var(--theme-responseBg)] text-[var(--theme-responseText)]'"
             >
               <div class="flex items-center justify-between gap-3 text-xs text-current/80">
                 <span>{{ turn.errorMessage ? t('sessionPanel.errorSuffix', { agent: getTurnAgentLabel(turn) }) : t('sessionPanel.responseSuffix', { agent: getTurnAgentLabel(turn) }) }}</span>

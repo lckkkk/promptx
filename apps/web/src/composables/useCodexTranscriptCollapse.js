@@ -32,11 +32,18 @@ export function useCodexTranscriptCollapse(options = {}) {
     return Boolean(key) && key === getTurnEventCollapseKey(turns.value.at(-1))
   }
 
-  function getTurnEventCount(turn) {
-    return Math.max(
-      Math.max(0, Number(turn?.eventCount) || 0),
+  function getTurnEventCount(turn, visibleEvents = null) {
+    const rawEventCount = Math.max(
+      0,
+      Number(turn?.eventCount) || 0,
       Array.isArray(turn?.events) ? turn.events.length : 0
     )
+
+    if (!Array.isArray(visibleEvents) || !turn?.eventsLoaded) {
+      return rawEventCount
+    }
+
+    return Math.max(0, visibleEvents.length)
   }
 
   function shouldCollapseTurn(turn) {
