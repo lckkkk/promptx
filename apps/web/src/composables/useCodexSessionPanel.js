@@ -57,6 +57,22 @@ export function useCodexSessionPanel(props, emit) {
   const hasNewerMessages = ref(false)
   const supportsServerEvents = typeof window !== 'undefined' && typeof window.EventSource !== 'undefined'
 
+  function showToast(payload = '') {
+    const normalizedMessage = typeof payload === 'object' && payload !== null
+      ? String(payload.message || '').trim()
+      : String(payload || '').trim()
+    if (!normalizedMessage) {
+      return
+    }
+
+    emit('toast', typeof payload === 'object' && payload !== null
+      ? {
+          ...payload,
+          message: normalizedMessage,
+        }
+      : normalizedMessage)
+  }
+
   let sendingTimer = null
   let unsubscribeTaskRunEvents = null
   let serverSyncTimer = null
@@ -184,6 +200,7 @@ export function useCodexSessionPanel(props, emit) {
     applyCreatedRun,
     refreshRunHistory,
     markFallbackSessionPollNow,
+    showToast,
   })
 
   function clearSendingTimer() {

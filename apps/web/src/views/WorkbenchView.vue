@@ -29,7 +29,7 @@ const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
 const { t } = useI18n()
-const { toastMessage, flashToast, clearToast } = useToast()
+const { toastMessage, toastType, flashToast, clearToast } = useToast()
 const TaskDiffReviewDialog = defineAsyncComponent(() => import('../components/TaskDiffReviewDialog.vue'))
 const WorkbenchSettingsDialog = defineAsyncComponent(() => import('../components/WorkbenchSettingsDialog.vue'))
 
@@ -319,6 +319,16 @@ function handleCurrentTaskSessionChange(nextSessionId) {
   handleTaskSessionChange(task.slug, nextSessionId)
 }
 
+function handleActivityToast(message) {
+  flashToast(message)
+
+  if (!isMobileLayout.value || !currentTaskSlug.value) {
+    return
+  }
+
+  mobileDetailTab.value = 'activity'
+}
+
 async function flushCurrentEditorInput() {
   if (typeof document !== 'undefined' && editorRef.value?.isComposing?.()) {
     document.activeElement?.blur?.()
@@ -333,7 +343,7 @@ async function flushCurrentEditorInput() {
 async function copyCodexPrompt() {
   await flushCurrentEditorInput()
   await navigator.clipboard.writeText(buildPromptForTask(currentTaskSlug.value))
-  flashToast(t('workbench.promptCopied'))
+  flashToast({ message: t('workbench.promptCopied'), type: 'info' })
 }
 
 async function handleCreateTask() {
@@ -514,16 +524,17 @@ const taskListPanelListeners = {
 
 const activityPanelListeners = {
   'open-diff': ({ scope, runId }) => openTaskDiff(scope, runId),
-  'project-created': () => flashToast(t('workbench.projectCreated')),
+  'project-created': () => flashToast({ message: t('workbench.projectCreated'), type: 'success' }),
   'selected-session-change': handleCurrentTaskSessionChange,
   'sending-change': handleCurrentTaskSendingChange,
+  toast: handleActivityToast,
 }
 
 const inputPanelListeners = {
   'add-todo': handleAddTodo,
   'clear-request': openClearDialog,
   'copy-request': copyCodexPrompt,
-  'file-feedback': flashToast,
+  'file-feedback': (message) => flashToast({ message, type: 'warning' }),
   'import-pdf-files': handleImportPdfFiles,
   'import-text-files': handleImportTextFiles,
   'manage-todo': openTodoDialog,
@@ -544,7 +555,7 @@ const mobileDetailHeaderListeners = {
 
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <TopToast :message="toastMessage" />
+    <TopToast :message="toastMessage" :type="toastType" />
 
     <ConfirmDialog
       :open="showClearDialog"

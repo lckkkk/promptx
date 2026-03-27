@@ -1,12 +1,42 @@
 <script setup>
-import { CheckCircle2 } from 'lucide-vue-next'
+import { CheckCircle2, CircleAlert, CircleX, Info } from 'lucide-vue-next'
 
-defineProps({
+const props = defineProps({
   message: {
     type: String,
     default: '',
   },
+  type: {
+    type: String,
+    default: 'success',
+  },
 })
+
+function getToastClass(type = 'success') {
+  if (type === 'warning') {
+    return 'theme-status-warning'
+  }
+  if (type === 'error') {
+    return 'theme-status-danger'
+  }
+  if (type === 'info') {
+    return 'theme-status-info'
+  }
+  return 'theme-status-success'
+}
+
+function getToastIcon(type = 'success') {
+  if (type === 'warning') {
+    return CircleAlert
+  }
+  if (type === 'error') {
+    return CircleX
+  }
+  if (type === 'info') {
+    return Info
+  }
+  return CheckCircle2
+}
 </script>
 
 <template>
@@ -22,9 +52,10 @@ defineProps({
       >
         <div
           v-if="message"
-          class="app-top-toast theme-status-success flex max-w-md items-center gap-2 rounded-sm border px-4 py-2 text-sm shadow-[var(--theme-shadowPanel)] backdrop-blur"
+          class="app-top-toast flex max-w-md items-center gap-2 rounded-sm border px-4 py-2 text-sm shadow-[var(--theme-shadowPanel)] backdrop-blur"
+          :class="getToastClass(props.type)"
         >
-          <CheckCircle2 class="h-4 w-4 shrink-0" />
+          <component :is="getToastIcon(props.type)" class="h-4 w-4 shrink-0" />
           <span>{{ message }}</span>
         </div>
       </Transition>

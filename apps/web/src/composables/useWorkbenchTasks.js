@@ -1132,7 +1132,10 @@ function normalizeTodoItemsForSnapshot(items = []) {
         upsertTaskSummary(toTaskSummary(task))
         markTaskHydrated(currentTaskSlug.value, task.updatedAt || '')
         if (!auto && !silent) {
-          flashToast(translate('taskActions.taskSaved'))
+          flashToast({
+            message: translate('taskActions.taskSaved'),
+            type: 'success',
+          })
         }
         return true
       } catch (err) {
@@ -1194,7 +1197,10 @@ function normalizeTodoItemsForSnapshot(items = []) {
       setTaskDraftState(task.slug, initialState)
       upsertTaskSummary(toTaskSummary(task), { insertAtStart: true })
       await loadTask(task.slug, { focusEditor: true })
-      flashToast(translate('taskActions.taskCreated'))
+      flashToast({
+        message: translate('taskActions.taskCreated'),
+        type: 'success',
+      })
       return true
     } catch (err) {
       error.value = err.message
@@ -1277,7 +1283,10 @@ function normalizeTodoItemsForSnapshot(items = []) {
       editorRef.value?.focusEditor?.()
     })
     if (!silent) {
-      flashToast(translate('taskActions.taskCleared'))
+      flashToast({
+        message: translate('taskActions.taskCleared'),
+        type: 'info',
+      })
     }
   }
 
@@ -1309,7 +1318,10 @@ function normalizeTodoItemsForSnapshot(items = []) {
     nextTick(() => {
       editorRef.value?.focusEditor?.()
     })
-    flashToast(translate('taskActions.todoAdded'))
+    flashToast({
+      message: translate('taskActions.todoAdded'),
+      type: 'success',
+    })
     return true
   }
 
@@ -1403,10 +1415,13 @@ function normalizeTodoItemsForSnapshot(items = []) {
       }
 
       editorRef.value?.insertUploadedBlocks(uploadedBlocks)
-      flashToast(translate('taskActions.imageInserted', {
-        count: uploadedBlocks.length,
-        appended: insertedAfterImported,
-      }))
+      flashToast({
+        message: translate('taskActions.imageInserted', {
+          count: uploadedBlocks.length,
+          appended: insertedAfterImported,
+        }),
+        type: 'success',
+      })
     } catch (err) {
       error.value = err.message
     } finally {
@@ -1437,15 +1452,21 @@ function normalizeTodoItemsForSnapshot(items = []) {
       }
 
       if (!importedBlocks.length) {
-        flashToast(translate('taskActions.noTextImported'))
+        flashToast({
+          message: translate('taskActions.noTextImported'),
+          type: 'warning',
+        })
         return
       }
 
       editorRef.value?.insertImportedBlocks(importedBlocks)
-      flashToast(translate('taskActions.importedBlocksInserted', {
-        count: importedBlocks.length,
-        appended: insertedAfterImported,
-      }))
+      flashToast({
+        message: translate('taskActions.importedBlocksInserted', {
+          count: importedBlocks.length,
+          appended: insertedAfterImported,
+        }),
+        type: 'success',
+      })
     } catch {
       error.value = translate('taskActions.textImportFailed')
     }
@@ -1476,14 +1497,20 @@ function normalizeTodoItemsForSnapshot(items = []) {
       }
 
       if (!insertedBlockCount) {
-        flashToast(translate('taskActions.noPdfContent'))
+        flashToast({
+          message: translate('taskActions.noPdfContent'),
+          type: 'warning',
+        })
         return
       }
 
-      flashToast(translate('taskActions.pdfBlocksInserted', {
-        blockCount: insertedBlockCount,
-        pageCount: insertedPageCount,
-      }))
+      flashToast({
+        message: translate('taskActions.pdfBlocksInserted', {
+          blockCount: insertedBlockCount,
+          pageCount: insertedPageCount,
+        }),
+        type: 'success',
+      })
     } catch (err) {
       error.value = err.message || translate('taskActions.pdfImportFailed')
     } finally {

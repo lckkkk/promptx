@@ -46,6 +46,7 @@ const emit = defineEmits([
   'project-created',
   'selected-session-change',
   'open-diff',
+  'toast',
 ])
 
 const panelRef = ref(null)
@@ -86,6 +87,7 @@ defineExpose({
       @sending-change="emit('sending-change', $event)"
       @selected-session-change="emit('selected-session-change', $event)"
       @open-diff="emit('open-diff', $event)"
+      @toast="emit('toast', $event)"
     />
   </div>
   <section

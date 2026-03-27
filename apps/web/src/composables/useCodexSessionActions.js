@@ -32,6 +32,7 @@ export function useCodexSessionActions(options = {}) {
     applyCreatedRun,
     refreshRunHistory,
     markFallbackSessionPollNow,
+    showToast,
   } = options
 
   let sessionsLoadPromise = null
@@ -248,8 +249,12 @@ export function useCodexSessionActions(options = {}) {
     }
 
     if (!selectedSessionId.value) {
-      openManager()
-      sessionError.value = translate('projectManager.selectProject')
+      const message = translate('projectManager.selectProject')
+      sessionError.value = message
+      showToast?.({
+        message,
+        type: 'warning',
+      })
       return false
     }
 

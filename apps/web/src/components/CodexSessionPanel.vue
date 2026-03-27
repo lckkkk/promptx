@@ -20,7 +20,7 @@ import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
 
 const CodexSessionManagerDialog = defineAsyncComponent(() => import('./CodexSessionManagerDialog.vue'))
 
-const emit = defineEmits(['project-created', 'selected-session-change', 'sending-change', 'open-diff'])
+const emit = defineEmits(['project-created', 'selected-session-change', 'sending-change', 'open-diff', 'toast'])
 
 const props = defineProps({
   prompt: {
