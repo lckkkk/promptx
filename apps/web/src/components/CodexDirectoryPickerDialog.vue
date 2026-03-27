@@ -509,9 +509,9 @@ watch(
   <DialogShell
     :open="open"
     backdrop-class="z-[60] items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-    panel-class="h-full max-w-4xl sm:h-auto sm:max-h-[86vh]"
-    header-class="px-4 py-3 sm:px-5 sm:py-4"
-    body-class="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5"
+    panel-class="settings-dialog-panel h-full max-w-4xl sm:h-auto sm:max-h-[86vh]"
+    header-class="settings-dialog-header px-5 py-4"
+    body-class="settings-dialog-body flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5"
     :close-disabled="treeLoading || searchLoading"
     :close-on-backdrop="!(treeLoading || searchLoading)"
     :close-on-escape="!(treeLoading || searchLoading)"

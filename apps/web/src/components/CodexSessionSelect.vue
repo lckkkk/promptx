@@ -96,9 +96,15 @@ function getOptionClass(selected) {
         :class="getOptionClass(selected)"
         @click="select"
       >
-        <div class="flex items-start gap-3">
+        <div class="flex items-center gap-3">
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2 text-sm">
+            <div class="flex items-center gap-2 text-sm sm:hidden">
+              <span class="min-w-0 flex-1 truncate font-medium text-[var(--theme-textPrimary)]">
+                {{ getSessionTitle(option) }}
+              </span>
+            </div>
+
+            <div class="hidden items-center gap-2 text-sm sm:flex">
               <span class="min-w-0 flex-1 truncate">
                 <span class="font-medium text-[var(--theme-textPrimary)]">{{ getSessionTitle(option) }}</span>
                 <span class="theme-muted-text ml-2 font-mono text-[11px]">{{ getSessionCwd(option) }}</span>
@@ -114,7 +120,7 @@ function getOptionClass(selected) {
 
           <Check
             v-if="selected"
-            class="mt-0.5 h-4 w-4 shrink-0 text-[var(--theme-textSecondary)]"
+            class="h-4 w-4 shrink-0 text-[var(--theme-textSecondary)]"
           />
         </div>
       </button>
