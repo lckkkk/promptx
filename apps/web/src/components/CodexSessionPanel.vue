@@ -6,6 +6,8 @@ import {
   ChevronUp,
   CircleAlert,
   CircleStop,
+  Eye,
+  EyeOff,
   FileDiff,
   Image as ImageIcon,
   LoaderCircle,
@@ -99,6 +101,7 @@ const {
   refreshSessionsForSelection,
   selectedSessionId,
   sending,
+  showProcessLogs,
   stopping,
   hasTurnSummary,
   hasNewerMessages,
@@ -107,6 +110,7 @@ const {
   showManager,
   sortedSessions,
   stopSending,
+  toggleProcessLogs,
   transcriptRef,
   turns,
   workspaces,
@@ -305,6 +309,18 @@ defineExpose({
 
           <div class="flex shrink-0 items-center gap-1.5">
             <button
+              type="button"
+              class="tool-button inline-flex h-9 w-9 items-center justify-center whitespace-nowrap px-0 py-0 text-xs"
+              :class="showProcessLogs ? 'tool-button-accent-subtle' : ''"
+              :aria-pressed="showProcessLogs ? 'true' : 'false'"
+              :aria-label="showProcessLogs ? t('sessionPanel.hideProcessToggle') : t('sessionPanel.showProcessToggle')"
+              :title="showProcessLogs ? t('sessionPanel.hideProcessToggle') : t('sessionPanel.showProcessToggle')"
+              @click="toggleProcessLogs"
+            >
+              <Eye v-if="showProcessLogs" class="h-4 w-4" />
+              <EyeOff v-else class="h-4 w-4" />
+            </button>
+            <button
               v-if="diffSupported"
               type="button"
               class="tool-button inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
@@ -419,7 +435,7 @@ defineExpose({
             </div>
           </div>
 
-          <div class="flex justify-start">
+          <div v-if="showProcessLogs" class="flex justify-start">
             <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm px-4 py-3" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span>{{ t('sessionPanel.processTitle') }}</span>
@@ -549,12 +565,14 @@ defineExpose({
             </div>
           </div>
         </div>
+
       </div>
 
       <div class="pointer-events-none absolute bottom-1 right-1 z-10 flex flex-col items-end gap-1.5 sm:bottom-3 sm:right-3">
         <button
           v-if="hasNewerMessages"
           type="button"
+          :class="sending ? 'mb-10 sm:mb-8' : ''"
           class="tool-button pointer-events-auto inline-flex items-center gap-1.5 border-[var(--theme-borderStrong)] bg-[var(--theme-appOverlay)] px-2.5 py-1.5 text-[11px] shadow-sm backdrop-blur"
           @click="scrollToBottom"
         >

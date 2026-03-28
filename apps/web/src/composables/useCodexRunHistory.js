@@ -10,6 +10,43 @@ import {
 const FALLBACK_RUN_POLL_INTERVAL_MS = 1800
 const FALLBACK_SESSION_POLL_INTERVAL_MS = 7200
 
+export function buildTurnVisibleSnapshot(turn = {}, showProcessLogs = true) {
+  const normalized = {
+    id: String(turn?.runId || turn?.id || '').trim(),
+    prompt: String(turn?.prompt || '').trim(),
+    promptBlocks: Array.isArray(turn?.promptBlocks)
+      ? turn.promptBlocks.map((item) => ({
+          type: String(item?.type || '').trim(),
+          content: String(item?.content || ''),
+        }))
+      : [],
+    responseMessage: String(turn?.responseMessage || ''),
+    errorMessage: String(turn?.errorMessage || ''),
+  }
+
+  if (showProcessLogs) {
+    return {
+      ...normalized,
+      status: String(turn?.status || '').trim(),
+      updatedAt: String(turn?.updatedAt || ''),
+      eventCount: Math.max(0, Number(turn?.eventCount) || 0),
+      lastEventSeq: Math.max(0, Number(turn?.lastEventSeq) || 0),
+    }
+  }
+
+  return normalized
+}
+
+export function hasVisibleTranscriptChange(previousTurn = null, nextTurn = null, showProcessLogs = true) {
+  return JSON.stringify(buildTurnVisibleSnapshot(previousTurn, showProcessLogs))
+    !== JSON.stringify(buildTurnVisibleSnapshot(nextTurn, showProcessLogs))
+}
+
+export function buildRunFingerprintForTranscript(items = [], showProcessLogs = true) {
+  const runs = Array.isArray(items) ? items : []
+  return JSON.stringify(runs.map((item) => buildTurnVisibleSnapshot(item, showProcessLogs)))
+}
+
 function createEmptyTurnSummaryState() {
   return {
     commandCount: 0,
@@ -38,6 +75,7 @@ export function useCodexRunHistory(options = {}) {
     mergeSessionRecord,
     mergeSession,
     loadSessions,
+    showProcessLogs,
   } = options
 
   let turnId = 0
@@ -46,6 +84,7 @@ export function useCodexRunHistory(options = {}) {
   let runsLoadTaskSlug = ''
   let runPollTimer = null
   let lastRunFingerprint = ''
+  let lastRunFingerprintIncludesProcess = Boolean(showProcessLogs?.value)
   let lastFallbackSessionPollAt = 0
   const runEventLoadPromises = new Map()
 
@@ -166,6 +205,7 @@ export function useCodexRunHistory(options = {}) {
 
     const requestPromise = (async () => {
       try {
+        const previousVisibleSnapshot = buildTurnVisibleSnapshot(currentTurn, Boolean(showProcessLogs?.value))
         const payload = await listCodexRunEvents(runId, {
           limit: 5000,
         })
@@ -183,8 +223,10 @@ export function useCodexRunHistory(options = {}) {
           return Array.isArray(currentTurn?.events) ? currentTurn.events : []
         }
 
+        const hadVisibleChange = JSON.stringify(previousVisibleSnapshot)
+          !== JSON.stringify(buildTurnVisibleSnapshot(appliedTurn, Boolean(showProcessLogs?.value)))
         turns.value = [...turns.value]
-        if (props.active && turns.value.at(-1)?.runId === runId) {
+        if (hadVisibleChange && props.active && turns.value.at(-1)?.runId === runId) {
           scheduleScrollToBottom()
         }
         return appliedTurn.events
@@ -213,6 +255,7 @@ export function useCodexRunHistory(options = {}) {
     }
 
     const turn = turns.value[turnIndex]
+    const previousVisibleSnapshot = buildTurnVisibleSnapshot(turn, Boolean(showProcessLogs?.value))
     const didApply = applyRunEventToTurn(turn, event, nextLogIdValue, (session) => {
       mergeSession(session, { preserveRunning: true })
     })
@@ -220,9 +263,13 @@ export function useCodexRunHistory(options = {}) {
       return true
     }
 
+    const hadVisibleChange = JSON.stringify(previousVisibleSnapshot)
+      !== JSON.stringify(buildTurnVisibleSnapshot(turn, Boolean(showProcessLogs?.value)))
     turns.value = [...turns.value]
     syncRunningStateFromTurns()
-    scheduleScrollToBottom()
+    if (hadVisibleChange) {
+      scheduleScrollToBottom()
+    }
     return true
   }
 
@@ -300,16 +347,17 @@ export function useCodexRunHistory(options = {}) {
           events: 'latest',
         })
         const items = payload.items || []
-        const fingerprint = JSON.stringify(items.map((item) => ({
-          id: item.id,
-          status: item.status,
-          updatedAt: item.updatedAt,
-          eventCount: Math.max(0, Number(item.eventCount) || 0),
-        })))
-        const shouldScroll = scrollToLatest || (lastRunFingerprint && fingerprint !== lastRunFingerprint)
+        const includesProcess = Boolean(showProcessLogs?.value)
+        const fingerprint = buildRunFingerprintForTranscript(items, includesProcess)
+        const shouldScroll = scrollToLatest || (
+          lastRunFingerprint
+          && lastRunFingerprintIncludesProcess === includesProcess
+          && fingerprint !== lastRunFingerprint
+        )
 
         rebuildTurns(items)
         lastRunFingerprint = fingerprint
+        lastRunFingerprintIncludesProcess = includesProcess
         updatePollingState()
 
         const latestTurn = turns.value.at(-1) || null

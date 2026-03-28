@@ -9,6 +9,29 @@ import { useTranscriptAutoScroll } from './useTranscriptAutoScroll.js'
 import { getCurrentLocale, translate } from './useI18n.js'
 
 const SERVER_SYNC_DELAY = 150
+const PROCESS_VISIBILITY_STORAGE_KEY = 'promptx:session-panel:show-process'
+
+export function normalizeStoredProcessVisibility(value) {
+  if (value === '0' || value === 'false') {
+    return false
+  }
+  if (value === '1' || value === 'true') {
+    return true
+  }
+  return true
+}
+
+export function getStoredProcessVisibility() {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  try {
+    return normalizeStoredProcessVisibility(window.localStorage.getItem(PROCESS_VISIBILITY_STORAGE_KEY))
+  } catch {
+    return true
+  }
+}
 
 export {
   applyRunEventToTurn,
@@ -55,6 +78,7 @@ export function useCodexSessionPanel(props, emit) {
   const showManager = ref(false)
   const currentRunningRunId = ref('')
   const hasNewerMessages = ref(false)
+  const showProcessLogs = ref(getStoredProcessVisibility())
   const supportsServerEvents = typeof window !== 'undefined' && typeof window.EventSource !== 'undefined'
 
   function showToast(payload = '') {
@@ -163,6 +187,7 @@ export function useCodexSessionPanel(props, emit) {
     supportsServerEvents,
     scheduleScrollToBottom,
     resetAutoStickToBottom,
+    showProcessLogs,
     mergeSessionRecord,
     mergeSession,
     loadSessions: (...args) => loadSessions(...args),
@@ -303,9 +328,29 @@ export function useCodexSessionPanel(props, emit) {
     return 'theme-process-running'
   }
 
+  function toggleProcessLogs() {
+    showProcessLogs.value = !showProcessLogs.value
+  }
+
   function shouldShowResponse(turn) {
     return Boolean(turn.responseMessage || turn.errorMessage || turn.status === 'completed')
   }
+
+  watch(
+    showProcessLogs,
+    (value) => {
+      if (typeof window === 'undefined') {
+        return
+      }
+
+      try {
+        window.localStorage.setItem(PROCESS_VISIBILITY_STORAGE_KEY, value ? 'true' : 'false')
+      } catch {
+        // ignore storage failures
+      }
+    },
+    { immediate: true }
+  )
 
   watch(
     sending,
@@ -473,12 +518,14 @@ export function useCodexSessionPanel(props, emit) {
     refreshSessionsForSelection,
     selectedSessionId,
     sending,
+    showProcessLogs,
     stopping,
     sessionError,
     shouldShowResponse,
     showManager,
     sortedSessions,
     stopSending,
+    toggleProcessLogs,
     hasNewerMessages,
     transcriptRef,
     turns,

@@ -10,14 +10,43 @@ import {
   formatElapsedDuration,
   formatCodexIssueMessage,
   formatCodexEvent,
+  getStoredProcessVisibility,
   getProcessStatus,
   getTurnSummaryDetail,
   getTurnSummaryItems,
   getTurnSummaryStatus,
   hasTurnSummary,
+  normalizeStoredProcessVisibility,
   sortSessions,
   syncTurnStateFromRun,
 } from './useCodexSessionPanel.js'
+
+test('normalizeStoredProcessVisibility defaults to showing process logs', () => {
+  assert.equal(normalizeStoredProcessVisibility(null), true)
+  assert.equal(normalizeStoredProcessVisibility(''), true)
+  assert.equal(normalizeStoredProcessVisibility('true'), true)
+  assert.equal(normalizeStoredProcessVisibility('false'), false)
+  assert.equal(normalizeStoredProcessVisibility('0'), false)
+})
+
+test('getStoredProcessVisibility reads persisted local preference', () => {
+  const originalWindow = globalThis.window
+  const storage = new Map([['promptx:session-panel:show-process', 'false']])
+
+  globalThis.window = {
+    localStorage: {
+      getItem(key) {
+        return storage.has(key) ? storage.get(key) : null
+      },
+    },
+  }
+
+  try {
+    assert.equal(getStoredProcessVisibility(), false)
+  } finally {
+    globalThis.window = originalWindow
+  }
+})
 
 test('sortSessions prioritizes running then current then updatedAt', () => {
   const sessions = sortSessions([
