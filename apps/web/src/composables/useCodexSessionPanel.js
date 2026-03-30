@@ -168,6 +168,7 @@ export function useCodexSessionPanel(props, emit) {
   const {
     applyCreatedRun,
     applyIncomingRunEvent,
+    clearRealtimeReconcileTimer,
     clearRunPollTimer,
     clearTurns,
     loadTurnEvents,
@@ -397,6 +398,7 @@ export function useCodexSessionPanel(props, emit) {
       }
 
       clearServerSyncTimer()
+      clearRealtimeReconcileTimer()
       clearRunPollTimer()
     },
     { immediate: true }
@@ -417,6 +419,7 @@ export function useCodexSessionPanel(props, emit) {
 
   onBeforeUnmount(() => {
     clearSendingTimer()
+    clearRealtimeReconcileTimer()
     clearRunPollTimer()
     clearServerSyncTimer()
     destroyTranscriptAutoScroll()

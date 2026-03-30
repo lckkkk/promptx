@@ -9,6 +9,7 @@ import {
 
 const FALLBACK_RUN_POLL_INTERVAL_MS = 1800
 const FALLBACK_SESSION_POLL_INTERVAL_MS = 7200
+const REALTIME_RECONCILE_INTERVAL_MS = 15000
 
 export function buildTurnVisibleSnapshot(turn = {}, showProcessLogs = true) {
   const normalized = {
@@ -83,6 +84,7 @@ export function useCodexRunHistory(options = {}) {
   let runsLoadPromise = null
   let runsLoadTaskSlug = ''
   let runPollTimer = null
+  let realtimeReconcileTimer = null
   let lastRunFingerprint = ''
   let lastRunFingerprintIncludesProcess = Boolean(showProcessLogs?.value)
   let lastFallbackSessionPollAt = 0
@@ -102,6 +104,13 @@ export function useCodexRunHistory(options = {}) {
     if (runPollTimer) {
       window.clearInterval(runPollTimer)
       runPollTimer = null
+    }
+  }
+
+  function clearRealtimeReconcileTimer() {
+    if (realtimeReconcileTimer) {
+      window.clearInterval(realtimeReconcileTimer)
+      realtimeReconcileTimer = null
     }
   }
 
@@ -275,7 +284,23 @@ export function useCodexRunHistory(options = {}) {
 
   function updatePollingState() {
     clearRunPollTimer()
-    if (supportsServerEvents || !props.active || !sending.value || !props.taskSlug) {
+    clearRealtimeReconcileTimer()
+    if (!props.active || !sending.value || !props.taskSlug) {
+      return
+    }
+
+    if (supportsServerEvents) {
+      realtimeReconcileTimer = window.setInterval(() => {
+        refreshRunHistory({ force: true }).catch(() => {})
+
+        const now = Date.now()
+        if (now - lastFallbackSessionPollAt < FALLBACK_SESSION_POLL_INTERVAL_MS) {
+          return
+        }
+
+        lastFallbackSessionPollAt = now
+        loadSessions({ force: true }).catch(() => {})
+      }, REALTIME_RECONCILE_INTERVAL_MS)
       return
     }
 
@@ -428,6 +453,7 @@ export function useCodexRunHistory(options = {}) {
   return {
     applyCreatedRun,
     applyIncomingRunEvent,
+    clearRealtimeReconcileTimer,
     clearRunPollTimer,
     clearTurns,
     loadTurnEvents,
