@@ -169,3 +169,77 @@ test('codex routes broadcast task updates when deleting a session with reference
     await app.close()
   }
 })
+
+test('codex routes reset session and clear related run history', async () => {
+  const broadcasts = []
+  const deletedTaskRuns = []
+  const app = Fastify()
+  registerCodexRoutes(app, {
+    broadcastServerEvent(type, payload) {
+      broadcasts.push({ type, payload })
+    },
+    clearTaskCodexSessionReferences: () => [],
+    createPromptxCodexSession: () => ({ id: 'session-1' }),
+    decorateCodexSession: (session) => ({ ...session, decorated: true }),
+    decorateCodexSessionList: (items) => items,
+    deletePromptxCodexSession: () => null,
+    deleteTaskCodexRuns(taskSlug) {
+      deletedTaskRuns.push(taskSlug)
+    },
+    getCodexRunById: () => null,
+    getPromptxCodexSessionById: () => ({ id: 'session-1' }),
+    getRunningCodexRunBySessionId: () => null,
+    getRunningCodexRunByTaskSlug: () => null,
+    isActiveRunStatus: () => false,
+    listCodexRunEvents: () => [],
+    listDirectoryPickerTree: () => ({}),
+    listPromptxCodexSessions: () => [],
+    listTaskSlugsByCodexSessionId: () => ['task-a', 'task-b'],
+    listWorkspaceSuggestions: () => [],
+    listWorkspaceTree: () => ({}),
+    resetPromptxCodexSession: () => ({ id: 'session-1', title: '项目 A' }),
+    runDispatchService: {
+      async requestRunStop() {
+        return null
+      },
+    },
+    searchDirectoryPickerEntries: () => ({}),
+    searchWorkspaceEntries: () => ({}),
+    updatePromptxCodexSession: () => null,
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/codex/sessions/session-1/reset',
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), {
+      session: {
+        id: 'session-1',
+        title: '项目 A',
+        decorated: true,
+      },
+      affectedTaskSlugs: ['task-a', 'task-b'],
+    })
+    assert.deepEqual(deletedTaskRuns, ['task-a', 'task-b'])
+    assert.deepEqual(broadcasts, [
+      {
+        type: 'sessions.changed',
+        payload: { sessionId: 'session-1' },
+      },
+      {
+        type: 'runs.changed',
+        payload: { taskSlug: 'task-a' },
+      },
+      {
+        type: 'runs.changed',
+        payload: { taskSlug: 'task-b' },
+      },
+    ])
+  } finally {
+    await app.close()
+  }
+})

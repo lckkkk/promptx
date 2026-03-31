@@ -80,6 +80,12 @@ export function deleteCodexSession(sessionId) {
   })
 }
 
+export function resetCodexSession(sessionId) {
+  return request(`/api/codex/sessions/${encodeURIComponent(sessionId)}/reset`, {
+    method: 'POST',
+  })
+}
+
 export function listCodexSessionFiles(sessionId, options = {}) {
   const params = new URLSearchParams()
   const targetPath = String(options.path || '').trim()

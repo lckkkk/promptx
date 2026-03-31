@@ -851,6 +851,23 @@ export function clearTaskCodexSessionReferences(codexSessionId = '') {
   return matchedTaskSlugs
 }
 
+export function listTaskSlugsByCodexSessionId(codexSessionId = '') {
+  const normalizedSessionId = String(codexSessionId || '').trim()
+  if (!normalizedSessionId) {
+    return []
+  }
+
+  return all(
+    `SELECT slug
+     FROM tasks
+     WHERE codex_session_id = ?
+     ORDER BY sort_order ASC, created_at DESC, id DESC`,
+    [normalizedSessionId]
+  )
+    .map((row) => String(row?.slug || '').trim())
+    .filter(Boolean)
+}
+
 export function listAutomationEnabledTasks(limit = 200) {
   const rows = all(
     `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id,

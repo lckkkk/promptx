@@ -286,6 +286,26 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   return getPromptxCodexSessionById(existing.id)
 }
 
+export function resetPromptxCodexSession(sessionId) {
+  const existing = getPromptxCodexSessionById(sessionId)
+  if (!existing) {
+    return null
+  }
+
+  const updatedAt = new Date().toISOString()
+
+  transaction(() => {
+    run(
+      `UPDATE codex_sessions
+       SET codex_thread_id = '', engine_session_id = '', engine_thread_id = '', engine_meta_json = '{}', updated_at = ?
+       WHERE id = ?`,
+      [updatedAt, existing.id]
+    )
+  })
+
+  return getPromptxCodexSessionById(existing.id)
+}
+
 export function deletePromptxCodexSession(sessionId) {
   const existing = getPromptxCodexSessionById(sessionId)
   if (!existing) {

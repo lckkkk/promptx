@@ -61,15 +61,19 @@ function registerCodexRoutes(app, options = {}) {
     decorateCodexSession,
     decorateCodexSessionList,
     deletePromptxCodexSession,
+    deleteTaskCodexRuns = () => {},
     getCodexRunById,
     getPromptxCodexSessionById,
     getRunningCodexRunBySessionId,
+    getRunningCodexRunByTaskSlug = () => null,
     isActiveRunStatus,
     listCodexRunEvents,
     listDirectoryPickerTree,
     listPromptxCodexSessions,
+    listTaskSlugsByCodexSessionId = () => [],
     listWorkspaceSuggestions,
     listWorkspaceTree,
+    resetPromptxCodexSession = () => null,
     runDispatchService,
     searchDirectoryPickerEntries,
     searchWorkspaceEntries,
@@ -141,6 +145,48 @@ function registerCodexRoutes(app, options = {}) {
       sessionId: session.id,
     })
     return decorateCodexSession(session)
+  })
+
+  app.post('/api/codex/sessions/:sessionId/reset', async (request, reply) => {
+    const sessionId = String(request.params.sessionId || '').trim()
+    if (getRunningCodexRunBySessionId(sessionId)) {
+      return reply.code(409).send({
+        messageKey: 'errors.currentProjectRunning',
+        message: '当前项目正在执行中，请先停止后再新建会话。',
+      })
+    }
+
+    const affectedTaskSlugs = listTaskSlugsByCodexSessionId(sessionId)
+    const runningTaskSlug = affectedTaskSlugs.find((taskSlug) => getRunningCodexRunByTaskSlug(taskSlug))
+    if (runningTaskSlug) {
+      return reply.code(409).send({
+        messageKey: 'errors.currentProjectRunning',
+        message: '当前项目正在执行中，请先停止后再新建会话。',
+      })
+    }
+
+    const session = resetPromptxCodexSession(sessionId)
+    if (!session) {
+      return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
+    }
+
+    affectedTaskSlugs.forEach((taskSlug) => {
+      deleteTaskCodexRuns(taskSlug)
+    })
+
+    broadcastServerEvent('sessions.changed', {
+      sessionId: session.id,
+    })
+    affectedTaskSlugs.forEach((taskSlug) => {
+      broadcastServerEvent('runs.changed', {
+        taskSlug,
+      })
+    })
+
+    return {
+      session: decorateCodexSession(session),
+      affectedTaskSlugs,
+    }
   })
 
   app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {

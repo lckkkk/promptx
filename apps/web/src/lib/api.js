@@ -37,6 +37,7 @@ export {
   listCodexSessionFiles,
   listCodexSessions,
   listCodexWorkspaces,
+  resetCodexSession,
   searchCodexSessionFiles,
   stopCodexRun,
   streamCodexRun,

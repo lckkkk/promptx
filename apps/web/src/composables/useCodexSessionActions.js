@@ -5,6 +5,7 @@ import {
   deleteCodexSession,
   listCodexSessions,
   listCodexWorkspaces,
+  resetCodexSession,
   stopCodexRun,
   updateCodexSession,
 } from '../lib/api.js'
@@ -243,6 +244,38 @@ export function useCodexSessionActions(options = {}) {
     }
   }
 
+  async function handleResetSession(sessionId) {
+    const targetId = String(sessionId || '').trim()
+    if (!targetId) {
+      return null
+    }
+
+    managerBusy.value = true
+    sessionError.value = ''
+
+    try {
+      const result = await resetCodexSession(targetId)
+      if (result?.session) {
+        mergeSession(result.session)
+      }
+      markFallbackSessionPollNow()
+      await Promise.all([
+        refreshRunHistory({ force: true }),
+        loadSessions({ force: true }),
+      ])
+      showToast?.({
+        message: translate('projectManager.sessionReset'),
+        type: 'success',
+      })
+      return result
+    } catch (err) {
+      sessionError.value = err.message
+      throw err
+    } finally {
+      managerBusy.value = false
+    }
+  }
+
   async function handleSend() {
     if (!props.taskSlug || !hasPrompt.value || sending.value || stopping.value) {
       return false
@@ -341,6 +374,7 @@ export function useCodexSessionActions(options = {}) {
     closeManager,
     handleCreateSession,
     handleDeleteSession,
+    handleResetSession,
     handleSelectSession,
     handleSend,
     handleUpdateSession,

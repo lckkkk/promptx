@@ -86,6 +86,7 @@ const {
   getTurnSummaryStatus,
   handleCreateSession,
   handleDeleteSession,
+  handleResetSession,
   handleSelectSession,
   handleSend,
   handleTranscriptScroll,
@@ -289,6 +290,7 @@ defineExpose({
       :on-create="handleCreateSession"
       :on-update="handleUpdateSession"
       :on-delete="handleDeleteSession"
+      :on-reset="handleResetSession"
       @close="closeManager"
       @project-created="emit('project-created', $event)"
       @select-session="handleSelectSession"

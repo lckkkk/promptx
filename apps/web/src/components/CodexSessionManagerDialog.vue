@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   CircleAlert,
+  RotateCcw,
   PencilLine,
   Trash2,
 } from 'lucide-vue-next'
@@ -70,6 +71,10 @@ const props = defineProps({
     type: Function,
     default: null,
   },
+  onReset: {
+    type: Function,
+    default: null,
+  },
 })
 
 const emit = defineEmits(['close', 'project-created', 'select-session'])
@@ -87,7 +92,9 @@ const error = ref('')
 const creating = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
+const resetting = ref(false)
 const showDeleteDialog = ref(false)
+const showResetDialog = ref(false)
 const showDirectoryPicker = ref(false)
 const threadIdCopied = ref(false)
 const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
@@ -104,7 +111,7 @@ const activeSessionRunning = computed(() => Boolean(activeSession.value && isSes
 const canEditCwd = computed(() => !activeSession.value?.started)
 const canEditEngine = computed(() => !activeSession.value?.started)
 const canEditSessionId = computed(() => !activeSession.value?.started)
-const busy = computed(() => props.loading || creating.value || saving.value || deleting.value)
+const busy = computed(() => props.loading || creating.value || saving.value || deleting.value || resetting.value)
 const activeFormSessionId = computed(() => String(form.sessionId || '').trim())
 const workspaceSuggestions = computed(() => {
   const seen = new Set()
@@ -362,6 +369,7 @@ function updateFormSessionId(value) {
 function initializeDialog() {
   error.value = ''
   showDeleteDialog.value = false
+  showResetDialog.value = false
   threadIdCopied.value = false
   mobileDetailTab.value = 'basic'
   mobileView.value = isMobileLayout.value ? 'list' : 'detail'
@@ -567,6 +575,30 @@ async function handleDelete() {
   }
 }
 
+async function handleReset() {
+  if (!activeSession.value || resetting.value) {
+    return
+  }
+
+  const resettingSessionId = activeSession.value.id
+  error.value = ''
+  resetting.value = true
+
+  try {
+    const result = await props.onReset?.(resettingSessionId)
+    showResetDialog.value = false
+
+    const nextSession = result?.session || props.sessions.find((session) => session.id === resettingSessionId) || null
+    if (nextSession?.id) {
+      openEditMode(nextSession.id)
+    }
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    resetting.value = false
+  }
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -582,6 +614,7 @@ watch(
 
     showDirectoryPicker.value = false
     showDeleteDialog.value = false
+    showResetDialog.value = false
     threadIdCopied.value = false
     error.value = ''
   },
@@ -644,6 +677,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <ConfirmDialog
+    :open="showResetDialog"
+    :title="t('projectManager.confirmResetTitle')"
+    :description="activeSession
+      ? t('projectManager.confirmResetDescription', { title: activeSession.title || t('projectManager.untitledProject') })
+      : ''"
+    :confirm-text="t('projectManager.confirmReset')"
+    :cancel-text="t('projectManager.keep')"
+    :loading="resetting"
+    @cancel="showResetDialog = false"
+    @confirm="handleReset"
+  />
   <ConfirmDialog
     :open="showDeleteDialog"
     :title="t('projectManager.confirmDeleteTitle')"
@@ -745,6 +790,16 @@ onBeforeUnmount(() => {
 
             <div class="theme-divider mt-6 flex flex-col gap-3 border-t border-dashed pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div class="flex flex-wrap items-center gap-2">
+                <button
+                  v-if="mode === 'edit' && activeSession"
+                  type="button"
+                  class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
+                  :disabled="busy || activeSessionRunning"
+                  @click="showResetDialog = true"
+                >
+                  <RotateCcw class="h-4 w-4" />
+                  <span>{{ resetting ? t('projectManager.resettingSession') : t('projectManager.newSession') }}</span>
+                </button>
                 <button
                   v-if="mode === 'edit' && activeSession"
                   type="button"
@@ -894,6 +949,15 @@ onBeforeUnmount(() => {
                     @click="handleSubmit"
                   >
                     {{ desktopSubmitLabel }}
+                  </button>
+                  <button
+                    v-if="mode === 'edit' && activeSession"
+                    type="button"
+                    class="tool-button w-full px-3 py-2 text-sm"
+                    :disabled="busy || activeSessionRunning"
+                    @click="showResetDialog = true"
+                  >
+                    {{ resetting ? t('projectManager.resettingSession') : t('projectManager.newSession') }}
                   </button>
                   <button
                     v-if="mode === 'edit' && activeSession"
