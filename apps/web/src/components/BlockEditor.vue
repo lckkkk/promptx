@@ -135,6 +135,7 @@ const blocks = computed(() => props.modelValue)
 const mentionSessionId = computed(() => props.codexSessionId)
 const activeIndex = ref(0)
 const textareas = ref([])
+const textDraftValueMap = ref({})
 const composingBlockIndex = ref(-1)
 const focusedBlockIndex = ref(-1)
 const surfaceRef = ref(null)
@@ -263,12 +264,56 @@ function setBlocks(nextBlocks) {
   emit('update:modelValue', normalizeBlocksWithAnchors(nextBlocks))
 }
 
+function getTextDraftKey(block = {}, index = -1) {
+  return String(block?.clientId || block?.id || `text-${index}`)
+}
+
+function setTextDraftValue(index, value = '', block = blocks.value[index]) {
+  const key = getTextDraftKey(block, index)
+  textDraftValueMap.value = {
+    ...textDraftValueMap.value,
+    [key]: String(value ?? ''),
+  }
+}
+
+function getTextDraftValue(block = {}, index = -1) {
+  const key = getTextDraftKey(block, index)
+  if (Object.prototype.hasOwnProperty.call(textDraftValueMap.value, key)) {
+    return textDraftValueMap.value[key]
+  }
+
+  return String(block?.content || '')
+}
+
+function syncTextDraftValues(nextBlocks = []) {
+  const normalizedBlocks = Array.isArray(nextBlocks) ? nextBlocks : []
+  const nextDraftMap = {}
+
+  normalizedBlocks.forEach((block, index) => {
+    if (!isTextLikeBlock(block)) {
+      return
+    }
+
+    const key = getTextDraftKey(block, index)
+    const element = textareas.value[index]
+    if (isComposing(index) && element) {
+      nextDraftMap[key] = String(element.value || '')
+      return
+    }
+
+    nextDraftMap[key] = String(block?.content || '')
+  })
+
+  textDraftValueMap.value = nextDraftMap
+}
+
 function setTextRef(element, index) {
   if (element) {
     if (textareas.value[index] === element) {
       return
     }
     textareas.value[index] = element
+    element.value = getTextDraftValue(blocks.value[index], index)
     resizeTextarea(element)
     return
   }
@@ -282,9 +327,14 @@ function resizeTextarea(element, options = {}) {
 
   const {
     allowShrink = true,
+    preserveContainerScroll = true,
     preserveViewport = true,
     preserveSelection = true,
   } = options
+  const container = contentRef.value
+  const containerScrollTop = preserveContainerScroll && container
+    ? container.scrollTop
+    : null
   const scrollX = window.scrollX
   const scrollY = window.scrollY
   const selectionStart = element.selectionStart
@@ -301,6 +351,9 @@ function resizeTextarea(element, options = {}) {
 
   if (preserveSelection && isActive && selectionStart !== null && selectionEnd !== null) {
     element.setSelectionRange(selectionStart, selectionEnd)
+  }
+  if (container && containerScrollTop !== null && Math.abs(container.scrollTop - containerScrollTop) >= 1) {
+    container.scrollTop = containerScrollTop
   }
   if (preserveViewport && (window.scrollX !== scrollX || window.scrollY !== scrollY)) {
     window.scrollTo(scrollX, scrollY)
@@ -561,6 +614,7 @@ function placeCursor(index, position = null, options = {}) {
 
 function updateText(index, content) {
   lastInputAt.value = Date.now()
+  setTextDraftValue(index, content)
   const nextBlocks = blocks.value.map((block, itemIndex) =>
     itemIndex === index ? { ...block, content } : block
   )
@@ -574,6 +628,7 @@ function syncTextareaValueToBlock(index, value = '') {
   }
 
   const nextContent = String(value ?? '')
+  setTextDraftValue(index, nextContent, current)
   if (nextContent === current.content) {
     return false
   }
@@ -1147,6 +1202,16 @@ function handleSurfaceClick(event) {
 }
 
 function handleTextInput(index, event) {
+  if (event?.isComposing || isComposing(index)) {
+    resizeTextarea(event.target, {
+      allowShrink: false,
+      preserveSelection: false,
+      preserveViewport: false,
+    })
+    syncMentionState(index, event.target)
+    return
+  }
+
   lastInputAt.value = Date.now()
   const mentionActive = mentionState.value.open && mentionState.value.blockIndex === index
   resizeTextarea(event.target, mentionActive
@@ -1170,14 +1235,30 @@ function handleTextCompositionStart(index) {
 
 function handleTextCompositionUpdate(index, event) {
   lastInputAt.value = Date.now()
-  syncTextareaValueToBlock(index, event.target.value)
-  handleTextInput(index, event)
+  resizeTextarea(event.target, {
+    allowShrink: false,
+    preserveSelection: false,
+    preserveViewport: false,
+  })
+  syncMentionState(index, event.target)
 }
 
 function handleTextCompositionEnd(index, event) {
   lastInputAt.value = Date.now()
-  syncTextareaValueToBlock(index, event.target.value)
+  setTextDraftValue(index, event.target.value)
   composingBlockIndex.value = -1
+  syncTextareaValueToBlock(index, event.target.value)
+  handleTextInput(index, event)
+}
+
+function handleTextModelInput(index, event) {
+  if (event?.isComposing || isComposing(index)) {
+    handleTextInput(index, event)
+    return
+  }
+
+  setTextDraftValue(index, event.target.value)
+  updateText(index, event.target.value)
   handleTextInput(index, event)
 }
 
@@ -1355,6 +1436,7 @@ watch(
   () => props.modelValue,
   (value) => {
     const normalized = normalizeBlocksWithAnchors(value)
+    syncTextDraftValues(normalized)
     if (!areBlocksEquivalent(normalized, value)) {
       emit('update:modelValue', normalized)
     }
@@ -1445,12 +1527,12 @@ defineExpose({
           <textarea
             :ref="(element) => setTextRef(element, index)"
             rows="1"
-            :value="block.content"
+            :value="getTextDraftValue(block, index)"
             class="w-full resize-none overflow-hidden border-0 bg-transparent p-0 pr-12 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
             :placeholder="index === 0 ? t('blockEditor.placeholderFirst') : t('blockEditor.placeholderNext')"
             @focus="handleTextFocus(index); handleTextFocusState(index)"
             @blur="handleTextBlurState(index)"
-            @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
+            @input="handleTextModelInput(index, $event)"
             @compositionstart="handleTextCompositionStart(index)"
             @compositionupdate="handleTextCompositionUpdate(index, $event)"
             @compositionend="handleTextCompositionEnd(index, $event)"
@@ -1500,12 +1582,12 @@ defineExpose({
             v-else
             :ref="(element) => setTextRef(element, index)"
             rows="1"
-            :value="block.content"
+            :value="getTextDraftValue(block, index)"
             class="w-full resize-none overflow-hidden border-0 bg-transparent px-4 py-4 text-[15px] leading-8 text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
             :placeholder="t('blockEditor.emptyImportPlaceholder')"
             @focus="handleTextFocus(index); handleTextFocusState(index)"
             @blur="handleTextBlurState(index)"
-            @input="updateText(index, $event.target.value); handleTextInput(index, $event)"
+            @input="handleTextModelInput(index, $event)"
             @compositionstart="handleTextCompositionStart(index)"
             @compositionupdate="handleTextCompositionUpdate(index, $event)"
             @compositionend="handleTextCompositionEnd(index, $event)"
