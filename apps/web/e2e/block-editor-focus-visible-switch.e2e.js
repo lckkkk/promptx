@@ -5,6 +5,7 @@ import { createTask, deleteTask, updateTask } from '../../server/src/repository.
 
 import {
   ensurePromptxE2EStack,
+  focusTiptapBlock,
   shutdownPromptxE2EStack,
 } from './helpers.js'
 
@@ -71,20 +72,16 @@ test('可视区域内从文本A切到文本C时，编辑区不应滚动', async 
     await page.waitForSelector('aside article', { timeout: 30000 })
     await page.locator('aside article', { hasText: task.title }).first().click()
     await page.waitForFunction(() => {
-      const values = Array.from(document.querySelectorAll('textarea')).map((item) => item.value || '')
+      const values = Array.from(document.querySelectorAll('[data-promptx-node="text"] [data-promptx-node-content="text"]'))
+        .map((item) => item.textContent || '')
       return values.some((value) => value.includes('文本A')) && values.some((value) => value.includes('文本C'))
     }, { timeout: 15000 })
 
-    const textareas = page.locator('textarea')
-    await textareas.first().waitFor()
-    const textA = textareas.nth(6)
-    const textC = textareas.nth(7)
-
     const prepareState = await page.evaluate(() => {
-      const container = document.querySelector('section.panel.relative.flex.h-full.min-h-0.flex-col.overflow-hidden .flex-1.overflow-y-auto.px-5.py-5')
-      const textareas = Array.from(document.querySelectorAll('textarea'))
-      const textA = textareas.find((item) => item.value.includes('文本A'))
-      const textC = textareas.find((item) => item.value.includes('文本C'))
+      const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
+      const textBlocks = Array.from(document.querySelectorAll('[data-promptx-node="text"]'))
+      const textA = textBlocks.find((item) => item.textContent.includes('文本A'))
+      const textC = textBlocks.find((item) => item.textContent.includes('文本C'))
 
       if (!container || !textA || !textC) {
         return { ok: false }
@@ -129,12 +126,6 @@ test('可视区域内从文本A切到文本C时，编辑区不应滚动', async 
         visibleA: rectA.top >= containerRect.top + 8 && rectA.bottom <= containerRect.bottom - 8,
         visibleC: rectC.top >= containerRect.top + 8 && rectC.bottom <= containerRect.bottom - 8,
         scrollTop: container.scrollTop,
-        rectATop: rectA.top,
-        rectABottom: rectA.bottom,
-        rectCTop: rectC.top,
-        rectCBottom: rectC.bottom,
-        containerTop: containerRect.top,
-        containerBottom: containerRect.bottom,
       }
     })
 
@@ -144,17 +135,17 @@ test('可视区域内从文本A切到文本C时，编辑区不应滚动', async 
       `A/C 未同时可见：${JSON.stringify(prepareState)}`
     )
 
-    await textA.click()
+    await focusTiptapBlock(page, { index: 6 })
     await page.waitForTimeout(150)
     const scrollAfterFocusA = await page.evaluate(() => {
-      const container = document.querySelector('section.panel.relative.flex.h-full.min-h-0.flex-col.overflow-hidden .flex-1.overflow-y-auto.px-5.py-5')
+      const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
       return container ? Math.round(container.scrollTop) : -1
     })
 
-    await textC.click()
+    await focusTiptapBlock(page, { index: 7 })
     await page.waitForTimeout(250)
     const scrollAfterFocusC = await page.evaluate(() => {
-      const container = document.querySelector('section.panel.relative.flex.h-full.min-h-0.flex-col.overflow-hidden .flex-1.overflow-y-auto.px-5.py-5')
+      const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
       return container ? Math.round(container.scrollTop) : -1
     })
 

@@ -4,7 +4,10 @@ import { chromium } from 'playwright'
 
 import {
   createTranscriptFixture,
+  focusTiptapBlock,
   openWorkbenchTask,
+  readTiptapBlockText,
+  readTiptapSelectionState,
   shutdownPromptxE2EStack,
   updateTaskViaApi,
 } from './helpers.js'
@@ -35,11 +38,9 @@ test('聚焦编辑时，服务端刷新不会覆盖本地输入', async (t) => {
   try {
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.waitFor()
-    await textarea.click()
-    await textarea.press('End')
-    await textarea.type(' 本地新增-聚焦态')
+    await page.locator('.ProseMirror').first().waitFor()
+    await focusTiptapBlock(page, { index: 0, position: 'end' })
+    await page.keyboard.insertText(' 本地新增-聚焦态')
 
     await updateTaskViaApi(fixture.task.slug, {
       blocks: buildTextBlocks('服务端覆盖内容-聚焦态'),
@@ -47,7 +48,7 @@ test('聚焦编辑时，服务端刷新不会覆盖本地输入', async (t) => {
 
     await page.waitForTimeout(1200)
 
-    const value = await textarea.inputValue()
+    const value = await readTiptapBlockText(page, { index: 0 })
     assert.match(value, /本地新增-聚焦态/)
     assert.doesNotMatch(value, /服务端覆盖内容-聚焦态/)
   } finally {
@@ -72,11 +73,9 @@ test('刚输入后短暂失焦时，服务端刷新不会覆盖本地输入', as
   try {
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.waitFor()
-    await textarea.click()
-    await textarea.press('End')
-    await textarea.type(' 本地新增-失焦保护')
+    await page.locator('.ProseMirror').first().waitFor()
+    await focusTiptapBlock(page, { index: 0, position: 'end' })
+    await page.keyboard.insertText(' 本地新增-失焦保护')
     await page.evaluate(() => {
       document.activeElement?.blur?.()
     })
@@ -87,7 +86,7 @@ test('刚输入后短暂失焦时，服务端刷新不会覆盖本地输入', as
 
     await page.waitForTimeout(900)
 
-    const value = await textarea.inputValue()
+    const value = await readTiptapBlockText(page, { index: 0 })
     assert.match(value, /本地新增-失焦保护/)
     assert.doesNotMatch(value, /服务端覆盖内容-失焦态/)
   } finally {
@@ -112,8 +111,7 @@ test('真正空闲后，服务端刷新仍可同步到编辑区', async (t) => {
   try {
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.waitFor()
+    await page.locator('.ProseMirror').first().waitFor()
     await page.evaluate(() => {
       document.activeElement?.blur?.()
     })
@@ -125,7 +123,7 @@ test('真正空闲后，服务端刷新仍可同步到编辑区', async (t) => {
 
     await page.waitForTimeout(1200)
 
-    const value = await textarea.inputValue()
+    const value = await readTiptapBlockText(page, { index: 0 })
     assert.equal(value, '服务端新内容-空闲同步')
   } finally {
     await browser.close()
@@ -149,11 +147,9 @@ test('聚焦编辑且自动保存完成后，服务端刷新仍不会覆盖本�
   try {
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.waitFor()
-    await textarea.click()
-    await textarea.press('End')
-    await textarea.type(' 本地新增-自动保存后')
+    await page.locator('.ProseMirror').first().waitFor()
+    await focusTiptapBlock(page, { index: 0, position: 'end' })
+    await page.keyboard.insertText(' 本地新增-自动保存后')
 
     await page.waitForTimeout(2400)
 
@@ -163,7 +159,7 @@ test('聚焦编辑且自动保存完成后，服务端刷新仍不会覆盖本�
 
     await page.waitForTimeout(1200)
 
-    const value = await textarea.inputValue()
+    const value = await readTiptapBlockText(page, { index: 0 })
     assert.match(value, /本地新增-自动保存后/)
     assert.doesNotMatch(value, /服务端覆盖内容-自动保存后/)
   } finally {
@@ -196,12 +192,12 @@ test('长内容中间输入时，编辑区不会自动跳到底部', async (t) =
 
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textareas = page.locator('textarea')
-    await textareas.first().waitFor()
-    assert.ok((await textareas.count()) >= 5)
+    const textBlocks = page.locator('[data-promptx-node="text"]')
+    await textBlocks.first().waitFor()
+    assert.ok((await textBlocks.count()) >= 5)
 
     const beforeScrollTop = await page.evaluate(() => {
-      const container = document.querySelector('section.panel.relative.flex.h-full.min-h-0.flex-col.overflow-hidden .flex-1.overflow-y-auto.px-5.py-5')
+      const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
       if (!container) {
         return -1
       }
@@ -210,13 +206,13 @@ test('长内容中间输入时，编辑区不会自动跳到底部', async (t) =
       return container.scrollTop
     })
 
-    await textareas.nth(4).scrollIntoViewIfNeeded()
-    await textareas.nth(4).click()
-    await textareas.nth(4).type(' 中间继续输入')
+    await textBlocks.nth(4).scrollIntoViewIfNeeded()
+    await focusTiptapBlock(page, { index: 4, position: 'end' })
+    await page.keyboard.insertText(' 中间继续输入')
     await page.waitForTimeout(300)
 
     const afterScroll = await page.evaluate(() => {
-      const container = document.querySelector('section.panel.relative.flex.h-full.min-h-0.flex-col.overflow-hidden .flex-1.overflow-y-auto.px-5.py-5')
+      const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
       if (!container) {
         return { scrollTop: -1, maxScrollTop: -1 }
       }
@@ -282,25 +278,23 @@ test('删除前置 block 时，当前输入焦点与内容保持稳定', async (
 
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textareas = page.locator('textarea')
-    await textareas.first().waitFor()
-    assert.ok((await textareas.count()) >= 2)
-    const targetTextarea = textareas.nth(1)
-    await targetTextarea.scrollIntoViewIfNeeded()
-    await targetTextarea.click()
-    await targetTextarea.press('End')
-    await targetTextarea.type(' 保持焦点')
+    const textBlocks = page.locator('[data-promptx-node="text"]')
+    await textBlocks.first().waitFor()
+    assert.ok((await textBlocks.count()) >= 2)
+    await textBlocks.nth(1).scrollIntoViewIfNeeded()
+    await focusTiptapBlock(page, { index: 1, position: 'end' })
+    await page.keyboard.insertText(' 保持焦点')
 
-    await page.locator('figure .tool-button-danger-subtle').first().click({ force: true })
+    const imageBlock = page.locator('[data-promptx-node="image"]').first()
+    await imageBlock.hover()
+    await imageBlock.getByRole('button', { name: '删除' }).click()
     await page.waitForTimeout(300)
 
-    const focusedState = await page.evaluate(() => ({
-      tagName: document.activeElement?.tagName || '',
-      value: document.activeElement?.value || '',
-    }))
+    const focusedState = await readTiptapSelectionState(page)
 
-    assert.equal(focusedState.tagName, 'TEXTAREA')
-    assert.match(focusedState.value, /第二段 保持焦点/)
+    assert.match(focusedState.activeClassName, /ProseMirror/)
+    assert.equal(focusedState.blockType, 'text')
+    assert.match(focusedState.blockText, /第二段 保持焦点/)
   } finally {
     await browser.close()
   }
@@ -323,20 +317,18 @@ test('点击编辑器工具栏按钮后，继续输入不会立刻丢焦点', as
   try {
     await openWorkbenchTask(page, fixture.task.slug)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.waitFor()
-    await textarea.click()
-    await textarea.press('End')
-    await textarea.type(' 先收进代办')
+    await page.locator('.ProseMirror').first().waitFor()
+    await focusTiptapBlock(page, { index: 0, position: 'end' })
+    await page.keyboard.insertText(' 先收进代办')
 
     await page.getByRole('button', { name: '代办', exact: true }).first().click()
-    await page.keyboard.type('继续输入不会丢焦点')
+    await page.keyboard.insertText('继续输入不会丢焦点')
     await page.waitForTimeout(300)
 
-    const activeTagName = await page.evaluate(() => document.activeElement?.tagName || '')
-    const value = await textarea.inputValue()
+    const activeState = await readTiptapSelectionState(page)
+    const value = await readTiptapBlockText(page, { index: 0 })
 
-    assert.equal(activeTagName, 'TEXTAREA')
+    assert.match(activeState.activeClassName, /ProseMirror/)
     assert.equal(value, '继续输入不会丢焦点')
   } finally {
     await browser.close()

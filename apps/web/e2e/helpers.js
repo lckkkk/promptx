@@ -400,13 +400,30 @@ export async function createTranscriptFixture(options = {}) {
 export async function openWorkbenchTask(page, slug, options = {}) {
   await ensurePromptxE2EStack()
   const baseUrl = String(options.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '')
+  const editor = String(options.editor || '').trim()
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem('promptx:locale', 'zh-CN')
     } catch {
     }
   })
-  await page.goto(`${baseUrl}/?task=${encodeURIComponent(slug)}`, {
+  if (editor) {
+    await page.addInitScript((editorMode) => {
+      try {
+        window.localStorage.setItem('promptx:editor', editorMode)
+      } catch {
+      }
+    }, editor)
+  }
+
+  const searchParams = new URLSearchParams({
+    task: String(slug || ''),
+  })
+  if (editor) {
+    searchParams.set('editor', editor)
+  }
+
+  await page.goto(`${baseUrl}/?${searchParams.toString()}`, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   })
@@ -434,6 +451,128 @@ export async function updateTaskViaApi(slug, payload = {}) {
   }
 
   return response.json()
+}
+
+function resolveTiptapNodeContentSelector(type = 'text') {
+  if (type === 'imported_text') {
+    return '[data-promptx-node="imported_text"] [data-promptx-node-content="imported_text"]'
+  }
+
+  return '[data-promptx-node="text"] [data-promptx-node-content="text"]'
+}
+
+export async function focusTiptapBlock(page, options = {}) {
+  const {
+    type = 'text',
+    index = 0,
+    position = 'end',
+  } = options
+
+  await page.evaluate(({ selector, index: targetIndex, position: targetPosition }) => {
+    const nodes = Array.from(document.querySelectorAll(selector))
+    const target = nodes[targetIndex]
+    const root = document.querySelector('.ProseMirror')
+    if (!target || !root) {
+      return false
+    }
+
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return String(node.textContent || '').length
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT
+      },
+    })
+
+    let current = walker.nextNode()
+    let textNode = current
+    while (current) {
+      textNode = current
+      current = walker.nextNode()
+    }
+
+    const range = document.createRange()
+    if (textNode) {
+      const offset = targetPosition === 'start'
+        ? 0
+        : String(textNode.textContent || '').length
+      range.setStart(textNode, offset)
+    } else {
+      range.setStart(target, 0)
+    }
+    range.collapse(true)
+
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    root.focus()
+    return true
+  }, {
+    selector: resolveTiptapNodeContentSelector(type),
+    index,
+    position,
+  })
+}
+
+export async function readTiptapBlockText(page, options = {}) {
+  const {
+    type = 'text',
+    index = 0,
+  } = options
+
+  return page.evaluate(({ selector, index: targetIndex }) => {
+    const nodes = Array.from(document.querySelectorAll(selector))
+    return String(nodes[targetIndex]?.textContent || '')
+  }, {
+    selector: resolveTiptapNodeContentSelector(type),
+    index,
+  })
+}
+
+export async function readTiptapSelectionState(page) {
+  return page.evaluate(() => {
+    const selection = window.getSelection()
+    const anchorElement = selection?.anchorNode?.nodeType === Node.TEXT_NODE
+      ? selection.anchorNode.parentElement
+      : selection?.anchorNode
+    const block = anchorElement?.closest?.('[data-promptx-node]')
+    const content = block?.querySelector?.('[data-promptx-node-content]')
+
+    return {
+      activeClassName: String(document.activeElement?.className || ''),
+      blockType: String(block?.getAttribute?.('data-promptx-node') || ''),
+      blockText: String(content?.textContent || block?.textContent || ''),
+    }
+  })
+}
+
+export async function readTiptapScrollState(page) {
+  return page.evaluate(() => {
+    const container = document.querySelector('[data-promptx-editor-scroll="tiptap"]')
+    const root = document.querySelector('.ProseMirror')
+    const selection = window.getSelection()
+    const anchorElement = selection?.anchorNode?.nodeType === Node.TEXT_NODE
+      ? selection.anchorNode.parentElement
+      : selection?.anchorNode
+    const block = anchorElement?.closest?.('[data-promptx-node]')
+    const content = block?.querySelector?.('[data-promptx-node-content]')
+    const containerRect = container?.getBoundingClientRect?.() || null
+    const blockRect = block?.getBoundingClientRect?.() || null
+
+    return {
+      activeClassName: String(document.activeElement?.className || ''),
+      scrollTop: container ? Math.round(container.scrollTop) : -1,
+      maxScrollTop: container ? Math.round(Math.max(0, container.scrollHeight - container.clientHeight)) : -1,
+      visible: Boolean(
+        containerRect
+        && blockRect
+        && blockRect.top >= containerRect.top + 20
+        && blockRect.bottom <= containerRect.bottom - 20
+      ),
+      selectedBlockType: String(block?.getAttribute?.('data-promptx-node') || ''),
+      selectedBlockText: String(content?.textContent || block?.textContent || ''),
+    }
+  })
 }
 
 export async function readTranscriptState(page) {

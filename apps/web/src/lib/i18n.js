@@ -566,7 +566,7 @@ export const MESSAGES = {
       unnamedPdf: '未命名 PDF',
       expand: '展开',
       collapse: '折叠',
-      convertToText: '转普通文本',
+      convertToText: '转文本',
       emptyContent: '空内容',
       emptyImportPlaceholder: '导入内容为空',
       insertedImage: '已插入图片',

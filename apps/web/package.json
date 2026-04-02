@@ -15,6 +15,11 @@
   },
   "dependencies": {
     "@promptx/shared": "workspace:*",
+    "@tiptap/core": "^3.22.0",
+    "@tiptap/extension-paragraph": "^3.22.0",
+    "@tiptap/pm": "^3.22.0",
+    "@tiptap/starter-kit": "^3.22.0",
+    "@tiptap/vue-3": "^3.22.0",
     "lucide-vue-next": "^0.577.0",
     "markdown-it": "^14.1.1",
     "vue": "^3.5.22",

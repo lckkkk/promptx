@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import BlockEditor from './BlockEditor.vue'
+import TiptapBlockEditor from './TiptapBlockEditor.vue'
 import WorkbenchEditorActions from './WorkbenchEditorActions.vue'
 import { useI18n } from '../composables/useI18n.js'
 
@@ -116,7 +116,7 @@ defineExpose({
   >
     {{ t('workbench.loadingTaskContent') }}
   </section>
-  <BlockEditor
+  <TiptapBlockEditor
     v-else
     ref="blockEditorRef"
     v-model="blocks"
@@ -143,5 +143,5 @@ defineExpose({
         @send-request="emit('send-request')"
       />
     </template>
-  </BlockEditor>
+  </TiptapBlockEditor>
 </template>
