@@ -28,7 +28,7 @@ test('parseProcessDetailTextBlocks parses xml-like directory output', () => {
   assert.deepEqual(blocks[1]?.entries, ['base.js', 'hooks/'])
 })
 
-test('parseProcessDetailTextBlocks parses grep snippets with line numbers', () => {
+test('parseProcessDetailTextBlocks keeps grep snippets with line numbers as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'Grep: /tmp/project/file.js',
     '',
@@ -38,15 +38,11 @@ test('parseProcessDetailTextBlocks parses grep snippets with line numbers', () =
   ].join('\n'))
 
   assert.equal(blocks[0]?.type, 'meta')
-  assert.equal(blocks[1]?.type, 'code_snippet')
-  assert.deepEqual(blocks[1]?.lines, [
-    { number: '473', content: 'function startFocusFollow(index, options = {}) {' },
-    { number: '535', content: 'function placeCursor(index, position = null, options = {}) {' },
-    { number: '644', content: ' nextTick(() => placeCursor(index, 0))' },
-  ])
+  assert.equal(blocks[1]?.type, 'text')
+  assert.match(blocks[1]?.text || '', /473:function startFocusFollow/)
 })
 
-test('parseProcessDetailTextBlocks groups ripgrep-like search output by file', () => {
+test('parseProcessDetailTextBlocks keeps ripgrep-like search output as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'apps/web/src/lib/i18n.js:126:      relay: {',
     "apps/web/src/lib/i18n.js:132:        relayUrl: 'Relay 地址',",
@@ -55,26 +51,21 @@ test('parseProcessDetailTextBlocks groups ripgrep-like search output by file', (
     "apps/server/src/relayServer.js:272:    <div class=\"hint\">可通过环境变量 <code>PROMPTX_RELAY_ADMIN_TOKEN</code> 配置。</div>",
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'search_results')
-  assert.equal(blocks[0]?.fileCount, 2)
-  assert.equal(blocks[0]?.totalCount, 5)
-  assert.equal(blocks[0]?.files?.[0]?.path, 'apps/web/src/lib/i18n.js')
-  assert.deepEqual(blocks[0]?.files?.[0]?.matches?.map((item) => item.number), ['126', '132', '149'])
-  assert.equal(blocks[0]?.files?.[1]?.path, 'apps/server/src/relayServer.js')
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /apps\/web\/src\/lib\/i18n\.js:126:/)
+  assert.match(blocks[0]?.text || '', /apps\/server\/src\/relayServer\.js:264:/)
 })
 
-test('parseProcessDetailTextBlocks groups single ripgrep match into search results', () => {
+test('parseProcessDetailTextBlocks keeps single ripgrep match as text', () => {
   const blocks = parseProcessDetailTextBlocks(
     "apps/web/src/lib/i18n.js:132:        relayUrl: 'Relay 地址',"
   )
 
-  assert.equal(blocks[0]?.type, 'search_results')
-  assert.equal(blocks[0]?.fileCount, 1)
-  assert.equal(blocks[0]?.totalCount, 1)
-  assert.equal(blocks[0]?.files?.[0]?.matches?.[0]?.number, '132')
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /i18n\.js:132:/)
 })
 
-test('parseProcessDetailTextBlocks parses build failure code frames', () => {
+test('parseProcessDetailTextBlocks keeps build failure code frames as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'Build failed with 1 error:',
     '',
@@ -85,40 +76,37 @@ test('parseProcessDetailTextBlocks parses build failure code frames', () => {
     "13 │ import { Sonner } from '@/components/ui/sonner'",
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'build_error')
-  assert.equal(blocks[0]?.errorCode, 'MISSING_EXPORT')
-  assert.equal(blocks[0]?.location?.path, 'web/src/App.vue')
-  assert.deepEqual(blocks[0]?.lines, [
-    { number: '13', content: "import { Sonner } from '@/components/ui/sonner'" },
-  ])
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /\[MISSING_EXPORT\] Error:/)
+  assert.match(blocks[0]?.text || '', /web\/src\/App\.vue:13:10/)
 })
 
-test('parseProcessDetailTextBlocks parses shell-like command text as code text', () => {
+test('parseProcessDetailTextBlocks keeps shell-like command text as text', () => {
   const blocks = parseProcessDetailTextBlocks('/bin/zsh -lc "pnpm --filter web exec node --test src/composables/useCodexSessionPanel.test.js"')
 
-  assert.equal(blocks[0]?.type, 'code_text')
+  assert.equal(blocks[0]?.type, 'text')
   assert.match(blocks[0]?.text, /pnpm --filter web/)
 })
 
-test('parseProcessDetailTextBlocks parses diff stat output as code text', () => {
+test('parseProcessDetailTextBlocks keeps diff stat output as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'apps/web/src/components/ProcessDetailRenderer.vue  |  77 ++++++++-',
     'apps/web/src/lib/processDetailBlocks.js            | 176 ++++++++++++++++++++-',
     '6 files changed, 510 insertions(+), 25 deletions(-)',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'code_text')
+  assert.equal(blocks[0]?.type, 'text')
   assert.match(blocks[0]?.text, /files changed/)
 })
 
-test('parseProcessDetailTextBlocks parses git status output as code text', () => {
+test('parseProcessDetailTextBlocks keeps git status output as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'M apps/web/src/components/ProcessDetailRenderer.vue',
     'M apps/web/src/composables/codexSessionPanelTurns.js',
     '?? apps/web/src/lib/processDetailBlocks.test.js',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'code_text')
+  assert.equal(blocks[0]?.type, 'text')
   assert.match(blocks[0]?.text, /ProcessDetailRenderer/)
 })
 
@@ -128,7 +116,7 @@ test('parseProcessDetailTextBlocks keeps prose with inline flags as text', () =>
   assert.equal(blocks[0]?.type, 'text')
 })
 
-test('parseProcessDetailTextBlocks parses workspace build logs as code text', () => {
+test('parseProcessDetailTextBlocks keeps workspace build logs as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     '@muyichengshayu/promptx@0.1.30 build',
     '/Users/bravf/code/promptx',
@@ -142,11 +130,11 @@ test('parseProcessDetailTextBlocks parses workspace build logs as code text', ()
     'apps/web build: vite v5.4.21 building for production...',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'code_text')
-  assert.match(blocks[0]?.text, /workspace projects/)
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text, /pnpm -r build/)
 })
 
-test('parseProcessDetailTextBlocks parses unified diff output as code text', () => {
+test('parseProcessDetailTextBlocks keeps unified diff output as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     'diff --git a/apps/web/src/components/CodexSessionPanel.vue b/apps/web/src/components/CodexSessionPanel.vue',
     'index 32ba088..78ca751 100644',
@@ -157,11 +145,11 @@ test('parseProcessDetailTextBlocks parses unified diff output as code text', () 
     '+                    class=\"new\"',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'code_text')
+  assert.equal(blocks[0]?.type, 'text')
   assert.match(blocks[0]?.text, /^diff --git/m)
 })
 
-test('parseProcessDetailTextBlocks splits mixed prose and terminal output', () => {
+test('parseProcessDetailTextBlocks keeps mixed prose and terminal output together as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     '准备开始构建，先看一下当前输出。',
     '',
@@ -172,8 +160,8 @@ test('parseProcessDetailTextBlocks splits mixed prose and terminal output', () =
     '构建结束后继续检查。',
   ].join('\n'))
 
-  assert.deepEqual(blocks.map((block) => block.type), ['text', 'code_text', 'text'])
-  assert.match(blocks[1]?.text, /vite build/)
+  assert.deepEqual(blocks.map((block) => block.type), ['text'])
+  assert.match(blocks[0]?.text || '', /vite build/)
 })
 
 test('parseProcessDetailTextBlocks keeps leading indentation in mixed content code blocks', () => {
@@ -195,7 +183,22 @@ test('parseProcessDetailTextBlocks keeps leading indentation in mixed content co
   ].join('\n'))
 })
 
-test('parseProcessDetailTextBlocks parses numbered lines', () => {
+test('parseProcessDetailTextBlocks keeps html-like command output as text', () => {
+  const blocks = parseProcessDetailTextBlocks([
+    '</div>',
+    '',
+    '  <div v-else-if="block.type === \'bullet_list\'" class="process-detail-panel">',
+    '    <ul class="list-disc space-y-1.5 pl-5">',
+    '      <li>{{ item }}</li>',
+    '    </ul>',
+    '  </div>',
+  ].join('\n'))
+
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /<div v-else-if=/)
+})
+
+test('parseProcessDetailTextBlocks keeps numbered lines as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     '1-# Repository Guidelines',
     '2-',
@@ -204,17 +207,11 @@ test('parseProcessDetailTextBlocks parses numbered lines', () => {
     '5-- 这个项目后续默认使用中文沟通。',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'numbered_lines')
-  assert.deepEqual(blocks[0]?.items, [
-    { number: '1', content: '# Repository Guidelines' },
-    { number: '2', content: '' },
-    { number: '3', content: '## 沟通约定' },
-    { number: '4', content: '' },
-    { number: '5', content: '- 这个项目后续默认使用中文沟通。' },
-  ])
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /1-# Repository Guidelines/)
 })
 
-test('parseProcessDetailTextBlocks parses spaced numbered source lines', () => {
+test('parseProcessDetailTextBlocks keeps spaced numbered source lines as text', () => {
   const blocks = parseProcessDetailTextBlocks([
     '618\t    line-height: 1.5;',
     '',
@@ -227,14 +224,8 @@ test('parseProcessDetailTextBlocks parses spaced numbered source lines', () => {
     '622\t  .process-detail-code {',
   ].join('\n'))
 
-  assert.equal(blocks[0]?.type, 'numbered_lines')
-  assert.deepEqual(blocks[0]?.items, [
-    { number: '618', content: '    line-height: 1.5;' },
-    { number: '619', content: '    word-break: break-all;' },
-    { number: '620', content: '  }' },
-    { number: '621', content: '' },
-    { number: '622', content: '  .process-detail-code {' },
-  ])
+  assert.equal(blocks[0]?.type, 'text')
+  assert.match(blocks[0]?.text || '', /618\t    line-height: 1\.5;/)
 })
 
 test('parseProcessDetailTextBlocks parses checklist', () => {

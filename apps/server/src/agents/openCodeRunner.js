@@ -133,6 +133,41 @@ function flushBufferedText(buffer = '') {
   return tail ? [...lines, tail] : lines
 }
 
+function extractAgentTargetFromTexts(...values) {
+  const matcher = /(?:^|[\s`'"])([A-Za-z]:[\\/][^\s`'"]+\.[A-Za-z0-9]+|\/[^\s`'"]+\.[A-Za-z0-9]+|(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.[A-Za-z0-9]+)(?=$|[\s`'"])/i
+  for (const value of values) {
+    const text = String(value || '').trim()
+    if (!text) {
+      continue
+    }
+
+    const matched = text.match(matcher)
+    if (!matched?.[1]) {
+      continue
+    }
+
+    const normalized = matched[1].replace(/\\/g, '/')
+    const parts = normalized.split('/').filter(Boolean)
+    return parts[parts.length - 1] || normalized
+  }
+
+  return ''
+}
+
+function normalizeCollabAgentStatus(status = '') {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(normalized)) {
+    return 'completed'
+  }
+  if (['failed', 'error', 'errored', 'cancelled', 'canceled', 'stopped'].includes(normalized)) {
+    return 'failed'
+  }
+  if (['running', 'in_progress', 'in-progress', 'pending_init', 'pending'].includes(normalized)) {
+    return normalized === 'pending_init' ? 'pending_init' : 'running'
+  }
+  return normalized || 'pending_init'
+}
+
 function summarizeOpenCodeInput(input = {}) {
   if (!input || typeof input !== 'object') {
     return ''
@@ -295,6 +330,73 @@ export function createOpenCodeNormalizationState() {
   }
 }
 
+function isOpenCodeSubAgentTask(event = {}) {
+  const part = event?.part && typeof event.part === 'object' ? event.part : {}
+  const tool = String(part?.tool || '').trim().toLowerCase()
+  const input = part?.state?.input && typeof part.state.input === 'object'
+    ? part.state.input
+    : {}
+  return tool === 'task' && Boolean(String(input.subagent_type || '').trim())
+}
+
+function extractOpenCodeSubAgentSessionId(event = {}, output = '') {
+  const metadataSessionId = String(event?.part?.state?.metadata?.sessionId || '').trim()
+  if (metadataSessionId) {
+    return metadataSessionId
+  }
+
+  const matched = String(output || '').match(/task_id:\s*([^\s)]+)/i)
+  return matched?.[1] ? String(matched[1]).trim() : ''
+}
+
+function createOpenCodeSubAgentEvents(event = {}) {
+  const part = event?.part && typeof event.part === 'object' ? event.part : {}
+  const state = part?.state && typeof part.state === 'object' ? part.state : {}
+  const input = state?.input && typeof state.input === 'object' ? state.input : {}
+  const output = stringifyOpenCodeOutput(state?.output)
+  const sessionId = extractOpenCodeSubAgentSessionId(event, output)
+  const receiverThreadIds = sessionId ? [sessionId] : []
+  const collabPrompt = String(input.prompt || input.description || '').trim()
+  const collabStatus = normalizeCollabAgentStatus(state?.status)
+  const target = extractAgentTargetFromTexts(input.description, input.prompt, output)
+  const modelId = String(state?.metadata?.model?.modelID || '').trim()
+  const providerId = String(state?.metadata?.model?.providerID || '').trim()
+  const model = modelId
+    ? `${providerId ? `${providerId}/` : ''}${modelId}`
+    : ''
+  const agentsStates = sessionId
+    ? {
+        [sessionId]: {
+          status: collabStatus,
+          message: output,
+          title: String(input.description || part?.title || '').trim(),
+          role: String(input.subagent_type || '').trim(),
+          target,
+          model,
+        },
+      }
+    : {}
+  const spawnPayload = {
+    type: AGENT_RUN_ITEM_TYPES.COLLAB_TOOL_CALL,
+    tool: 'spawn_agent',
+    receiver_thread_ids: receiverThreadIds,
+    prompt: collabPrompt,
+    agents_states: agentsStates,
+  }
+
+  if (['completed', 'failed'].includes(collabStatus)) {
+    return [
+      createItemCompletedEvent(spawnPayload),
+      createItemCompletedEvent({
+        ...spawnPayload,
+        tool: 'wait',
+      }),
+    ]
+  }
+
+  return [createItemStartedEvent(spawnPayload)]
+}
+
 export function normalizeOpenCodeEvents(event = {}, state = createOpenCodeNormalizationState()) {
   const eventType = String(event?.type || '').trim().toLowerCase()
   const normalizedEvents = []
@@ -308,6 +410,10 @@ export function normalizeOpenCodeEvents(event = {}, state = createOpenCodeNormal
   }
 
   if (eventType === 'tool_use') {
+    if (isOpenCodeSubAgentTask(event)) {
+      return createOpenCodeSubAgentEvents(event)
+    }
+
     const command = buildOpenCodeToolCommand(event)
     const status = String(event?.part?.state?.status || '').trim().toLowerCase()
     const output = stringifyOpenCodeOutput(event?.part?.state?.output)

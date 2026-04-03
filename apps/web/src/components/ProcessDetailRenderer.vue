@@ -1,18 +1,13 @@
 <script setup>
+defineOptions({
+  name: 'ProcessDetailRenderer',
+})
+
 import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { renderCodexMarkdown } from '../lib/codexMarkdown.js'
 import { useI18n } from '../composables/useI18n.js'
-import {
-  createProcessDetailBlockKeyEntries,
-  reconcileExpandedProcessDetailKeys,
-} from '../lib/processDetailBlockKeys.js'
-
-const CODE_TEXT_PREVIEW_LINES = 12
-const CODE_LINES_PREVIEW_LIMIT = 10
-const BUILD_ERROR_PREVIEW_LIMIT = 6
-const SEARCH_FILE_PREVIEW_LIMIT = 2
-const SEARCH_MATCH_PREVIEW_LIMIT = 3
+import { createProcessDetailBlockKeyEntries } from '../lib/processDetailBlockKeys.js'
 
 const props = defineProps({
   blocks: {
@@ -30,7 +25,7 @@ const props = defineProps({
 })
 
 const { t } = useI18n()
-const expandedBlockKeys = ref(new Set())
+const expandedSubAgentMessageKeys = ref(new Set())
 
 const normalizedBlocks = computed(() => {
   const blocks = Array.isArray(props.blocks) ? props.blocks.filter(Boolean) : []
@@ -48,15 +43,21 @@ const normalizedBlocks = computed(() => {
 const blockKeyEntries = computed(() => createProcessDetailBlockKeyEntries(normalizedBlocks.value))
 const blockKeys = computed(() => blockKeyEntries.value.map((entry) => entry.key))
 
-watch(blockKeyEntries, (nextEntries, previousEntries = []) => {
-  const nextExpanded = reconcileExpandedProcessDetailKeys(
-    expandedBlockKeys.value,
-    previousEntries,
-    nextEntries
+watch(normalizedBlocks, (nextBlocks = []) => {
+  const availableKeys = new Set()
+  nextBlocks.forEach((block, blockIndex) => {
+    if (block?.type !== 'sub_agent_list') {
+      return
+    }
+
+    ;(Array.isArray(block.items) ? block.items : []).forEach((item, itemIndex) => {
+      availableKeys.add(getSubAgentMessageKey(blockIndex, item, itemIndex))
+    })
+  })
+
+  expandedSubAgentMessageKeys.value = new Set(
+    [...expandedSubAgentMessageKeys.value].filter((key) => availableKeys.has(key))
   )
-  if (nextExpanded.size !== expandedBlockKeys.value.size) {
-    expandedBlockKeys.value = nextExpanded
-  }
 }, { immediate: true })
 
 function renderMarkdown(text = '') {
@@ -122,16 +123,6 @@ function getChecklistItemStatus(item = {}) {
   return 'pending'
 }
 
-function getSearchResultVisibleMatchCount(block = {}) {
-  return (Array.isArray(block.files) ? block.files : []).reduce((sum, file) => (
-    sum + (Array.isArray(file?.matches) ? file.matches.length : 0)
-  ), 0)
-}
-
-function formatHiddenLines(count = 0) {
-  return t('processDetail.hiddenLines', { count })
-}
-
 function formatHiddenItems(count = 0) {
   return t('processDetail.hiddenItems', { count })
 }
@@ -144,139 +135,90 @@ function formatDirectoryHidden(count = 0) {
   return t('processDetail.directoryHidden', { count })
 }
 
-function formatSearchMatchCount(count = 0) {
-  return t('processDetail.searchMatchCount', { count })
-}
-
-function formatSearchFileSummary(fileCount = 0, matchCount = 0) {
-  return t('processDetail.searchFileSummary', { fileCount, matchCount })
-}
-
-function formatSearchHiddenFiles(count = 0) {
-  return t('processDetail.searchHiddenFiles', { count })
-}
-
-function formatSearchHiddenMatches(count = 0) {
-  return t('processDetail.searchHiddenMatches', { count })
-}
-
 function getBlockKey(blockIndex = 0) {
   return blockKeys.value[blockIndex] || `block-${blockIndex}`
 }
 
-function isBlockExpanded(block = {}, blockIndex = 0) {
-  return expandedBlockKeys.value.has(getBlockKey(blockIndex))
+function formatSubAgentStatus(status = '') {
+  const normalized = String(status || '').trim().toLowerCase()
+  if (normalized === 'completed') {
+    return t('processDetail.subAgentCompleted')
+  }
+  if (normalized === 'failed') {
+    return t('processDetail.subAgentFailed')
+  }
+  if (normalized === 'running') {
+    return t('processDetail.subAgentRunning')
+  }
+  if (normalized === 'pending_init') {
+    return t('processDetail.subAgentPending')
+  }
+  return t('processDetail.subAgentUnknown')
 }
 
-function toggleBlockExpanded(block = {}, blockIndex = 0) {
-  const key = getBlockKey(blockIndex)
-  const next = new Set(expandedBlockKeys.value)
+function getSubAgentDisplayTitle(item = {}) {
+  return String(item?.title || item?.target || item?.id || '').trim()
+}
+
+function getSubAgentMetaSummary(item = {}) {
+  const title = getSubAgentDisplayTitle(item)
+  const parts = []
+  const role = String(item?.role || '').trim()
+  const target = String(item?.target || '').trim()
+  const model = String(item?.model || '').trim()
+
+  if (role && role.toLowerCase() !== 'default') {
+    parts.push(role)
+  }
+  if (target && target !== title) {
+    parts.push(target)
+  }
+  if (model) {
+    parts.push(model)
+  }
+
+  return parts.join(' · ')
+}
+
+function hasSubAgentMessage(item = {}) {
+  return Boolean(String(item?.message || '').trim())
+}
+
+function getSubAgentInlinePreview(item = {}) {
+  const message = String(item?.message || '').replace(/\s+/g, ' ').trim()
+  if (message) {
+    return message
+  }
+
+  return getSubAgentMetaSummary(item)
+}
+
+function getSubAgentMessageKey(blockIndex = 0, item = {}, itemIndex = 0) {
+  return `${getBlockKey(blockIndex)}:sub-agent:${String(item?.id || item?.target || item?.title || itemIndex)}`
+}
+
+function isSubAgentMessageExpanded(blockIndex = 0, item = {}, itemIndex = 0) {
+  return expandedSubAgentMessageKeys.value.has(getSubAgentMessageKey(blockIndex, item, itemIndex))
+}
+
+function toggleSubAgentMessage(blockIndex = 0, item = {}, itemIndex = 0) {
+  const key = getSubAgentMessageKey(blockIndex, item, itemIndex)
+  const next = new Set(expandedSubAgentMessageKeys.value)
   if (next.has(key)) {
     next.delete(key)
   } else {
     next.add(key)
   }
-  expandedBlockKeys.value = next
+  expandedSubAgentMessageKeys.value = next
 }
 
-function getCodeTextLines(block = {}) {
-  return String(block?.text || '').split('\n')
+function getSubAgentMessageBlocks(item = {}) {
+  return Array.isArray(item?.messageBlocks) ? item.messageBlocks.filter(Boolean) : []
 }
 
-function getBlockPreviewLimit(block = {}) {
-  if (block.type === 'code_text') {
-    return CODE_TEXT_PREVIEW_LINES
-  }
-  if (block.type === 'build_error') {
-    return BUILD_ERROR_PREVIEW_LIMIT
-  }
-  return CODE_LINES_PREVIEW_LIMIT
-}
-
-function getBlockItems(block = {}) {
-  if (Array.isArray(block?.lines)) {
-    return block.lines
-  }
-  if (Array.isArray(block?.items)) {
-    return block.items
-  }
-  return []
-}
-
-function isBlockCollapsible(block = {}) {
-  if (!block || typeof block !== 'object') {
-    return false
-  }
-
-  if (block.type === 'code_text') {
-    return getCodeTextLines(block).length > CODE_TEXT_PREVIEW_LINES
-  }
-
-  if (block.type === 'search_results') {
-    const files = Array.isArray(block.files) ? block.files : []
-    return (
-      (block.fileCount || files.length) > SEARCH_FILE_PREVIEW_LIMIT
-      || files.some((file) => (file?.totalCount || (Array.isArray(file?.matches) ? file.matches.length : 0)) > SEARCH_MATCH_PREVIEW_LIMIT)
-    )
-  }
-
-  if (['code_snippet', 'numbered_lines', 'build_error'].includes(block.type)) {
-    const items = getBlockItems(block)
-    return (block.totalCount || items.length) > getBlockPreviewLimit(block)
-  }
-
-  return false
-}
-
-function getVisibleCodeText(block = {}, blockIndex = 0) {
-  const lines = getCodeTextLines(block)
-  if (isBlockExpanded(block, blockIndex) || lines.length <= CODE_TEXT_PREVIEW_LINES) {
-    return String(block.text || '')
-  }
-
-  return `${lines.slice(0, CODE_TEXT_PREVIEW_LINES).join('\n')}\n...`
-}
-
-function getVisibleBlockItems(block = {}, blockIndex = 0) {
-  const items = getBlockItems(block)
-  if (isBlockExpanded(block, blockIndex)) {
-    return items
-  }
-
-  return items.slice(0, getBlockPreviewLimit(block))
-}
-
-function getVisibleSearchFiles(block = {}, blockIndex = 0) {
-  const files = Array.isArray(block.files) ? block.files : []
-  if (isBlockExpanded(block, blockIndex)) {
-    return files
-  }
-
-  return files.slice(0, SEARCH_FILE_PREVIEW_LIMIT).map((file) => ({
-    ...file,
-    matches: (Array.isArray(file?.matches) ? file.matches : []).slice(0, SEARCH_MATCH_PREVIEW_LIMIT),
-  }))
-}
-
-function getCollapsedHiddenCount(block = {}, blockIndex = 0) {
-  if (block.type === 'code_text') {
-    return Math.max(0, getCodeTextLines(block).length - (isBlockExpanded(block, blockIndex) ? getCodeTextLines(block).length : CODE_TEXT_PREVIEW_LINES))
-  }
-
-  const items = getBlockItems(block)
-  const totalCount = block.totalCount || items.length
-  return Math.max(0, totalCount - getVisibleBlockItems(block, blockIndex).length)
-}
-
-function getSearchHiddenFileCount(block = {}, blockIndex = 0) {
-  const files = Array.isArray(block.files) ? block.files : []
-  const visibleCount = getVisibleSearchFiles(block, blockIndex).length
-  return Math.max(0, (block.fileCount || files.length) - visibleCount)
-}
-
-function getSearchHiddenMatchCount(file = {}, block = {}, blockIndex = 0) {
-  const visibleMatches = Array.isArray(file?.matches) ? file.matches.length : 0
-  return Math.max(0, (file?.totalCount || visibleMatches) - visibleMatches)
+function hasStructuredSubAgentMessage(item = {}) {
+  const blocks = getSubAgentMessageBlocks(item)
+  return blocks.some((block) => !['text', 'markdown'].includes(String(block?.type || '').trim()))
 }
 </script>
 
@@ -349,141 +291,6 @@ function getSearchHiddenMatchCount(file = {}, block = {}, blockIndex = 0) {
         </div>
       </div>
 
-      <div v-else-if="block.type === 'build_error'" class="process-detail-build">
-        <div class="process-detail-build__header">
-          <div class="process-detail-build__title">
-            {{ block.summary || block.title || 'Build failed' }}
-          </div>
-          <div class="process-detail-build__badges">
-            <span v-if="block.errorCode" class="process-detail-build__badge">{{ block.errorCode }}</span>
-            <span v-if="block.location" class="process-detail-build__badge">
-              {{ `${block.location.line}:${block.location.column}` }}
-            </span>
-          </div>
-        </div>
-        <div v-if="block.location?.path" class="process-detail-build__path process-detail-mobile-code-scroll">
-          {{ block.location.path }}
-        </div>
-        <div v-if="block.lines?.length" class="process-detail-code process-detail-code--tight">
-          <div
-            v-for="(line, lineIndex) in getVisibleBlockItems(block, blockIndex)"
-            :key="`${blockIndex}-build-${lineIndex}`"
-            class="process-detail-code__line"
-          >
-            <span class="process-detail-code__gutter">{{ line.number }}</span>
-            <span class="process-detail-code__content">{{ line.content || ' ' }}</span>
-          </div>
-        </div>
-        <div v-if="getCollapsedHiddenCount(block, blockIndex) || isBlockCollapsible(block)" class="process-detail-footnote">
-          <span v-if="getCollapsedHiddenCount(block, blockIndex)">{{ formatHiddenLines(getCollapsedHiddenCount(block, blockIndex)) }}</span>
-          <button
-            v-if="isBlockCollapsible(block)"
-            type="button"
-            class="process-detail-footnote__toggle"
-            @click="toggleBlockExpanded(block, blockIndex)"
-          >
-            {{ isBlockExpanded(block, blockIndex) ? t('common.collapse') : t('common.expand') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="block.type === 'search_results'" class="space-y-2">
-        <div
-          v-for="(file, fileIndex) in getVisibleSearchFiles(block, blockIndex)"
-          :key="`${blockIndex}-search-${fileIndex}`"
-          class="process-detail-search__file"
-        >
-          <div class="process-detail-search__file-header">
-            <span class="process-detail-search__file-path process-detail-mobile-code-scroll">{{ file.path }}</span>
-            <span class="process-detail-search__file-badge">{{ formatSearchMatchCount(file.totalCount) }}</span>
-          </div>
-          <div class="process-detail-search__matches">
-            <div
-              v-for="(line, lineIndex) in file.matches || []"
-              :key="`${blockIndex}-search-${fileIndex}-${lineIndex}`"
-              class="process-detail-code__line"
-            >
-              <span class="process-detail-code__gutter">{{ line.number }}</span>
-              <span class="process-detail-code__content">{{ line.content || ' ' }}</span>
-            </div>
-          </div>
-          <div v-if="getSearchHiddenMatchCount(file, block, blockIndex)" class="process-detail-footnote process-detail-footnote--compact">
-            {{ formatSearchHiddenMatches(getSearchHiddenMatchCount(file, block, blockIndex)) }}
-          </div>
-        </div>
-        <div class="process-detail-footnote">
-          {{ formatSearchFileSummary(block.fileCount || 0, block.totalCount || getSearchResultVisibleMatchCount(block)) }}
-          <span v-if="getSearchHiddenFileCount(block, blockIndex)">{{ formatSearchHiddenFiles(getSearchHiddenFileCount(block, blockIndex)) }}</span>
-          <button
-            v-if="isBlockCollapsible(block)"
-            type="button"
-            class="process-detail-footnote__toggle"
-            @click="toggleBlockExpanded(block, blockIndex)"
-          >
-            {{ isBlockExpanded(block, blockIndex) ? t('common.collapse') : t('common.expand') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="block.type === 'code_snippet'" class="process-detail-code">
-        <div
-          v-for="(line, lineIndex) in getVisibleBlockItems(block, blockIndex)"
-          :key="`${blockIndex}-code-${lineIndex}`"
-          class="process-detail-code__line"
-        >
-          <span class="process-detail-code__gutter">{{ line.number }}</span>
-          <span class="process-detail-code__content">{{ line.content }}</span>
-        </div>
-        <div v-if="getCollapsedHiddenCount(block, blockIndex) || isBlockCollapsible(block)" class="process-detail-footnote">
-          <span v-if="getCollapsedHiddenCount(block, blockIndex)">{{ formatHiddenLines(getCollapsedHiddenCount(block, blockIndex)) }}</span>
-          <button
-            v-if="isBlockCollapsible(block)"
-            type="button"
-            class="process-detail-footnote__toggle"
-            @click="toggleBlockExpanded(block, blockIndex)"
-          >
-            {{ isBlockExpanded(block, blockIndex) ? t('common.collapse') : t('common.expand') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="block.type === 'code_text'" class="space-y-1.5">
-        <pre class="process-detail-code process-detail-code__text">{{ getVisibleCodeText(block, blockIndex) }}</pre>
-        <div v-if="getCollapsedHiddenCount(block, blockIndex) || isBlockCollapsible(block)" class="process-detail-footnote">
-          <span v-if="getCollapsedHiddenCount(block, blockIndex)">{{ formatHiddenLines(getCollapsedHiddenCount(block, blockIndex)) }}</span>
-          <button
-            v-if="isBlockCollapsible(block)"
-            type="button"
-            class="process-detail-footnote__toggle"
-            @click="toggleBlockExpanded(block, blockIndex)"
-          >
-            {{ isBlockExpanded(block, blockIndex) ? t('common.collapse') : t('common.expand') }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="block.type === 'numbered_lines'" class="process-detail-code">
-        <div
-          v-for="(item, itemIndex) in getVisibleBlockItems(block, blockIndex)"
-          :key="`${blockIndex}-numbered-${itemIndex}`"
-          class="process-detail-code__line"
-        >
-          <span class="process-detail-code__gutter">{{ item.number }}</span>
-          <span class="process-detail-code__content">{{ item.content || ' ' }}</span>
-        </div>
-        <div v-if="getCollapsedHiddenCount(block, blockIndex) || isBlockCollapsible(block)" class="process-detail-footnote">
-          <span v-if="getCollapsedHiddenCount(block, blockIndex)">{{ formatHiddenLines(getCollapsedHiddenCount(block, blockIndex)) }}</span>
-          <button
-            v-if="isBlockCollapsible(block)"
-            type="button"
-            class="process-detail-footnote__toggle"
-            @click="toggleBlockExpanded(block, blockIndex)"
-          >
-            {{ isBlockExpanded(block, blockIndex) ? t('common.collapse') : t('common.expand') }}
-          </button>
-        </div>
-      </div>
-
       <div v-else-if="block.type === 'bullet_list'" class="process-detail-panel">
         <ul class="list-disc space-y-1.5 pl-5">
           <li v-for="(item, itemIndex) in block.items || []" :key="`${blockIndex}-bullet-${itemIndex}`">{{ item }}</li>
@@ -500,6 +307,56 @@ function getSearchHiddenMatchCount(file = {}, block = {}, blockIndex = 0) {
           >
             <span class="process-detail-filechange__kind">{{ formatChangeKind(item.kind) }}</span>
             <span class="process-detail-filechange__path process-detail-mobile-code-scroll">{{ item.path }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="block.type === 'sub_agent_list'" class="process-detail-panel">
+        <div class="space-y-2">
+          <div
+            v-for="(item, itemIndex) in block.items || []"
+            :key="`${blockIndex}-sub-agent-${itemIndex}`"
+            class="min-w-0"
+          >
+            <div class="flex min-w-0 items-center gap-2 text-xs leading-5">
+              <div class="min-w-0 flex flex-1 items-center gap-2">
+                <span class="shrink-0 font-medium text-[var(--theme-textPrimary)]">
+                  {{ getSubAgentDisplayTitle(item) }}
+                </span>
+                <span
+                  v-if="getSubAgentInlinePreview(item)"
+                  class="process-detail-subagent__preview theme-muted-text min-w-0 flex-1"
+                  :title="getSubAgentInlinePreview(item)"
+                >
+                  {{ getSubAgentInlinePreview(item) }}
+                </span>
+              </div>
+              <button
+                v-if="hasSubAgentMessage(item)"
+                type="button"
+                class="theme-muted-text shrink-0 text-[11px] underline decoration-dashed underline-offset-2"
+                @click="toggleSubAgentMessage(blockIndex, item, itemIndex)"
+              >
+                {{ isSubAgentMessageExpanded(blockIndex, item, itemIndex) ? t('common.collapse') : t('common.expand') }}
+              </button>
+              <span class="process-detail-directory__type shrink-0">
+                {{ formatSubAgentStatus(item.status) }}
+              </span>
+            </div>
+            <div
+              v-if="hasSubAgentMessage(item) && isSubAgentMessageExpanded(blockIndex, item, itemIndex)"
+              class="mt-2 border-l border-dashed border-[color:color-mix(in_srgb,currentColor_14%,transparent)] pl-3"
+            >
+              <ProcessDetailRenderer
+                v-if="hasStructuredSubAgentMessage(item)"
+                :blocks="getSubAgentMessageBlocks(item)"
+                kind="sub-agent-message"
+              />
+              <pre
+                v-else
+                class="theme-muted-text whitespace-pre-wrap break-words text-xs leading-5"
+              >{{ item.message }}</pre>
+            </div>
           </div>
         </div>
       </div>

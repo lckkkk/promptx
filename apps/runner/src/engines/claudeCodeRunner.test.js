@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeClaudeEvents } from './claudeCodeRunner.js'
+import { createClaudeNormalizationState, normalizeClaudeEvents } from './claudeCodeRunner.js'
 
 test('runner claudeCodeRunner maps fatal auth api_retry to error event', () => {
   assert.deepEqual(
@@ -34,5 +34,148 @@ test('runner claudeCodeRunner maps transient api_retry to reconnecting error eve
       type: 'error',
       message: 'Reconnecting... 2/10 (HTTP 503 overloaded)',
     }]
+  )
+})
+
+test('runner claudeCodeRunner maps Agent sub-agents into collaboration events', () => {
+  const state = createClaudeNormalizationState()
+
+  assert.deepEqual(
+    normalizeClaudeEvents({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'agent-tool-1',
+            name: 'Agent',
+            input: {
+              description: 'Analyze a.js exports',
+              subagent_type: 'general-purpose',
+              prompt: 'Analyze a.js in the current directory.',
+              model: 'sonnet',
+            },
+          },
+        ],
+      },
+    }, state),
+    [{
+      type: 'item.started',
+      item: {
+        type: 'collab_tool_call',
+        tool: 'spawn_agent',
+        receiver_thread_ids: [],
+        prompt: 'Analyze a.js in the current directory.',
+        agents_states: {},
+      },
+    }]
+  )
+
+  assert.deepEqual(
+    normalizeClaudeEvents({
+      type: 'system',
+      subtype: 'task_started',
+      tool_use_id: 'agent-tool-1',
+      task_id: 'task-a',
+      description: 'Analyze a.js exports',
+    }, state),
+    [{
+      type: 'item.completed',
+      item: {
+        type: 'collab_tool_call',
+        tool: 'spawn_agent',
+        receiver_thread_ids: ['task-a'],
+        prompt: 'Analyze a.js in the current directory.',
+        agents_states: {
+          'task-a': {
+            status: 'running',
+            message: '',
+            title: 'Analyze a.js exports',
+            role: 'general-purpose',
+            target: 'a.js',
+            model: 'sonnet',
+            task_id: 'task-a',
+          },
+        },
+      },
+    }]
+  )
+})
+
+test('runner claudeCodeRunner maps task_completed and ignores duplicate tool_result for Agent sub-agents', () => {
+  const state = createClaudeNormalizationState()
+
+  normalizeClaudeEvents({
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'agent-tool-2',
+          name: 'Agent',
+          input: {
+            description: 'Analyze b.js exports',
+            subagent_type: 'general-purpose',
+            prompt: 'Analyze b.js in the current directory.',
+            model: 'sonnet',
+          },
+        },
+      ],
+    },
+  }, state)
+
+  normalizeClaudeEvents({
+    type: 'system',
+    subtype: 'task_started',
+    tool_use_id: 'agent-tool-2',
+    task_id: 'task-b',
+    description: 'Analyze b.js exports',
+  }, state)
+
+  assert.deepEqual(
+    normalizeClaudeEvents({
+      type: 'system',
+      subtype: 'task_completed',
+      task_id: 'task-b',
+      result: 'found 2 exports',
+      description: 'Analyze b.js exports',
+    }, state),
+    [{
+      type: 'item.completed',
+      item: {
+        type: 'collab_tool_call',
+        tool: 'wait',
+        receiver_thread_ids: ['task-b'],
+        prompt: 'Analyze b.js in the current directory.',
+        agents_states: {
+          'task-b': {
+            status: 'completed',
+            message: 'found 2 exports',
+            title: 'Analyze b.js exports',
+            role: 'general-purpose',
+            target: 'b.js',
+            model: 'sonnet',
+            task_id: 'task-b',
+          },
+        },
+      },
+    }]
+  )
+
+  assert.deepEqual(
+    normalizeClaudeEvents({
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'agent-tool-2',
+            content: 'duplicate result',
+            is_error: false,
+          },
+        ],
+      },
+    }, state),
+    []
   )
 })

@@ -271,6 +271,10 @@ function shouldShowDeferredEventHint(turn) {
   return hasTurnEventHistory(turn) && !turn?.eventsLoaded && !turn?.eventsLoading
 }
 
+function getEventCardClass(item = {}) {
+  return 'border border-[color:color-mix(in_srgb,var(--theme-borderDefault)_32%,transparent)] bg-[var(--theme-appPanelStrong)]'
+}
+
 watch(
   turns,
   (nextTurns) => {
@@ -388,7 +392,7 @@ defineExpose({
 
         <div v-for="turn in turns" :key="turn.id" class="space-y-3">
           <div class="flex justify-end">
-            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm bg-[var(--theme-promptBg)] px-4 py-3 text-sm text-[var(--theme-promptText)]">
+            <div class="transcript-card transcript-card--prompt min-w-0 w-full max-w-[92%] rounded-sm bg-[var(--theme-promptBg)] px-4 py-3 font-mono text-sm text-[var(--theme-promptText)]">
               <div class="flex items-center justify-between gap-3 text-xs opacity-75">
                 <span>{{ t('sessionPanel.promptTitle') }}</span>
                 <div class="flex items-center gap-2">
@@ -414,7 +418,7 @@ defineExpose({
                   <template v-for="(item, itemIndex) in turn.promptBlocks" :key="`${turn.id}-prompt-${itemIndex}`">
                     <pre
                       v-if="item.type === 'text' || item.type === 'imported_text'"
-                      class="whitespace-pre-wrap break-all font-sans leading-7"
+                      class="whitespace-pre-wrap break-words leading-7"
                     >{{ item.content }}</pre>
                     <div
                       v-else
@@ -442,7 +446,7 @@ defineExpose({
                 </div>
                 <pre
                   v-else
-                  class="whitespace-pre-wrap break-all font-sans leading-7"
+                  class="whitespace-pre-wrap break-words leading-7"
                   :class="canCollapsePrompt(turn) && isPromptCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : ''"
                 >{{ turn.prompt }}</pre>
                 <div
@@ -454,7 +458,7 @@ defineExpose({
           </div>
 
           <div v-if="showProcessLogs" class="flex justify-start">
-            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm px-4 py-3" :class="getProcessCardClass(turn)">
+            <div class="transcript-card transcript-card--process min-w-0 w-full max-w-[94%] rounded-sm px-4 py-3 font-mono" :class="getProcessCardClass(turn)">
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span>{{ t('sessionPanel.processTitle') }}</span>
                 <div class="flex items-center gap-2">
@@ -481,13 +485,7 @@ defineExpose({
                   v-for="item in getVisibleTurnEvents(turn)"
                   :key="item.id"
                   class="transcript-event-card rounded-sm px-3 py-2"
-                  :class="{
-                    'bg-[var(--theme-appPanelStrong)]': item.kind === 'info' || item.kind === 'command',
-                    'theme-status-neutral': item.kind === 'reasoning',
-                    'theme-status-warning': item.kind === 'todo',
-                    'theme-status-success': item.kind === 'result',
-                    'theme-status-danger': item.kind === 'error',
-                  }"
+                  :class="getEventCardClass(item)"
                 >
                   <div class="text-sm font-medium leading-6">{{ item.title }}</div>
                   <ProcessDetailRenderer
@@ -517,7 +515,7 @@ defineExpose({
                 <div v-if="getTurnSummaryStatus(turn)" class="leading-5">
                   {{ getTurnSummaryStatus(turn) }}
                 </div>
-                <div v-if="getTurnSummaryDetail(turn)" class="mt-1 break-all leading-5 opacity-75">
+                <div v-if="getTurnSummaryDetail(turn)" class="mt-1 whitespace-pre-wrap break-words leading-5 opacity-75">
                   {{ getTurnSummaryDetail(turn) }}
                 </div>
                 <div v-if="getDisplayTurnSummaryItems(turn).length" class="mt-2 flex flex-wrap gap-2">
@@ -569,7 +567,7 @@ defineExpose({
                 <div
                   v-if="turn.errorMessage"
                   :class="canCollapseResponse(turn) && isResponseCollapsed(turn) ? COLLAPSED_PREVIEW_CLASS : ''"
-                  class="whitespace-pre-wrap break-all"
+                  class="whitespace-pre-wrap break-words"
                 >{{ turn.errorMessage }}</div>
                 <div
                   v-else

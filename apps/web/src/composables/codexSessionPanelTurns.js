@@ -90,6 +90,77 @@ function formatCount(value = 0) {
   return number.toLocaleString(getCurrentLocale())
 }
 
+function normalizeCollabAgentStatus(value = '') {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(normalized)) {
+    return 'completed'
+  }
+  if (['failed', 'error', 'errored', 'cancelled', 'canceled', 'stopped'].includes(normalized)) {
+    return 'failed'
+  }
+  if (['running', 'in_progress', 'in-progress'].includes(normalized)) {
+    return 'running'
+  }
+  if (['pending_init', 'pending'].includes(normalized)) {
+    return 'pending_init'
+  }
+  return normalized || 'pending_init'
+}
+
+function getCollabAgentIds(item = {}) {
+  const ids = []
+  const pushId = (value) => {
+    const normalized = String(value || '').trim()
+    if (!normalized || ids.includes(normalized)) {
+      return
+    }
+    ids.push(normalized)
+  }
+
+  ;(Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : []).forEach(pushId)
+
+  if (item.agents_states && typeof item.agents_states === 'object') {
+    Object.keys(item.agents_states).forEach(pushId)
+  }
+
+  return ids
+}
+
+function getCollabAgentCount(item = {}) {
+  return getCollabAgentIds(item).length
+}
+
+function getCollabAgentItems(item = {}) {
+  const agentIds = getCollabAgentIds(item)
+  const states = item.agents_states && typeof item.agents_states === 'object'
+    ? item.agents_states
+    : {}
+
+  return agentIds.map((agentId) => {
+    const state = states[agentId] && typeof states[agentId] === 'object'
+      ? states[agentId]
+      : {}
+    const message = String(state.message || state.result || '').trim()
+    return {
+      id: agentId,
+      status: normalizeCollabAgentStatus(state.status),
+      title: String(state.title || state.description || state.name || '').trim(),
+      role: String(state.role || state.subagent_type || state.agent || '').trim(),
+      target: String(state.target || state.path || '').trim(),
+      model: String(state.model || '').trim(),
+      message,
+      messageBlocks: message ? buildDetailBlocksFromText(message) : [],
+    }
+  })
+}
+
+function summarizeCollabAgentMessages(item = {}, limit = 120) {
+  const messages = getCollabAgentItems(item)
+    .map((agent) => agent.message)
+    .filter(Boolean)
+  return summarizeText(messages.join(isEnglishLocale() ? ' | ' : '｜'), limit)
+}
+
 export function formatElapsedDuration(value = 0) {
   const totalSeconds = Math.max(0, Math.floor(Number(value) || 0))
   if (totalSeconds < 66) {
@@ -314,8 +385,9 @@ function buildWebSearchDetailBlocks(item = {}) {
 
 function buildCollabToolDetailBlocks(item = {}) {
   const tool = String(item.tool || '').trim()
-  const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
+  const agentCount = getCollabAgentCount(item)
   const prompt = String(item.prompt || '').trim()
+  const agentItems = getCollabAgentItems(item)
   const blocks = []
   const metaItems = [
     tool ? { label: text('工具', 'Tool'), value: tool } : null,
@@ -325,6 +397,15 @@ function buildCollabToolDetailBlocks(item = {}) {
 
   if (metaBlock) {
     blocks.push(metaBlock)
+  }
+
+  if (agentItems.length) {
+    blocks.push({
+      type: 'sub_agent_list',
+      items: agentItems,
+      totalCount: agentItems.length,
+      hiddenCount: 0,
+    })
   }
 
   if (prompt) {
@@ -539,7 +620,7 @@ function formatWebSearchEvent(item = {}, phase = 'completed') {
 
 function formatCollabToolEvent(item = {}, phase = 'completed') {
   const tool = String(item.tool || '').trim()
-  const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
+  const agentCount = getCollabAgentCount(item)
   const prompt = summarizeText(item.prompt)
 
   if (tool === 'spawn_agent') {
@@ -675,7 +756,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
 
     if (item.type === AGENT_RUN_ITEM_TYPES.COLLAB_TOOL_CALL) {
       if (item.tool === 'wait') {
-        const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
+        const agentCount = getCollabAgentCount(item)
         summary.waitingAgentCount = agentCount
         summary.currentActivity = agentCount
           ? text(`等待 ${agentCount} 个子代理返回结果`, `Waiting for ${agentCount} sub-agent result(s)`)
@@ -740,7 +821,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
 
   if (item.type === AGENT_RUN_ITEM_TYPES.COLLAB_TOOL_CALL) {
     if (item.tool === 'spawn_agent') {
-      const agentCount = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids.filter(Boolean).length : 0
+      const agentCount = getCollabAgentCount(item)
       summary.subAgentCount += agentCount
       summary.currentActivity = ''
       summary.latestActivity = agentCount
@@ -754,7 +835,7 @@ function syncTurnSummaryFromCodexEvent(turn, event = {}) {
       summary.waitingAgentCount = 0
       summary.currentActivity = ''
       summary.latestActivity = text('子代理结果已汇总', 'Sub-agent results aggregated')
-      summary.latestDetail = summarizeText(item.prompt, 120)
+      summary.latestDetail = summarizeCollabAgentMessages(item, 120) || summarizeText(item.prompt, 120)
       return
     }
 
