@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="currentPreviewImageUrl"
-      class="image-preview-overlay fixed inset-0 z-50 flex items-center justify-center p-6"
+      class="theme-modal-backdrop image-preview-overlay fixed inset-0 z-50 flex items-center justify-center p-6"
       @click="closePreview"
       @wheel="handlePreviewWheel"
     >

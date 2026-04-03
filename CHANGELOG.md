@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.34
+
+- 统一图片预览层遮罩，直接复用和工作台弹窗一致的 `theme-modal-backdrop`，不再单独维护一套 overlay 背景，避免预览层与其它弹窗视觉割裂。
+- 修复放大图片时顶部工具按钮对比度不足的问题：为缩放、翻页和关闭按钮补上稳定的底色、边框和阴影，在亮图背景上也能清楚辨认。
+
 ## 0.1.33
 
 - 修复安装包在 Node.js 22 下启动失败的问题：移除 `jimp` 及其 `@jimp/plugin-print -> simple-xml-to-json` 这条有问题的 ESM 依赖链，避免 `promptx start` 在加载阶段直接抛出 `does not provide an export named 'default'`。
