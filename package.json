@@ -1,6 +1,6 @@
 {
   "name": "@muyichengshayu/promptx",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "PromptX 本机 AI 协作工作台",
   "license": "Apache-2.0",
   "type": "module",
@@ -72,7 +72,6 @@
     "better-sqlite3": "12.8.0",
     "fastify": "5.8.2",
     "iconv-lite": "0.7.2",
-    "jimp": "1.6.0",
     "nanoid": "5.1.6",
     "pdfjs-dist": "5.5.207",
     "sql.js": "1.13.0",

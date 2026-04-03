@@ -1,9 +1,20 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { Jimp } from 'jimp'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { nanoid } from 'nanoid'
 import { createApiError } from './apiErrors.js'
+
+function scaleImageToFit(width = 0, height = 0, maxWidth = 1600, maxHeight = 1600) {
+  const safeWidth = Math.max(1, Number(width) || 0)
+  const safeHeight = Math.max(1, Number(height) || 0)
+  const ratio = Math.min(maxWidth / safeWidth, maxHeight / safeHeight)
+
+  return {
+    width: Math.max(1, Math.round(safeWidth * ratio)),
+    height: Math.max(1, Math.round(safeHeight * ratio)),
+  }
+}
 
 function registerAssetRoutes(app, options = {}) {
   const {
@@ -31,20 +42,23 @@ function registerAssetRoutes(app, options = {}) {
     try {
       await pipeline(part.file, fs.createWriteStream(tempPath))
 
-      const image = await Jimp.read(tempPath)
-      image.scaleToFit({ w: 1600, h: 1600 })
+      const source = await loadImage(tempPath)
+      const scaled = scaleImageToFit(source.width, source.height)
+      const canvas = createCanvas(scaled.width, scaled.height)
+      const context = canvas.getContext('2d')
+      context.drawImage(source, 0, 0, scaled.width, scaled.height)
 
       const outputName = `${nanoid(16)}.jpg`
       outputPath = path.join(uploadsDir, outputName)
-      const outputBuffer = await image.getBuffer('image/jpeg', { quality: 82 })
+      const outputBuffer = canvas.toBuffer('image/jpeg', 82)
       fs.writeFileSync(outputPath, outputBuffer)
 
       const stats = fs.statSync(outputPath)
       completed = true
       return reply.code(201).send({
         url: `/uploads/${outputName}`,
-        width: image.bitmap.width,
-        height: image.bitmap.height,
+        width: scaled.width,
+        height: scaled.height,
         mimeType: 'image/jpeg',
         size: stats.size,
       })
