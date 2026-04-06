@@ -45,6 +45,22 @@ promptx status
 promptx stop
 ```
 
+### 登录鉴权（可选）
+
+如果通过内网穿透或远程访问暴露到公网，建议启用登录鉴权：
+
+```bash
+# 方式一：启动时通过环境变量设置访问密码
+PROMPTX_ACCESS_TOKEN=你的密码 promptx start
+
+# 方式二：写入配置文件（无需重启，下次请求自动生效）
+echo '{"accessToken":"你的密码"}' > ~/.promptx/data/auth-config.json
+```
+
+启用后，浏览器访问会跳转到登录页，输入密码后进入工作台，Cookie 有效期 30 天。
+
+不配置 `PROMPTX_ACCESS_TOKEN` 时鉴权不启用，行为与之前完全一致。
+
 ### 怎么用
 
 1. 新建任务，整理本轮要发给 agent 的内容

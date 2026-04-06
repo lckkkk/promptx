@@ -45,6 +45,22 @@ promptx status
 promptx stop
 ```
 
+### Authentication (Optional)
+
+If you expose PromptX to the public internet via tunneling or remote access, it is recommended to enable login protection:
+
+```bash
+# Option 1: set the access token via environment variable at startup
+PROMPTX_ACCESS_TOKEN=your-password promptx start
+
+# Option 2: write to the config file (takes effect on next request, no restart needed)
+echo '{"accessToken":"your-password"}' > ~/.promptx/data/auth-config.json
+```
+
+Once enabled, the browser will redirect to a login page. After entering the correct token, a 30-day cookie is set and the workspace becomes accessible.
+
+If `PROMPTX_ACCESS_TOKEN` is not configured, authentication is disabled and behavior remains unchanged.
+
 ### How To Use
 
 1. Create a task and prepare the context you want to send
