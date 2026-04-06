@@ -48,6 +48,15 @@ export async function request(path, options = {}) {
     ...options,
   })
 
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname + window.location.search
+      const loginUrl = `/login${currentPath !== '/' ? `?redirect=${encodeURIComponent(currentPath)}` : ''}`
+      window.location.href = loginUrl
+    }
+    throw new Error('未授权，正在跳转到登录页...')
+  }
+
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
     throw new Error(resolveRequestErrorMessage(payload))

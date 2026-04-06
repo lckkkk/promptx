@@ -31,7 +31,7 @@ PromptX 是一个面向本机 AI Agent 协作的工作台。
 ### 安装
 
 ```bash
-npm install -g @muyichengshayu/promptx
+npm install -g @lchaha/promptx
 promptx doctor
 ```
 
@@ -126,7 +126,7 @@ pnpm build
 
 注意：
 
-- `npm install -g @muyichengshayu/promptx` 安装的正式包不包含该扩展目录
+- `npm install -g @lchaha/promptx` 安装的正式包不包含该扩展目录
 - 如需使用禅道扩展，请克隆源码后手动加载
 
 使用步骤：

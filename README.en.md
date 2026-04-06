@@ -31,7 +31,7 @@ PromptX can also reuse sessions with these agent CLIs in both directions:
 ### Install
 
 ```bash
-npm install -g @muyichengshayu/promptx
+npm install -g @lchaha/promptx
 promptx doctor
 ```
 

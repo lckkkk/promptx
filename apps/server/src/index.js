@@ -82,6 +82,8 @@ import {
 import { registerAssetRoutes } from './assetRoutes.js'
 import { getApiErrorPayload } from './apiErrors.js'
 import { registerWebAppRoutes } from './webAppRoutes.js'
+import { registerAuthMiddleware } from './authMiddleware.js'
+import { getAuthConfigForServer } from './authConfig.js'
 import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import { importPdfBlocks } from './pdf.js'
 
@@ -307,9 +309,9 @@ await app.register(multipart, {
 
 app.addContentTypeParser(
   'application/x-www-form-urlencoded',
-  { parseAs: 'string' },
+  { parseAs: 'buffer' },
   (request, body, done) => {
-    done(null, {})
+    done(null, body)
   }
 )
 
@@ -327,6 +329,8 @@ if (hasBuiltWebApp) {
     index: false,
   })
 }
+
+registerAuthMiddleware(app)
 
 app.get('/health', async () => ({ ok: true }))
 
@@ -441,6 +445,12 @@ app.listen({ port, host }).then(() => {
   buildServerAccessUrls(host, port).forEach((message) => {
     app.log.info(message)
   })
+  const authConfig = getAuthConfigForServer()
+  if (authConfig.accessToken) {
+    app.log.info('[auth] 访问鉴权已启用，通过浏览器访问时需要登录')
+  } else {
+    app.log.warn('[auth] 访问鉴权未启用，如需保护请设置 PROMPTX_ACCESS_TOKEN 环境变量或在 ~/.promptx/data/auth-config.json 中配置 accessToken')
+  }
   runRecoveryService.start()
   taskAutomationService.start()
   maintenanceService.start()
