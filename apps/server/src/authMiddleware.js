@@ -140,6 +140,7 @@ function isPublicPath(request) {
   const requestPath = getRequestPath(request)
   if (requestPath === '/health') return true
   if (requestPath === '/login') return true
+  if (requestPath.startsWith('/uploads/')) return true
   if (requestPath.startsWith('/internal/')) return true
   return false
 }
