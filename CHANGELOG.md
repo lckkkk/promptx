@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.38
+
+- 修复 npm 安装包缺少 `scripts/user-manager.mjs` 的发布配置问题，避免用户安装后执行 `promptx user add <username>` 等用户管理命令时直接报 `MODULE_NOT_FOUND`。
+- 补齐用户管理 CLI 脚本随包发布，确保 `promptx user add/list/remove/reset-password` 在全局安装场景下可正常使用。
+
 ## 0.1.34
 
 - 统一图片预览层遮罩，直接复用和工作台弹窗一致的 `theme-modal-backdrop`，不再单独维护一套 overlay 背景，避免预览层与其它弹窗视觉割裂。
