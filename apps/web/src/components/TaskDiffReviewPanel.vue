@@ -327,6 +327,7 @@ watch(diffScope, () => {
             :selected-patch-lines="selectedPatchLines"
             :set-patch-line-ref="setPatchLineRef"
             :set-patch-viewport-ref="setPatchViewportElement"
+            :task-slug="taskSlug"
           />
         </div>
       </div>
@@ -364,6 +365,7 @@ watch(diffScope, () => {
             :selected-patch-lines="selectedPatchLines"
             :set-patch-line-ref="setPatchLineRef"
             :set-patch-viewport-ref="setPatchViewportElement"
+            :task-slug="taskSlug"
           />
         </div>
       </div>

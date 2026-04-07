@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createApiError } from './apiErrors.js'
+import { readStoredSystemConfig } from './systemConfig.js'
 
 const IGNORED_DIRECTORY_NAMES = new Set([
   '.git',
@@ -201,6 +202,11 @@ function createDirectoryPickerItem(directoryPath = '', entryName = '') {
 }
 
 function getDirectoryPickerHomePath() {
+  const config = readStoredSystemConfig()
+  const customRoot = String(config?.workspace?.rootPath || '').trim()
+  if (customRoot && fs.existsSync(customRoot)) {
+    return path.resolve(customRoot)
+  }
   return path.resolve(os.homedir())
 }
 

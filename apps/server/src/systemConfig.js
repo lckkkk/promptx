@@ -40,9 +40,15 @@ function normalizeRunnerConfig(input = {}, fallback = {}) {
   }
 }
 
+function normalizeWorkspaceConfig(input = {}) {
+  const rootPath = String(input?.rootPath || '').trim()
+  return { rootPath }
+}
+
 function normalizeSystemConfig(input = {}, fallback = {}) {
   return {
     runner: normalizeRunnerConfig(input?.runner || {}, fallback?.runner || {}),
+    workspace: normalizeWorkspaceConfig(input?.workspace || {}),
   }
 }
 

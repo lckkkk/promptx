@@ -13,6 +13,7 @@ const doctorScriptPath = path.join(rootDir, 'scripts', 'doctor.mjs')
 const relayScriptPath = path.join(rootDir, 'scripts', 'relay.mjs')
 const relayServiceScriptPath = path.join(rootDir, 'scripts', 'relay-service.mjs')
 const relayTenantScriptPath = path.join(rootDir, 'scripts', 'relay-tenant.mjs')
+const userManagerScriptPath = path.join(rootDir, 'scripts', 'user-manager.mjs')
 
 function readCliVersion() {
   try {
@@ -42,6 +43,10 @@ PromptX CLI
   promptx status
   promptx doctor
   promptx version
+  promptx user add <username>
+  promptx user list
+  promptx user remove <username>
+  promptx user reset-password <username>
   promptx relay start
   promptx relay stop
   promptx relay restart
@@ -58,6 +63,10 @@ PromptX CLI
   - status: 查看当前运行状态
   - doctor: 检查 Node、Codex、数据目录、端口和打包产物
   - version: 输出当前版本
+  - user add: 添加用户（交互式输入密码），添加后自动启用多用户模式
+  - user list: 列出所有已配置用户
+  - user remove: 删除用户
+  - user reset-password: 重置用户密码
   - relay start/stop/restart/status: 后台管理 PromptX Relay 中转服务
   - relay tenant add: 追加一个 Relay 子域名租户并自动生成 host/token
   - relay tenant list: 查看当前 Relay 租户列表
@@ -112,8 +121,10 @@ if (
   runNodeScript(relayScriptPath)
 } else if (command === 'relay' && subCommand === 'tenant') {
   runNodeScript(relayTenantScriptPath, process.argv.slice(4))
+} else if (command === 'user') {
+  runNodeScript(userManagerScriptPath, process.argv.slice(3))
 } else {
   console.error(`[promptx] 不支持的命令：${command}`)
-  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / relay start / relay stop / relay restart / relay status / relay run / relay tenant add / relay tenant list / relay tenant remove')
+  console.error('[promptx] 可用命令：start / stop / restart / status / doctor / version / user add / user list / user remove / user reset-password / relay start / relay stop / relay restart / relay status / relay run / relay tenant add / relay tenant list / relay tenant remove')
   process.exitCode = 1
 }

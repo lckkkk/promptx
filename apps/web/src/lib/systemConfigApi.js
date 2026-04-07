@@ -18,3 +18,12 @@ export function getRuntimeDiagnostics() {
     cache: 'no-store',
   })
 }
+
+export function getAuthInfo() {
+  return request('/api/auth-info', { cache: 'no-store' })
+}
+
+export async function logout() {
+  await fetch('/logout', { method: 'POST' })
+  window.location.href = '/login'
+}

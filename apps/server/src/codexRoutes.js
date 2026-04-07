@@ -80,9 +80,12 @@ function registerCodexRoutes(app, options = {}) {
     updatePromptxCodexSession,
   } = options
 
-  app.get('/api/codex/sessions', async () => ({
-    items: decorateCodexSessionList(listPromptxCodexSessions()),
-  }))
+  app.get('/api/codex/sessions', async (request) => {
+    const userId = request.user?.username || 'default'
+    return {
+      items: decorateCodexSessionList(listPromptxCodexSessions(30, userId)),
+    }
+  })
 
   app.get('/api/codex/workspaces', async (request) => ({
     items: listWorkspaceSuggestions(24, request.query?.engine),
@@ -128,7 +131,8 @@ function registerCodexRoutes(app, options = {}) {
   })
 
   app.post('/api/codex/sessions', async (request, reply) => {
-    const session = createPromptxCodexSession(request.body || {})
+    const userId = request.user?.username || 'default'
+    const session = createPromptxCodexSession(request.body || {}, userId)
     broadcastServerEvent('sessions.changed', {
       sessionId: session.id,
     })
@@ -149,6 +153,7 @@ function registerCodexRoutes(app, options = {}) {
 
   app.post('/api/codex/sessions/:sessionId/reset', async (request, reply) => {
     const sessionId = String(request.params.sessionId || '').trim()
+    const userId = request.user?.username || 'default'
     if (getRunningCodexRunBySessionId(sessionId)) {
       return reply.code(409).send({
         messageKey: 'errors.currentProjectRunning',
@@ -156,7 +161,7 @@ function registerCodexRoutes(app, options = {}) {
       })
     }
 
-    const affectedTaskSlugs = listTaskSlugsByCodexSessionId(sessionId)
+    const affectedTaskSlugs = listTaskSlugsByCodexSessionId(sessionId, userId)
     const runningTaskSlug = affectedTaskSlugs.find((taskSlug) => getRunningCodexRunByTaskSlug(taskSlug))
     if (runningTaskSlug) {
       return reply.code(409).send({
@@ -165,7 +170,7 @@ function registerCodexRoutes(app, options = {}) {
       })
     }
 
-    const session = resetPromptxCodexSession(sessionId)
+    const session = resetPromptxCodexSession(sessionId, userId)
     if (!session) {
       return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }
@@ -190,6 +195,7 @@ function registerCodexRoutes(app, options = {}) {
   })
 
   app.delete('/api/codex/sessions/:sessionId', async (request, reply) => {
+    const userId = request.user?.username || 'default'
     if (getRunningCodexRunBySessionId(request.params.sessionId)) {
       return reply.code(409).send({
         messageKey: 'errors.currentProjectDeleteWhileRunning',
@@ -197,8 +203,8 @@ function registerCodexRoutes(app, options = {}) {
       })
     }
 
-    const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId)
-    const session = deletePromptxCodexSession(request.params.sessionId)
+    const affectedTaskSlugs = clearTaskCodexSessionReferences(request.params.sessionId, userId)
+    const session = deletePromptxCodexSession(request.params.sessionId, userId)
     if (!session) {
       return reply.code(404).send({ messageKey: 'errors.sessionNotFound', message: '没有找到对应的 PromptX 项目。' })
     }

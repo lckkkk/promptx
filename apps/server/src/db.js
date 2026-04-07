@@ -362,6 +362,8 @@ function applyAdditiveSchemaPatches() {
     `ALTER TABLE task_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE run_git_baselines ADD COLUMN branch_label TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE codex_run_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'event'`,
+    `ALTER TABLE tasks ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'`,
+    `ALTER TABLE codex_sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT 'default'`,
   ]
 
   alterStatements.forEach((statement) => {
@@ -374,6 +376,8 @@ function applyAdditiveSchemaPatches() {
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_sort_order ON tasks(sort_order ASC, created_at DESC, id DESC)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_codex_session_id ON tasks(codex_session_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_codex_sessions_user_id ON codex_sessions(user_id)')
   db.exec(`
     DELETE FROM blocks
     WHERE task_id NOT IN (SELECT id FROM tasks);

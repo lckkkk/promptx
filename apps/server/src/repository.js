@@ -379,16 +379,18 @@ function parseTaskTodoItems(rawValue = '[]') {
   }
 }
 
-export function listTasks(limit = 30) {
+export function listTasks(limit = 30, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
   const rows = all(
     `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
+     WHERE user_id = ?
      ORDER BY sort_order ASC, created_at DESC, id DESC
      LIMIT ?`,
-    [Math.max(1, Number(limit) || 30)]
+    [normalizedUserId, Math.max(1, Number(limit) || 30)]
   )
 
   const taskIds = rows.map((row) => Number(row.id))
@@ -408,16 +410,27 @@ export function listTasks(limit = 30) {
   )
 }
 
-export function getTaskBySlug(slug) {
-  const row = get(
-    `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
-            automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-            visibility, expires_at, created_at, updated_at
-     FROM tasks
-     WHERE slug = ?`,
-    [slug]
-  )
+export function getTaskBySlug(slug, userId = null) {
+  const normalizedUserId = userId ? String(userId).trim() : null
+  const row = normalizedUserId
+    ? get(
+        `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
+                automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
+                notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+                visibility, expires_at, created_at, updated_at
+         FROM tasks
+         WHERE slug = ? AND user_id = ?`,
+        [slug, normalizedUserId]
+      )
+    : get(
+        `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
+                automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
+                notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+                visibility, expires_at, created_at, updated_at
+         FROM tasks
+         WHERE slug = ?`,
+        [slug]
+      )
 
   if (!row) {
     return null
@@ -429,7 +442,8 @@ export function getTaskBySlug(slug) {
   return isExpired(task) ? { ...task, expired: true } : task
 }
 
-export function createTask(input = {}) {
+export function createTask(input = {}, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
   const now = new Date().toISOString()
   const title = clampText(input.title || '', 140)
   const autoTitle = clampText(input.autoTitle || '', 140)
@@ -442,7 +456,7 @@ export function createTask(input = {}) {
   const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || 'none'))
   const slug = ensureSlug(title)
   const editToken = tokenId()
-  const topSortOrder = Number(get('SELECT MIN(sort_order) AS value FROM tasks')?.value)
+  const topSortOrder = Number(get('SELECT MIN(sort_order) AS value FROM tasks WHERE user_id = ?', [normalizedUserId])?.value)
   const sortOrder = Number.isFinite(topSortOrder) ? topSortOrder - 1 : 0
 
   transaction(() => {
@@ -451,9 +465,9 @@ export function createTask(input = {}) {
         slug, edit_token, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
         automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
         notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-        visibility, expires_at, created_at, updated_at
+        visibility, expires_at, created_at, updated_at, user_id
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         slug,
         editToken,
@@ -483,6 +497,7 @@ export function createTask(input = {}) {
         expiresAt,
         now,
         now,
+        normalizedUserId,
       ]
     )
   })
@@ -493,15 +508,18 @@ export function createTask(input = {}) {
   }
 }
 
-export function updateTask(slug, input = {}) {
+export function updateTask(slug, input = {}, userId = null) {
+  const normalizedUserId = userId ? String(userId).trim() : null
+  const whereClause = normalizedUserId ? 'WHERE slug = ? AND user_id = ?' : 'WHERE slug = ?'
+  const whereParams = normalizedUserId ? [slug, normalizedUserId] : [slug]
   const existing = get(
     `SELECT id, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at
      FROM tasks
-     WHERE slug = ?`,
-    [slug]
+     ${whereClause}`,
+    whereParams
   )
   if (!existing) {
     return { error: 'not_found' }
@@ -695,8 +713,11 @@ export function updateTask(slug, input = {}) {
   }
 }
 
-export function deleteTask(slug) {
-  const row = get('SELECT id, edit_token FROM tasks WHERE slug = ?', [slug])
+export function deleteTask(slug, userId = null) {
+  const normalizedUserId = userId ? String(userId).trim() : null
+  const whereClause = normalizedUserId ? 'WHERE slug = ? AND user_id = ?' : 'WHERE slug = ?'
+  const whereParams = normalizedUserId ? [slug, normalizedUserId] : [slug]
+  const row = get(`SELECT id, edit_token FROM tasks ${whereClause}`, whereParams)
   if (!row) {
     return { error: 'not_found' }
   }
@@ -747,12 +768,19 @@ export function buildTaskExports(task) {
   }
 }
 
-export function canEditTask(slug) {
+export function canEditTask(slug, userId = null) {
+  const normalizedUserId = userId ? String(userId).trim() : null
+  if (normalizedUserId) {
+    return Boolean(get('SELECT 1 FROM tasks WHERE slug = ? AND user_id = ?', [slug, normalizedUserId]))
+  }
   return Boolean(get('SELECT 1 FROM tasks WHERE slug = ?', [slug]))
 }
 
-export function updateTaskCodexSession(slug, codexSessionId = '') {
-  const existing = get('SELECT slug FROM tasks WHERE slug = ?', [slug])
+export function updateTaskCodexSession(slug, codexSessionId = '', userId = null) {
+  const normalizedUserId = userId ? String(userId).trim() : null
+  const whereClause = normalizedUserId ? 'WHERE slug = ? AND user_id = ?' : 'WHERE slug = ?'
+  const whereParams = normalizedUserId ? [slug, normalizedUserId] : [slug]
+  const existing = get(`SELECT slug FROM tasks ${whereClause}`, whereParams)
   if (!existing) {
     return null
   }
@@ -772,7 +800,8 @@ export function updateTaskCodexSession(slug, codexSessionId = '') {
   return getTaskBySlug(slug)
 }
 
-export function reorderTasks(taskSlugs = []) {
+export function reorderTasks(taskSlugs = [], userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
   const requestedSlugs = [...new Set(
     (Array.isArray(taskSlugs) ? taskSlugs : [])
       .map((slug) => String(slug || '').trim())
@@ -786,7 +815,9 @@ export function reorderTasks(taskSlugs = []) {
   const currentRows = all(
     `SELECT slug
      FROM tasks
-     ORDER BY sort_order ASC, created_at DESC, id DESC`
+     WHERE user_id = ?
+     ORDER BY sort_order ASC, created_at DESC, id DESC`,
+    [normalizedUserId]
   )
   const currentOrder = currentRows.map((row) => String(row.slug || '').trim()).filter(Boolean)
   const existingSlugSet = new Set(currentOrder)
@@ -803,7 +834,7 @@ export function reorderTasks(taskSlugs = []) {
   if (!changed) {
     return {
       changed: false,
-      items: listTasks(Math.max(finalOrder.length, 1)),
+      items: listTasks(Math.max(finalOrder.length, 1), normalizedUserId),
     }
   }
 
@@ -815,22 +846,30 @@ export function reorderTasks(taskSlugs = []) {
 
   return {
     changed: true,
-    items: listTasks(Math.max(finalOrder.length, 1)),
+    items: listTasks(Math.max(finalOrder.length, 1), normalizedUserId),
   }
 }
 
-export function clearTaskCodexSessionReferences(codexSessionId = '') {
+export function clearTaskCodexSessionReferences(codexSessionId = '', userId = null) {
   const normalizedSessionId = String(codexSessionId || '').trim()
+  const normalizedUserId = userId ? String(userId).trim() : null
   if (!normalizedSessionId) {
     return []
   }
 
-  const matchedRows = all(
-    `SELECT slug
-     FROM tasks
-     WHERE codex_session_id = ?`,
-    [normalizedSessionId]
-  )
+  const matchedRows = normalizedUserId
+    ? all(
+        `SELECT slug
+         FROM tasks
+         WHERE codex_session_id = ? AND user_id = ?`,
+        [normalizedSessionId, normalizedUserId]
+      )
+    : all(
+        `SELECT slug
+         FROM tasks
+         WHERE codex_session_id = ?`,
+        [normalizedSessionId]
+      )
   const matchedTaskSlugs = matchedRows
     .map((row) => String(row?.slug || '').trim())
     .filter(Boolean)
@@ -840,29 +879,49 @@ export function clearTaskCodexSessionReferences(codexSessionId = '') {
   }
 
   transaction(() => {
-    run(
-      `UPDATE tasks
-       SET codex_session_id = ''
-       WHERE codex_session_id = ?`,
-      [normalizedSessionId]
-    )
+    if (normalizedUserId) {
+      run(
+        `UPDATE tasks
+         SET codex_session_id = ''
+         WHERE codex_session_id = ? AND user_id = ?`,
+        [normalizedSessionId, normalizedUserId]
+      )
+    } else {
+      run(
+        `UPDATE tasks
+         SET codex_session_id = ''
+         WHERE codex_session_id = ?`,
+        [normalizedSessionId]
+      )
+    }
   })
 
   return matchedTaskSlugs
 }
 
-export function listTaskSlugsByCodexSessionId(codexSessionId = '') {
+export function listTaskSlugsByCodexSessionId(codexSessionId = '', userId = null) {
   const normalizedSessionId = String(codexSessionId || '').trim()
+  const normalizedUserId = userId ? String(userId).trim() : null
   if (!normalizedSessionId) {
     return []
   }
 
-  return all(
-    `SELECT slug
-     FROM tasks
-     WHERE codex_session_id = ?
-     ORDER BY sort_order ASC, created_at DESC, id DESC`,
-    [normalizedSessionId]
+  return (
+    normalizedUserId
+      ? all(
+          `SELECT slug
+           FROM tasks
+           WHERE codex_session_id = ? AND user_id = ?
+           ORDER BY sort_order ASC, created_at DESC, id DESC`,
+          [normalizedSessionId, normalizedUserId]
+        )
+      : all(
+          `SELECT slug
+           FROM tasks
+           WHERE codex_session_id = ?
+           ORDER BY sort_order ASC, created_at DESC, id DESC`,
+          [normalizedSessionId]
+        )
   )
     .map((row) => String(row?.slug || '').trim())
     .filter(Boolean)

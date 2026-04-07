@@ -57,6 +57,7 @@ const relayForm = reactive({
 })
 const systemForm = reactive({
   runnerMaxConcurrentRuns: 3,
+  workspaceRootPath: '',
 })
 const activeSection = ref('theme')
 let relayCopyTimer = null
@@ -341,6 +342,7 @@ function syncRelayForm(payload = {}) {
 
 function syncSystemForm(payload = {}) {
   systemForm.runnerMaxConcurrentRuns = Math.max(1, Number(payload?.runner?.maxConcurrentRuns) || 3)
+  systemForm.workspaceRootPath = String(payload?.workspace?.rootPath || '')
 }
 
 async function loadRelayConfig() {
@@ -444,6 +446,9 @@ async function handleSaveSystem() {
     const payload = await updateSystemConfig({
       runner: {
         maxConcurrentRuns: systemForm.runnerMaxConcurrentRuns,
+      },
+      workspace: {
+        rootPath: systemForm.workspaceRootPath,
       },
     })
     syncSystemForm(payload?.config || {})
@@ -868,6 +873,20 @@ onBeforeUnmount(() => {
               </div>
 
               <section class="settings-section-card space-y-4 px-4 py-4">
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">项目根目录</span>
+                  <input
+                    v-model="systemForm.workspaceRootPath"
+                    type="text"
+                    class="tool-input"
+                    placeholder="留空则使用系统用户目录（~/）"
+                    :disabled="systemLoading || systemSaving"
+                  >
+                  <p class="theme-muted-text text-xs leading-5">
+                    新建项目时，文件目录浏览将从此路径开始。例如 /Users/me/projects 或 /workspace。
+                  </p>
+                </label>
+
                 <label class="space-y-1.5">
                   <span class="theme-muted-text text-xs">{{ t('settingsDialog.system.maxConcurrentRuns') }}</span>
                   <input

@@ -13,6 +13,8 @@ import { useWorkbenchMobileLayout } from '../composables/useWorkbenchMobileLayou
 import { usePageTitle } from '../composables/usePageTitle.js'
 import { useToast } from '../composables/useToast.js'
 import { useWorkbenchTasks } from '../composables/useWorkbenchTasks.js'
+import { listCodexSessions } from '../lib/codexApi.js'
+import { getAuthInfo } from '../lib/systemConfigApi.js'
 
 const showClearDialog = ref(false)
 const showDeleteDialog = ref(false)
@@ -116,7 +118,12 @@ const currentTaskBuildPromptBlocks = computed(() => {
 
   return () => getPromptBlocksForTask(task.slug)
 })
+const codexSessionsForPanel = ref([])
+const authInfo = ref({ multiUser: false, username: null })
 const taskListPanelProps = computed(() => ({
+  codexSessions: codexSessionsForPanel.value,
+  multiUser: authInfo.value.multiUser,
+  currentUsername: authInfo.value.username,
   creatingTask: creatingTask.value,
   currentTaskAutoTitle: draft.value.autoTitle || currentTaskAutoTitle.value,
   currentTaskSlug: currentTaskSlug.value,
@@ -494,6 +501,14 @@ function handleWindowKeydown(event) {
 
 onMounted(() => {
   initializeWorkbench()
+  listCodexSessions().then((payload) => {
+    if (Array.isArray(payload?.items)) {
+      codexSessionsForPanel.value = payload.items
+    }
+  }).catch(() => {})
+  getAuthInfo().then((info) => {
+    authInfo.value = info
+  }).catch(() => {})
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleWindowKeydown)
 })

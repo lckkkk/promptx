@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { normalizeCodexRunEventsMode } from '../../../packages/shared/src/index.js'
 import { getApiErrorPayload } from './apiErrors.js'
 
@@ -59,8 +61,8 @@ function createTaskWorkspaceDiffSummaryService(options = {}) {
     })
   }
 
-  function listTaskWorkspaceDiffSummaries(limit = 30) {
-    return attachTaskWorkspaceDiffSummaries(listTasks(limit)).map((task) => ({
+  function listTaskWorkspaceDiffSummaries(limit = 30, userId = 'default') {
+    return attachTaskWorkspaceDiffSummaries(listTasks(limit, userId)).map((task) => ({
       slug: String(task?.slug || '').trim(),
       workspaceDiffSummary: task?.workspaceDiffSummary || createEmptyWorkspaceDiffSummary(),
     }))
@@ -130,25 +132,28 @@ function registerTaskRoutes(app, options = {}) {
     updateTaskCodexSession,
   } = options
 
-  app.get('/api/tasks', async () => {
+  app.get('/api/tasks', async (request) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     return {
-      items: decorateTaskList(listTasks()),
+      items: decorateTaskList(listTasks(30, userId)),
     }
   })
 
   app.get('/api/tasks/workspace-diff-summaries', async (request) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     return {
-      items: listTaskWorkspaceDiffSummaries(request.query?.limit),
+      items: listTaskWorkspaceDiffSummaries(request.query?.limit, userId),
     }
   })
 
   app.post('/api/tasks', async (request, reply) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     let task
     try {
-      task = createTask(request.body || {})
+      task = createTask(request.body || {}, userId)
     } catch (error) {
       return reply.code(400).send({
         messageKey: 'errors.taskCreateFailed',
@@ -164,6 +169,7 @@ function registerTaskRoutes(app, options = {}) {
 
   app.post('/api/tasks/reorder', async (request, reply) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     const rawSlugs = Array.isArray(request.body?.slugs) ? request.body.slugs : []
     const normalizedSlugs = rawSlugs
       .map((slug) => String(slug || '').trim())
@@ -185,7 +191,7 @@ function registerTaskRoutes(app, options = {}) {
 
     let result
     try {
-      result = reorderTasks(normalizedSlugs)
+      result = reorderTasks(normalizedSlugs, userId)
     } catch (error) {
       return reply.code(400).send({
         messageKey: 'errors.taskReorderFailed',
@@ -200,13 +206,14 @@ function registerTaskRoutes(app, options = {}) {
     }
 
     return {
-      items: decorateTaskList(result?.items || listTasks()),
+      items: decorateTaskList(result?.items || listTasks(30, userId)),
     }
   })
 
   app.get('/api/tasks/:slug', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -216,15 +223,16 @@ function registerTaskRoutes(app, options = {}) {
 
     return {
       ...decorateTask(task),
-      canEdit: canEditTask(request.params.slug),
+      canEdit: canEditTask(request.params.slug, userId),
     }
   })
 
   app.put('/api/tasks/:slug', async (request, reply) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     let result
     try {
-      result = updateTask(request.params.slug, request.body || {})
+      result = updateTask(request.params.slug, request.body || {}, userId)
     } catch (error) {
       return reply.code(400).send({
         messageKey: 'errors.taskUpdateFailed',
@@ -245,13 +253,14 @@ function registerTaskRoutes(app, options = {}) {
 
   app.delete('/api/tasks/:slug', async (request, reply) => {
     purgeExpiredContent()
+    const userId = request.user?.username || 'default'
     if (getRunningCodexRunByTaskSlug(request.params.slug)) {
       return reply.code(409).send({
         messageKey: 'errors.taskDeleteWhileRunning',
         message: '当前任务正在执行中，请先停止后再删除。',
       })
     }
-    const result = deleteTask(request.params.slug)
+    const result = deleteTask(request.params.slug, userId)
     if (result.error === 'not_found') {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -265,7 +274,8 @@ function registerTaskRoutes(app, options = {}) {
 
   app.post('/api/tasks/:slug/codex-session', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task || task.expired) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -286,7 +296,7 @@ function registerTaskRoutes(app, options = {}) {
       }
     }
 
-    const updatedTask = updateTaskCodexSession(request.params.slug, sessionId)
+    const updatedTask = updateTaskCodexSession(request.params.slug, sessionId, userId)
     if (!updatedTask) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -299,14 +309,15 @@ function registerTaskRoutes(app, options = {}) {
     return {
       task: {
         ...decorateTask(updatedTask),
-        canEdit: canEditTask(request.params.slug),
+        canEdit: canEditTask(request.params.slug, userId),
       },
     }
   })
 
   app.get('/api/tasks/:slug/codex-runs', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task || task.expired) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -328,7 +339,8 @@ function registerTaskRoutes(app, options = {}) {
 
   app.get('/api/tasks/:slug/git-diff', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task || task.expired) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -357,6 +369,50 @@ function registerTaskRoutes(app, options = {}) {
     }
   })
 
+  app.get('/api/tasks/:slug/file-content', async (request, reply) => {
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
+    if (!task || task.expired) {
+      return reply.code(404).send({ message: '任务不存在。' })
+    }
+
+    const filePath = String(request.query?.filePath || '').trim()
+    if (!filePath) {
+      return reply.code(400).send({ message: '请提供 filePath 参数。' })
+    }
+
+    const sessionId = String(task.codexSessionId || '').trim()
+    if (!sessionId) {
+      return reply.code(400).send({ message: '任务未关联项目。' })
+    }
+
+    const session = getPromptxCodexSessionById(sessionId)
+    if (!session?.cwd) {
+      return reply.code(400).send({ message: '项目工作目录不存在。' })
+    }
+
+    const repoRoot = path.resolve(session.cwd)
+    const absolutePath = path.resolve(repoRoot, filePath)
+    if (!absolutePath.startsWith(repoRoot)) {
+      return reply.code(403).send({ message: '路径不合法。' })
+    }
+
+    if (!fs.existsSync(absolutePath)) {
+      return reply.code(404).send({ message: '文件不存在。' })
+    }
+
+    const buffer = fs.readFileSync(absolutePath)
+    const isBinary = buffer.includes(0)
+    if (isBinary) {
+      return reply.code(400).send({ message: '二进制文件不支持下载。' })
+    }
+
+    const fileName = path.basename(filePath)
+    reply.header('Content-Type', 'text/plain; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
+    return reply.send(buffer)
+  })
+
   app.post('/api/tasks/:slug/codex-runs', async (request, reply) => {
     purgeExpiredContent()
     try {
@@ -374,7 +430,8 @@ function registerTaskRoutes(app, options = {}) {
 
   app.delete('/api/tasks/:slug/codex-runs', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task || task.expired) {
       return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
     }
@@ -396,7 +453,8 @@ function registerTaskRoutes(app, options = {}) {
 
   app.get('/api/tasks/:slug/raw', async (request, reply) => {
     purgeExpiredContent()
-    const task = getTaskBySlug(request.params.slug)
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
     if (!task || task.expired) {
       return reply.code(404).type('text/plain; charset=utf-8').send('任务不存在。')
     }

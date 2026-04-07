@@ -134,35 +134,46 @@ export function normalizeCwd(input = '') {
   return resolved
 }
 
-export function listPromptxCodexSessions(limit = 30) {
+export function listPromptxCodexSessions(limit = 30, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
   const rows = all(
     `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
      FROM codex_sessions
+     WHERE user_id = ?
      ORDER BY updated_at DESC
      LIMIT ?`,
-    [Math.max(1, Number(limit) || 30)]
+    [normalizedUserId, Math.max(1, Number(limit) || 30)]
   )
 
   return rows.map(toCodexSession)
 }
 
-export function getPromptxCodexSessionById(sessionId) {
+export function getPromptxCodexSessionById(sessionId, userId = null) {
   const targetId = String(sessionId || '').trim()
+  const normalizedUserId = userId ? String(userId).trim() : null
   if (!targetId) {
     return null
   }
 
   return toCodexSession(
-    get(
-      `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
-       FROM codex_sessions
-       WHERE id = ?`,
-      [targetId]
-    )
+    normalizedUserId
+      ? get(
+          `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
+           FROM codex_sessions
+           WHERE id = ? AND user_id = ?`,
+          [targetId, normalizedUserId]
+        )
+      : get(
+          `SELECT id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
+           FROM codex_sessions
+           WHERE id = ?`,
+          [targetId]
+        )
   )
 }
 
-export function createPromptxCodexSession(input = {}) {
+export function createPromptxCodexSession(input = {}, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
   const cwd = normalizeCwd(input.cwd)
   const title = normalizeTitle(input.title, cwd)
   const engine = normalizeAgentEngine(input.engine)
@@ -178,9 +189,9 @@ export function createPromptxCodexSession(input = {}) {
   transaction(() => {
     run(
       `INSERT INTO codex_sessions (
-         id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at
+         id, title, engine, cwd, codex_thread_id, engine_session_id, engine_thread_id, engine_meta_json, created_at, updated_at, user_id
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         title,
@@ -192,6 +203,7 @@ export function createPromptxCodexSession(input = {}) {
         JSON.stringify(engineMeta),
         now,
         now,
+        normalizedUserId,
       ]
     )
   })
@@ -286,8 +298,8 @@ export function updatePromptxCodexSession(sessionId, patch = {}) {
   return getPromptxCodexSessionById(existing.id)
 }
 
-export function resetPromptxCodexSession(sessionId) {
-  const existing = getPromptxCodexSessionById(sessionId)
+export function resetPromptxCodexSession(sessionId, userId = null) {
+  const existing = getPromptxCodexSessionById(sessionId, userId)
   if (!existing) {
     return null
   }
@@ -306,8 +318,8 @@ export function resetPromptxCodexSession(sessionId) {
   return getPromptxCodexSessionById(existing.id)
 }
 
-export function deletePromptxCodexSession(sessionId) {
-  const existing = getPromptxCodexSessionById(sessionId)
+export function deletePromptxCodexSession(sessionId, userId = null) {
+  const existing = getPromptxCodexSessionById(sessionId, userId)
   if (!existing) {
     return null
   }
