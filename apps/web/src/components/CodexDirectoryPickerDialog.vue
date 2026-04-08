@@ -561,7 +561,7 @@ watch(
     backdrop-class="z-[60] items-end justify-center px-0 py-0 sm:items-center sm:px-4 sm:py-6"
     panel-class="settings-dialog-panel h-full max-w-4xl sm:h-auto sm:max-h-[86vh]"
     header-class="settings-dialog-header px-5 py-4"
-    body-class="settings-dialog-body flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5"
+    body-class="settings-dialog-body flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 sm:overflow-hidden sm:px-5"
     :close-disabled="treeLoading || searchLoading"
     :close-on-backdrop="!(treeLoading || searchLoading)"
     :close-on-escape="!(treeLoading || searchLoading)"
@@ -579,241 +579,240 @@ watch(
       </div>
     </template>
 
-    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-2">
-            <div class="flex items-start gap-2 text-xs leading-5">
-              <span class="theme-muted-text shrink-0">{{ t('directoryPicker.currentSelection') }}</span>
-              <span class="min-w-0 break-all font-mono text-[var(--theme-textPrimary)]">
-                {{ selectedPath || t('directoryPicker.selectionPlaceholder') }}
-              </span>
-            </div>
-          </div>
+    <div class="flex flex-1 flex-col gap-4 sm:min-h-0 sm:overflow-hidden">
+      <div class="theme-divider rounded-sm border border-dashed px-3 py-2">
+        <div class="flex items-start gap-2 text-xs leading-5">
+          <span class="theme-muted-text shrink-0">{{ t('directoryPicker.currentSelection') }}</span>
+          <span class="min-w-0 break-all font-mono text-[var(--theme-textPrimary)]">
+            {{ selectedPath || t('directoryPicker.selectionPlaceholder') }}
+          </span>
+        </div>
+      </div>
 
-          <label class="theme-muted-text mt-4 block text-xs">
-            <span>{{ t('directoryPicker.searchLabel') }}</span>
-            <div
-              class="theme-input-shell mt-1 flex h-10 items-center gap-2 rounded-sm border px-3 transition focus-within:ring-2"
+      <label class="theme-muted-text block text-xs">
+        <span>{{ t('directoryPicker.searchLabel') }}</span>
+        <div
+          class="theme-input-shell mt-1 flex h-10 items-center gap-2 rounded-sm border px-3 transition focus-within:ring-2"
+        >
+          <Search class="h-4 w-4 shrink-0 text-[var(--theme-textMuted)]" />
+          <input
+            v-model="query"
+            type="text"
+            :placeholder="t('directoryPicker.searchPlaceholder')"
+            class="min-w-0 flex-1 border-0 bg-transparent px-0 text-sm text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
+          >
+        </div>
+      </label>
+
+      <div class="theme-divider rounded-sm border border-dashed px-3 py-3">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label class="min-w-0 flex-1 text-xs">
+            <span class="theme-muted-text">{{ t('directoryPicker.createLabel', { name: selectedName || t('directoryPicker.currentDirectory') }) }}</span>
+            <input
+              v-model="createName"
+              type="text"
+              class="tool-input mt-1"
+              :placeholder="t('directoryPicker.createPlaceholder')"
+              :disabled="createLoading || treeLoading"
+              @keydown.enter.prevent="handleCreateDirectory"
             >
-              <Search class="h-4 w-4 shrink-0 text-[var(--theme-textMuted)]" />
-              <input
-                v-model="query"
-                type="text"
-                :placeholder="t('directoryPicker.searchPlaceholder')"
-                class="min-w-0 flex-1 border-0 bg-transparent px-0 text-sm text-[var(--theme-textPrimary)] outline-none placeholder:text-[var(--theme-textMuted)]"
-              >
-            </div>
           </label>
+          <button
+            type="button"
+            class="tool-button tool-button-primary px-3 py-2 text-xs"
+            :disabled="createLoading || treeLoading || !selectedPath || !createName.trim()"
+            @click="handleCreateDirectory"
+          >
+            <LoaderCircle v-if="createLoading" class="h-4 w-4 animate-spin" />
+            <span v-else>{{ t('directoryPicker.createAction') }}</span>
+          </button>
+        </div>
+        <p v-if="createError" class="theme-danger-text mt-2 text-xs">{{ createError }}</p>
+      </div>
 
-          <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-3">
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <label class="min-w-0 flex-1 text-xs">
-                <span class="theme-muted-text">{{ t('directoryPicker.createLabel', { name: selectedName || t('directoryPicker.currentDirectory') }) }}</span>
-                <input
-                  v-model="createName"
-                  type="text"
-                  class="tool-input mt-1"
-                  :placeholder="t('directoryPicker.createPlaceholder')"
-                  :disabled="createLoading || treeLoading"
-                  @keydown.enter.prevent="handleCreateDirectory"
-                >
-              </label>
+      <div class="flex items-center gap-1.5">
+        <button
+          type="button"
+          class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
+          :class="activeTab === 'search' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
+          @click="activeTab = 'search'"
+        >
+          <Search class="h-3.5 w-3.5" />
+          <span>{{ t('directoryPicker.searchTab') }}</span>
+        </button>
+        <button
+          type="button"
+          class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
+          :class="activeTab === 'tree' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
+          @click="activeTab = 'tree'"
+        >
+          <FolderOpen class="h-3.5 w-3.5" />
+          <span>{{ t('directoryPicker.treeTab') }}</span>
+        </button>
+      </div>
+
+      <div class="theme-content-panel min-h-[18rem] overflow-y-auto p-2 sm:mt-0 sm:min-h-0 sm:flex-1">
+        <div
+          v-if="activeTab === 'search' && searchError"
+          class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
+        >
+          {{ searchError }}
+          </div>
+        <div
+          v-else-if="activeTab === 'tree' && treeError"
+          class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
+        >
+          {{ treeError }}
+        </div>
+
+        <div
+          v-else-if="activeTab === 'search' && searchLoading"
+          class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
+        >
+          <LoaderCircle class="h-4 w-4 animate-spin" />
+          <span>{{ t('directoryPicker.searching') }}</span>
+        </div>
+
+        <div
+          v-else-if="activeTab === 'tree' && treeLoading"
+          class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
+        >
+          <LoaderCircle class="h-4 w-4 animate-spin" />
+          <span>{{ t('directoryPicker.treeLoading') }}</span>
+        </div>
+
+        <div
+          v-else-if="showSearchPromptState"
+          class="theme-empty-state px-3 py-8 text-sm"
+        >
+          {{ t('directoryPicker.searchPrompt') }}
+        </div>
+
+        <div
+          v-else-if="showSearchEmptyState"
+          class="theme-empty-state px-3 py-8 text-sm"
+        >
+          {{ t('directoryPicker.noSearchResults') }}
+        </div>
+
+        <div
+          v-else-if="showTreeEmptyState"
+          class="theme-empty-state px-3 py-8 text-sm"
+        >
+          {{ t('directoryPicker.emptyTree') }}
+        </div>
+
+        <div v-else-if="activeTab === 'search'" class="space-y-1">
+          <button
+            v-for="item in searchResults"
+            :key="item.path"
+            type="button"
+            class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
+            :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
+              ? 'theme-list-item-active'
+              : 'theme-list-item-hover'"
+            @click="handleSearchSelect(item)"
+          >
+            <FolderOpen class="theme-muted-text mt-0.5 h-4 w-4 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div>
+                <span
+                  class="truncate text-[13px] text-[var(--theme-textPrimary)]"
+                  v-html="getHighlightedName(item)"
+                />
+              </div>
+              <div
+                class="theme-muted-text truncate font-mono text-[10px]"
+                v-html="getHighlightedPath(item)"
+              />
+            </div>
+          </button>
+          <p v-if="searchTruncated" class="theme-muted-text px-1 pt-2 text-xs">
+            {{ t('directoryPicker.truncatedHint') }}
+          </p>
+        </div>
+
+        <div v-else class="space-y-1">
+          <div
+            v-for="item in treeItems"
+            :key="item.path"
+            class="rounded-sm border border-transparent px-1.5 py-1 transition"
+            :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
+              ? 'theme-list-item-active'
+              : item.expanded
+                ? 'theme-list-item-expanded'
+                : 'theme-list-item-hover'"
+            :style="{ paddingLeft: `${item.depth * 16 + 6}px` }"
+          >
+            <div class="flex items-start gap-1.5">
               <button
                 type="button"
-                class="tool-button tool-button-primary px-3 py-2 text-xs"
-                :disabled="createLoading || treeLoading || !selectedPath || !createName.trim()"
-                @click="handleCreateDirectory"
+                class="theme-icon-button h-5 w-5 shrink-0"
+                :class="!item.hasChildren ? 'invisible pointer-events-none' : ''"
+                @click.stop="toggleDirectory(item)"
               >
-                <LoaderCircle v-if="createLoading" class="h-4 w-4 animate-spin" />
-                <span v-else>{{ t('directoryPicker.createAction') }}</span>
+                <LoaderCircle v-if="item.loading" class="h-3.5 w-3.5 animate-spin" />
+                <ChevronRight
+                  v-else
+                  class="h-3.5 w-3.5 transition"
+                  :class="item.expanded ? 'rotate-90 text-[var(--theme-textPrimary)]' : ''"
+                />
               </button>
-            </div>
-            <p v-if="createError" class="theme-danger-text mt-2 text-xs">{{ createError }}</p>
-          </div>
 
-          <div class="mt-4 flex items-center gap-1.5">
-            <button
-              type="button"
-              class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
-              :class="activeTab === 'search' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
-              @click="activeTab = 'search'"
-            >
-              <Search class="h-3.5 w-3.5" />
-              <span>{{ t('directoryPicker.searchTab') }}</span>
-            </button>
-            <button
-              type="button"
-              class="inline-flex h-8 items-center gap-1 rounded-sm border px-2 text-[11px] transition"
-              :class="activeTab === 'tree' ? 'tool-button-accent-subtle' : 'theme-filter-idle border-dashed'"
-              @click="activeTab = 'tree'"
-            >
-              <FolderOpen class="h-3.5 w-3.5" />
-              <span>{{ t('directoryPicker.treeTab') }}</span>
-            </button>
-          </div>
-
-          <div class="theme-content-panel mt-3 min-h-0 flex-1 overflow-y-auto p-2">
-            <div
-              v-if="activeTab === 'search' && searchError"
-              class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
-            >
-              {{ searchError }}
-            </div>
-
-            <div
-              v-else-if="activeTab === 'tree' && treeError"
-              class="theme-status-danger rounded-sm border border-dashed px-3 py-3 text-xs"
-            >
-              {{ treeError }}
-            </div>
-
-            <div
-              v-else-if="activeTab === 'search' && searchLoading"
-              class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
-            >
-              <LoaderCircle class="h-4 w-4 animate-spin" />
-              <span>{{ t('directoryPicker.searching') }}</span>
-            </div>
-
-            <div
-              v-else-if="activeTab === 'tree' && treeLoading"
-              class="theme-empty-state flex items-center justify-center gap-2 px-3 py-8 text-sm"
-            >
-              <LoaderCircle class="h-4 w-4 animate-spin" />
-              <span>{{ t('directoryPicker.treeLoading') }}</span>
-            </div>
-
-            <div
-              v-else-if="showSearchPromptState"
-              class="theme-empty-state px-3 py-8 text-sm"
-            >
-              {{ t('directoryPicker.searchPrompt') }}
-            </div>
-
-            <div
-              v-else-if="showSearchEmptyState"
-              class="theme-empty-state px-3 py-8 text-sm"
-            >
-              {{ t('directoryPicker.noSearchResults') }}
-            </div>
-
-            <div
-              v-else-if="showTreeEmptyState"
-              class="theme-empty-state px-3 py-8 text-sm"
-            >
-              {{ t('directoryPicker.emptyTree') }}
-            </div>
-
-            <div v-else-if="activeTab === 'search'" class="space-y-1">
               <button
-                v-for="item in searchResults"
-                :key="item.path"
                 type="button"
-                class="flex w-full items-start gap-2 rounded-sm border border-transparent px-2.5 py-1.5 text-left transition"
-                :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
-                  ? 'theme-list-item-active'
-                  : 'theme-list-item-hover'"
-                @click="handleSearchSelect(item)"
+                class="flex min-w-0 flex-1 items-start gap-1.5 rounded-sm px-0.5 py-0.5 text-left"
+                @click="handleTreeSelect(item)"
               >
-                <FolderOpen class="theme-muted-text mt-0.5 h-4 w-4 shrink-0" />
+                <FolderOpen
+                  class="h-4 w-4 shrink-0"
+                  :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
+                    ? 'text-[var(--theme-textPrimary)]'
+                    : 'text-[var(--theme-textMuted)]'"
+                />
                 <div class="min-w-0 flex-1">
-                  <div>
-                    <span
-                      class="truncate text-[13px] text-[var(--theme-textPrimary)]"
-                      v-html="getHighlightedName(item)"
-                    />
+                  <div
+                    class="truncate text-[13px]"
+                    :class="item.isHomeRoot
+                      ? 'font-medium text-[var(--theme-textSecondary)]'
+                      : 'font-medium text-[var(--theme-textPrimary)]'"
+                  >
+                    {{ getDisplayName(item) }}
                   </div>
                   <div
+                    v-if="item.isHomeRoot"
                     class="theme-muted-text truncate font-mono text-[10px]"
-                    v-html="getHighlightedPath(item)"
-                  />
+                  >
+                    {{ item.path }}
+                  </div>
                 </div>
               </button>
-              <p v-if="searchTruncated" class="theme-muted-text px-1 pt-2 text-xs">
-                {{ t('directoryPicker.truncatedHint') }}
-              </p>
-            </div>
-
-            <div v-else class="space-y-1">
-              <div
-                v-for="item in treeItems"
-                :key="item.path"
-                class="rounded-sm border border-transparent px-1.5 py-1 transition"
-                :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
-                  ? 'theme-list-item-active'
-                  : item.expanded
-                    ? 'theme-list-item-expanded'
-                    : 'theme-list-item-hover'"
-                :style="{ paddingLeft: `${item.depth * 16 + 6}px` }"
-              >
-                <div class="flex items-start gap-1.5">
-                  <button
-                    type="button"
-                    class="theme-icon-button h-5 w-5 shrink-0"
-                    :class="!item.hasChildren ? 'invisible pointer-events-none' : ''"
-                    @click.stop="toggleDirectory(item)"
-                  >
-                    <LoaderCircle v-if="item.loading" class="h-3.5 w-3.5 animate-spin" />
-                    <ChevronRight
-                      v-else
-                      class="h-3.5 w-3.5 transition"
-                      :class="item.expanded ? 'rotate-90 text-[var(--theme-textPrimary)]' : ''"
-                    />
-                  </button>
-
-                  <button
-                    type="button"
-                    class="flex min-w-0 flex-1 items-start gap-1.5 rounded-sm px-0.5 py-0.5 text-left"
-                    @click="handleTreeSelect(item)"
-                  >
-                    <FolderOpen
-                      class="h-4 w-4 shrink-0"
-                      :class="normalizePathForCompare(selectedPath) === normalizePathForCompare(item.path)
-                        ? 'text-[var(--theme-textPrimary)]'
-                        : 'text-[var(--theme-textMuted)]'"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div
-                        class="truncate text-[13px]"
-                        :class="item.isHomeRoot
-                          ? 'font-medium text-[var(--theme-textSecondary)]'
-                          : 'font-medium text-[var(--theme-textPrimary)]'"
-                      >
-                        {{ getDisplayName(item) }}
-                      </div>
-                      <div
-                        v-if="item.isHomeRoot"
-                        class="theme-muted-text truncate font-mono text-[10px]"
-                      >
-                        {{ item.path }}
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <div class="theme-divider flex flex-col-reverse gap-2 border-t border-dashed px-4 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-5">
-          <div class="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              class="tool-button w-full px-3 py-2 text-xs sm:w-auto"
-              :disabled="treeLoading || searchLoading"
-              @click="emit('close')"
-            >
-              {{ t('directoryPicker.cancel') }}
-            </button>
-            <button
-              type="button"
-              class="tool-button tool-button-primary inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-xs sm:w-auto"
-              :disabled="treeLoading || searchLoading || !selectedPath"
-              @click="handlePick"
-            >
-              <Check class="h-4 w-4" />
-              <span>{{ t('directoryPicker.useCurrentDirectory') }}</span>
-            </button>
-          </div>
+    <div class="theme-divider mt-4 flex flex-col-reverse gap-2 border-t border-dashed px-1 pt-4 sm:mt-0 sm:px-0 sm:pt-4">
+      <div class="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+        <button
+          type="button"
+          class="tool-button w-full px-3 py-2 text-xs sm:w-auto"
+          :disabled="treeLoading || searchLoading"
+          @click="emit('close')"
+        >
+          {{ t('directoryPicker.cancel') }}
+        </button>
+        <button
+          type="button"
+          class="tool-button tool-button-primary inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-xs sm:w-auto"
+          :disabled="treeLoading || searchLoading || !selectedPath"
+          @click="handlePick"
+        >
+          <Check class="h-4 w-4" />
+          <span>{{ t('directoryPicker.useCurrentDirectory') }}</span>
+        </button>
+      </div>
     </div>
   </DialogShell>
 </template>

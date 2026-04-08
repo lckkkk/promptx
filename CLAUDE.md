@@ -21,6 +21,8 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 - 当前项目如需打包、安装并重启本地运行版本，统一执行：
   - `npm run local:update`
+- 默认不要主动执行 `git commit`、`git push`、发版到 npm 等发布动作；只有用户明确要求“提交”“推送”“发布”时，才执行对应操作。
+- 在用户未明确要求提交或推送时，代码改动默认只保留在当前工作区，并继续完成必要的验证与本地更新流程。
 - “需要执行 local update”的判定规则：
   - 只要本次改动影响用户当前会在 PromptX 中直接看到或直接用到的行为，就在改动完成后执行 `npm run local:update`。
   - 典型场景包括：前端界面/交互改动、服务端接口或业务逻辑改动、CLI 行为改动、安装包内容改动、会影响本地运行结果的配置或脚本改动。

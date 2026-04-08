@@ -4,7 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { createDirectoryPickerDirectory, listDirectoryPickerTree, searchDirectoryPickerEntries } from './workspaceFiles.js'
+import {
+  createDirectoryPickerDirectory,
+  listDirectoryPickerTree,
+  readWorkspaceFileContent,
+  searchDirectoryPickerEntries,
+} from './workspaceFiles.js'
 
 test('listDirectoryPickerTree returns filesystem roots when path is empty', () => {
   const payload = listDirectoryPickerTree()
@@ -80,4 +85,48 @@ test('createDirectoryPickerDirectory creates a new child directory and rejects d
       name: 'project-new',
     })
   }, /目录已存在/)
+})
+
+test('readWorkspaceFileContent returns text preview and truncation state', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-workspace-file-'))
+  const filePath = path.join(tempDir, 'notes.md')
+  fs.writeFileSync(filePath, 'hello\nworld\npreview\ncontent', 'utf8')
+
+  const payload = readWorkspaceFileContent(tempDir, {
+    path: 'notes.md',
+    maxBytes: 12,
+  })
+
+  assert.equal(payload.path, 'notes.md')
+  assert.equal(payload.type, 'text')
+  assert.equal(payload.truncated, true)
+  assert.match(payload.content, /hello/)
+})
+
+test('readWorkspaceFileContent reports binary files without raw preview', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-workspace-binary-'))
+  const filePath = path.join(tempDir, 'logo.bin')
+  fs.writeFileSync(filePath, Buffer.from([0, 255, 10, 20, 30]))
+
+  const payload = readWorkspaceFileContent(tempDir, {
+    path: 'logo.bin',
+  })
+
+  assert.equal(payload.path, 'logo.bin')
+  assert.equal(payload.type, 'binary')
+  assert.equal(payload.content, '')
+})
+
+test('readWorkspaceFileContent rejects directories and path traversal', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-workspace-guard-'))
+  fs.mkdirSync(path.join(tempDir, 'src'))
+  fs.writeFileSync(path.join(tempDir, 'src', 'index.js'), 'export {}', 'utf8')
+
+  assert.throws(() => {
+    readWorkspaceFileContent(tempDir, { path: 'src' })
+  }, /只能预览文件/)
+
+  assert.throws(() => {
+    readWorkspaceFileContent(tempDir, { path: '../outside.txt' })
+  }, /路径不合法|只能访问当前工作目录内的文件/)
 })

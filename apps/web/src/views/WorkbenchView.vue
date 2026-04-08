@@ -29,6 +29,7 @@ import { getAuthInfo, getLocalUpdateStatus } from '../lib/systemConfigApi.js'
 const showClearDialog = ref(false)
 const showDeleteDialog = ref(false)
 const showDiffDialog = ref(false)
+const preferredInspectorView = ref('diff')
 const showSettingsDialog = ref(false)
 const showEditTaskDialog = ref(false)
 const showProjectManagerDialog = ref(false)
@@ -252,8 +253,15 @@ function resolvePreferredMobileDetailTab(task) {
 usePageTitle(pageTitle)
 
 function openTaskDiff(scope = 'workspace', runId = '') {
+  preferredInspectorView.value = 'diff'
   preferredDiffScope.value = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
   preferredDiffRunId.value = preferredDiffScope.value === 'run' ? String(runId || '') : ''
+  showDiffDialog.value = true
+  diffFocusToken.value += 1
+}
+
+function openTaskFiles() {
+  preferredInspectorView.value = 'files'
   showDiffDialog.value = true
   diffFocusToken.value += 1
 }
@@ -775,6 +783,7 @@ const taskListPanelListeners = {
 
 const activityPanelListeners = {
   'open-diff': ({ scope, runId }) => openTaskDiff(scope, runId),
+  'open-files': () => openTaskFiles(),
   'project-created': () => flashToast({ message: t('workbench.projectCreated'), type: 'success' }),
   'selected-session-change': handleCurrentTaskSessionChange,
   'sending-change': handleCurrentTaskSendingChange,
@@ -887,6 +896,8 @@ const mobileDetailHeaderListeners = {
       :open="showDiffDialog"
       :task-slug="currentTaskSlug"
       :task-title="currentTaskDisplayTitle"
+      :session-id="currentRenderedTask?.codexSessionId || ''"
+      :preferred-view="preferredInspectorView"
       :preferred-scope="preferredDiffScope"
       :preferred-run-id="preferredDiffRunId"
       :focus-token="diffFocusToken"

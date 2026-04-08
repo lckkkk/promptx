@@ -295,3 +295,62 @@ test('codex routes create directory picker directories', async () => {
     await app.close()
   }
 })
+
+test('codex routes return workspace file preview for a session', async () => {
+  const app = Fastify()
+  registerCodexRoutes(app, {
+    broadcastServerEvent: () => {},
+    clearTaskCodexSessionReferences: () => [],
+    createPromptxCodexSession: () => ({ id: 'session-1' }),
+    decorateCodexSession: (session) => session,
+    decorateCodexSessionList: (items) => items,
+    deletePromptxCodexSession: () => null,
+    getCodexRunById: () => null,
+    getPromptxCodexSessionById: (sessionId) => (
+      sessionId === 'session-1' ? { id: 'session-1', cwd: '/tmp/project-a' } : null
+    ),
+    getRunningCodexRunBySessionId: () => null,
+    isActiveRunStatus: () => false,
+    listCodexRunEvents: () => [],
+    listDirectoryPickerTree: () => ({}),
+    listPromptxCodexSessions: () => [],
+    listWorkspaceSuggestions: () => [],
+    listWorkspaceTree: () => ({}),
+    readWorkspaceFileContent: (cwd, options) => ({
+      cwd,
+      path: options.path,
+      type: 'text',
+      content: 'hello world',
+      truncated: false,
+      size: 11,
+    }),
+    runDispatchService: {
+      async requestRunStop() {
+        return null
+      },
+    },
+    searchDirectoryPickerEntries: () => ({}),
+    searchWorkspaceEntries: () => ({}),
+    updatePromptxCodexSession: () => null,
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/codex/sessions/session-1/files/content?path=src%2Findex.js',
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), {
+      cwd: '/tmp/project-a',
+      path: 'src/index.js',
+      type: 'text',
+      content: 'hello world',
+      truncated: false,
+      size: 11,
+    })
+  } finally {
+    await app.close()
+  }
+})

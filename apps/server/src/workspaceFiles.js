@@ -36,6 +36,7 @@ const DEFAULT_TREE_LIMIT = 200
 const DEFAULT_SEARCH_LIMIT = 80
 const MAX_SEARCH_VISITS = 20000
 const DIRECTORY_PICKER_LIMIT = 240
+const DEFAULT_FILE_PREVIEW_MAX_BYTES = 120 * 1024
 
 function createHttpError(message, statusCode = 400) {
   return createApiError('', message, statusCode)
@@ -178,6 +179,21 @@ function directoryHasVisiblePickerChildren(directoryPath = '') {
   } catch {
     return false
   }
+}
+
+function isLikelyBinaryBuffer(buffer) {
+  if (!buffer || !buffer.length) {
+    return false
+  }
+
+  const sample = buffer.subarray(0, Math.min(buffer.length, 512))
+  for (const byte of sample) {
+    if (byte === 0) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function createDirectoryPickerItem(directoryPath = '', entryName = '') {
@@ -556,6 +572,44 @@ export function searchWorkspaceEntries(workspacePath, options = {}) {
     query,
     items: matches.slice(0, limit).map(({ score, ...item }) => item),
     truncated: truncated || matches.length > limit,
+  }
+}
+
+export function readWorkspaceFileContent(workspacePath, options = {}) {
+  const target = resolveWorkspaceTarget(workspacePath, options.path)
+  const type = getPathType(target.absolutePath)
+
+  if (!type) {
+    throw createApiError('errors.targetPathNotFound', '目标路径不存在。', 404)
+  }
+
+  if (type !== 'file') {
+    throw createApiError('errors.filePreviewOnly', '只能预览文件。')
+  }
+
+  const maxBytes = clampLimit(options.maxBytes, DEFAULT_FILE_PREVIEW_MAX_BYTES, 1024 * 1024)
+  const buffer = fs.readFileSync(target.absolutePath)
+  const binary = isLikelyBinaryBuffer(buffer)
+
+  if (binary) {
+    return {
+      cwd: target.root,
+      path: target.relativePath,
+      type: 'binary',
+      content: '',
+      truncated: false,
+      size: buffer.length,
+    }
+  }
+
+  const previewBuffer = buffer.subarray(0, Math.min(buffer.length, maxBytes))
+  return {
+    cwd: target.root,
+    path: target.relativePath,
+    type: 'text',
+    content: previewBuffer.toString('utf8'),
+    truncated: buffer.length > previewBuffer.length,
+    size: buffer.length,
   }
 }
 

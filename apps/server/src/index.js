@@ -59,6 +59,7 @@ import {
   createDirectoryPickerDirectory,
   listDirectoryPickerTree,
   listWorkspaceTree,
+  readWorkspaceFileContent,
   searchDirectoryPickerEntries,
   searchWorkspaceEntries,
 } from './workspaceFiles.js'
@@ -431,6 +432,7 @@ registerCodexRoutes(app, {
   listTaskSlugsByCodexSessionId,
   listWorkspaceSuggestions: workspaceSuggestionService.listWorkspaceSuggestions,
   listWorkspaceTree,
+  readWorkspaceFileContent,
   resetPromptxCodexSession,
   runDispatchService,
   searchDirectoryPickerEntries,

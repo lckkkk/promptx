@@ -228,7 +228,10 @@ watch(diffScope, () => {
       </div>
     </div>
 
-    <div v-else-if="diffPayload" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      v-else-if="diffPayload"
+      :class="isMobileLayout ? 'flex-1 overflow-y-auto' : 'flex min-h-0 flex-1 flex-col overflow-hidden'"
+    >
       <div class="theme-divider theme-secondary-text border-b px-4 py-3 text-xs">
         <div class="flex flex-wrap items-center gap-2">
           <div
@@ -276,7 +279,7 @@ watch(diffScope, () => {
         </div>
       </div>
 
-      <div v-if="isMobileLayout" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div v-if="isMobileLayout" class="flex flex-col">
         <div class="theme-divider border-b px-3 py-3">
           <div class="grid grid-cols-2 gap-2">
             <button
@@ -299,7 +302,7 @@ watch(diffScope, () => {
           </div>
         </div>
 
-        <div v-show="mobilePanelTab === 'files'" class="theme-divider theme-muted-panel min-h-0 flex-1 overflow-y-auto p-3">
+        <div v-show="mobilePanelTab === 'files'" class="theme-divider theme-muted-panel p-3">
           <TaskDiffFileList
             :diff-payload="diffPayload"
             :file-search="fileSearch"
@@ -318,21 +321,23 @@ watch(diffScope, () => {
           />
         </div>
 
-        <div v-show="mobilePanelTab === 'patch'" class="min-h-0 flex-1 overflow-hidden bg-[var(--theme-appPanelStrong)]">
-          <TaskDiffPatchView
-            :active-hunk-index="activeHunkIndex"
-            :get-patch-line-class="getPatchLineClass"
-            :get-status-class="getStatusClass"
-            :get-status-label="getStatusLabel"
-            :jump-to-adjacent-hunk="jumpToAdjacentHunk"
-            :patch-loading="patchLoading"
-            :selected-file="selectedFile"
-            :selected-patch-hunks="selectedPatchHunks"
-            :selected-patch-lines="selectedPatchLines"
-            :set-patch-line-ref="setPatchLineRef"
-            :set-patch-viewport-ref="setPatchViewportElement"
-            :task-slug="taskSlug"
-          />
+        <div v-show="mobilePanelTab === 'patch'" class="bg-[var(--theme-appPanelStrong)]">
+          <div class="h-[min(62vh,34rem)] min-h-[22rem]">
+            <TaskDiffPatchView
+              :active-hunk-index="activeHunkIndex"
+              :get-patch-line-class="getPatchLineClass"
+              :get-status-class="getStatusClass"
+              :get-status-label="getStatusLabel"
+              :jump-to-adjacent-hunk="jumpToAdjacentHunk"
+              :patch-loading="patchLoading"
+              :selected-file="selectedFile"
+              :selected-patch-hunks="selectedPatchHunks"
+              :selected-patch-lines="selectedPatchLines"
+              :set-patch-line-ref="setPatchLineRef"
+              :set-patch-viewport-ref="setPatchViewportElement"
+              :task-slug="taskSlug"
+            />
+          </div>
         </div>
       </div>
 

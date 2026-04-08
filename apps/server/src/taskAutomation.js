@@ -231,7 +231,12 @@ function summarizeRunMessage(run = {}) {
 
   const response = String(run.responseMessage || '').trim()
   if (response) {
-    return response.replace(/\s+/g, ' ').trim().slice(0, 500)
+    return response
+      .replace(/\r\n/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, 1200)
   }
 
   if (String(run.status || '') === 'stopped') {
@@ -285,55 +290,385 @@ function buildNotificationSummary(task = {}, run = {}, options = {}) {
   }
 }
 
-function createFeishuTextTag(textValue = '') {
-  return {
-    tag: 'text',
-    text: String(textValue || ''),
+function getFeishuCardHeaderTemplate(run = {}) {
+  const status = String(run.status || '').trim().toLowerCase()
+
+  if (status === 'completed' || status === 'success') {
+    return 'green'
+  }
+
+  if (status === 'running' || status === 'queued' || status === 'pending') {
+    return 'blue'
+  }
+
+  return 'red'
+}
+
+function formatFeishuNotificationTime(value, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
+  const target = new Date(value || Date.now())
+  if (Number.isNaN(target.getTime())) {
+    return ''
+  }
+
+  const normalizedLocale = locale === TASK_NOTIFICATION_LOCALES.EN_US ? 'en-CA' : 'sv-SE'
+  return target
+    .toLocaleString(normalizedLocale, {
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    .replace(',', '')
+}
+
+function normalizeNotificationLines(value = '') {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function stripListMarker(line = '') {
+  return String(line || '').replace(/^(\d+[\.\)]|[-*•])\s*/, '').trim()
+}
+
+function isLikelySectionTitle(line = '') {
+  const value = String(line || '').trim()
+  return /^(摘要|总结|概览|结果|变更|修改|更新|风险|问题|异常|错误|告警|下一步|建议|说明|Summary|Overview|Result|Changes|Risks?|Warnings?|Errors?|Next Steps?)[:：]?$/i.test(value)
+}
+
+function getFeishuSectionTitle(key, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
+  switch (key) {
+    case 'summary':
+      return text(locale, '摘要', 'Summary')
+    case 'changes':
+      return text(locale, '变更', 'Changes')
+    case 'risks':
+      return text(locale, '风险', 'Risks')
+    case 'nextSteps':
+      return text(locale, '下一步', 'Next Steps')
+    case 'validation':
+      return text(locale, '验证', 'Validation')
+    default:
+      return ''
   }
 }
 
-function createFeishuLinkTag(textValue = '', href = '') {
-  return {
-    tag: 'a',
-    text: String(textValue || ''),
-    href: String(href || ''),
+function buildFeishuSectionMarkdown(title, items = [], { bullet = false } = {}) {
+  const normalizedItems = Array.isArray(items)
+    ? items.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+
+  if (!normalizedItems.length) {
+    return ''
   }
+
+  const body = bullet
+    ? normalizedItems.map((item) => `- ${item}`).join('\n')
+    : normalizedItems.join('\n\n')
+
+  return `**${title}**\n${body}`
 }
 
-function buildFeishuNotificationPost(task = {}, run = {}, options = {}) {
+function parseFeishuSummarySections(summary = '', run = {}, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
+  const lines = normalizeNotificationLines(summary)
+  const sections = {
+    summary: [],
+    changes: [],
+    risks: [],
+    nextSteps: [],
+    validation: [],
+  }
+  let currentSection = 'summary'
+
+  for (const line of lines) {
+    const rawLine = String(line || '').trim()
+    const normalizedLine = stripListMarker(line)
+    const lowerLine = normalizedLine.toLowerCase()
+    const isBulletLine = /^(\d+[\.\)]|[-*•])\s*/.test(rawLine)
+
+    if (isLikelySectionTitle(normalizedLine)) {
+      if (/^(变更|修改|更新|Changes?)$/i.test(normalizedLine)) {
+        currentSection = 'changes'
+      } else if (/^(风险|问题|异常|错误|告警|Risks?|Warnings?|Errors?)$/i.test(normalizedLine)) {
+        currentSection = 'risks'
+      } else if (/^(下一步|建议|Next Steps?)$/i.test(normalizedLine)) {
+        currentSection = 'nextSteps'
+      } else {
+        currentSection = 'summary'
+      }
+      continue
+    }
+
+    if (/^(下一步|建议|todo|next step|next steps?)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'nextSteps'
+      continue
+    }
+
+    if (/^(下一步|建议|todo|next step|next steps?)[:：]?\s*/i.test(normalizedLine)) {
+      currentSection = 'nextSteps'
+      const content = normalizedLine.replace(/^(下一步|建议|todo|next step|next steps?)[:：]?\s*/i, '').trim()
+      if (content) {
+        sections.nextSteps.push(content)
+      }
+      continue
+    }
+
+    if (/^(风险|问题|异常|错误|告警|risk|warning|error)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'risks'
+      continue
+    }
+
+    if (/^(风险|问题|异常|错误|告警|risk|warning|error)[:：]?\s*/i.test(normalizedLine)) {
+      currentSection = 'risks'
+      const content = normalizedLine.replace(/^(风险|问题|异常|错误|告警|risk|warning|error)[:：]?\s*/i, '').trim()
+      if (content) {
+        sections.risks.push(content)
+      }
+      continue
+    }
+
+    if (/^(变更|修改|更新|changes?)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'changes'
+      continue
+    }
+
+    if (/^(变更|修改|更新|changes?)[:：]?\s*/i.test(normalizedLine)) {
+      currentSection = 'changes'
+      const content = normalizedLine.replace(/^(变更|修改|更新|changes?)[:：]?\s*/i, '').trim()
+      if (content) {
+        sections.changes.push(content)
+      }
+      continue
+    }
+
+    if (/^(摘要|总结|概览|结果|summary|overview|result)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'summary'
+      continue
+    }
+
+    if (/^(摘要|总结|概览|结果|summary|overview|result)[:：]?\s*/i.test(normalizedLine)) {
+      currentSection = 'summary'
+      const content = normalizedLine.replace(/^(摘要|总结|概览|结果|summary|overview|result)[:：]?\s*/i, '').trim()
+      if (content) {
+        sections.summary.push(content)
+      }
+      continue
+    }
+
+    if (/^(验证|验证已做|检查结果|validation|checks?)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'validation'
+      continue
+    }
+
+    if (/^(验证|验证已做|检查结果|validation|checks?)[:：]?\s*/i.test(normalizedLine)) {
+      currentSection = 'validation'
+      const content = normalizedLine.replace(/^(验证|验证已做|检查结果|validation|checks?)[:：]?\s*/i, '').trim()
+      if (content) {
+        sections.validation.push(content)
+      }
+      continue
+    }
+
+    if (/^(这次调整的效果|这次调整的效果是|处理结果|完成情况|本次变更|影响范围)[:：]?$/i.test(normalizedLine)) {
+      currentSection = 'changes'
+      continue
+    }
+
+    if (/(失败|错误|异常|中断|超时|warning|warn|error|failed|exception|timeout)/i.test(lowerLine)) {
+      sections.risks.push(normalizedLine)
+      continue
+    }
+
+    if (/^(新增|增加|修改|更新|删除|修复|优化|Added|Updated|Removed|Fixed|Improved)\b/i.test(normalizedLine)) {
+      sections.changes.push(normalizedLine)
+      continue
+    }
+
+    if (isBulletLine && currentSection !== 'summary') {
+      sections[currentSection].push(normalizedLine)
+      continue
+    }
+
+    if (sections.summary.length === 0) {
+      sections.summary.push(normalizedLine)
+      continue
+    }
+
+    if (currentSection !== 'summary') {
+      sections[currentSection].push(normalizedLine)
+      continue
+    }
+
+    sections.summary.push(normalizedLine)
+  }
+
+  if (!sections.summary.length) {
+    if (hasEndedStatus(run)) {
+      sections.summary.push(summarizeRunMessage({ ...run, task: run.task }))
+    } else {
+      sections.summary.push(text(locale, '本次运行已结束。', 'This run has finished.'))
+    }
+  }
+
+  return sections
+}
+
+function buildFeishuNotificationCard(task = {}, run = {}, options = {}) {
   const locale = resolveNotificationLocale(task)
   const taskTitle = String(task.displayTitle || task.title || task.autoTitle || task.slug || text(locale, '未命名任务', 'Untitled Task')).trim()
   const projectTitle = String(options.projectTitle || '').trim()
   const statusLabel = getRunStatusLabel(run, locale)
   const engineLabel = String(run.engine || task?.engine || 'codex').trim()
-  const finishedAt = new Date(run.finishedAt || run.updatedAt || Date.now()).toLocaleString(locale)
+  const finishedAt = formatFeishuNotificationTime(run.finishedAt || run.updatedAt || Date.now(), locale)
   const summary = summarizeRunMessage({ ...run, task })
+  const summarySections = parseFeishuSummarySections(summary, { ...run, task }, locale)
   const detailUrl = String(options.detailUrl || '').trim()
+  const headerTemplate = getFeishuCardHeaderTemplate(run)
+  const detailLabel = text(locale, '打开任务', 'Open task')
+  const metaFields = [
+    {
+      is_short: true,
+      text: {
+        tag: 'lark_md',
+        content: `**${text(locale, '状态', 'Status')}**\n${statusLabel}`,
+      },
+    },
+    {
+      is_short: true,
+      text: {
+        tag: 'lark_md',
+        content: `**${text(locale, '引擎', 'Engine')}**\n${engineLabel}`,
+      },
+    },
+    ...(projectTitle
+      ? [{
+          is_short: true,
+          text: {
+            tag: 'lark_md',
+            content: `**${text(locale, '项目', 'Project')}**\n${projectTitle}`,
+          },
+        }]
+      : []),
+  ]
 
   return {
-    title: text(locale, 'PromptX 任务通知', 'PromptX Task Notification'),
-    content: [
-      [
-        createFeishuTextTag(`${text(locale, '任务', 'Task')}：${taskTitle}`),
-      ],
-      ...(projectTitle ? [[
-        createFeishuTextTag(`${text(locale, '项目', 'Project')}：${projectTitle}`),
-      ]] : []),
-      [
-        createFeishuTextTag(`${text(locale, '状态', 'Status')}：${statusLabel}`),
-        createFeishuTextTag('  '),
-        createFeishuTextTag(`${text(locale, '引擎', 'Engine')}：${engineLabel}`),
-      ],
-      [
-        createFeishuTextTag(`${text(locale, '时间', 'Time')}：${finishedAt}`),
-      ],
-      [
-        createFeishuTextTag(`${text(locale, '摘要', 'Summary')}：${summary}`),
-      ],
-      ...(detailUrl ? [[
-        createFeishuTextTag(`${text(locale, '详情', 'Details')}：`),
-        createFeishuLinkTag(text(locale, '打开任务', 'Open task'), detailUrl),
-      ]] : []),
+    config: {
+      wide_screen_mode: true,
+      enable_forward: true,
+    },
+    header: {
+      template: headerTemplate,
+      title: {
+        tag: 'plain_text',
+        content: text(locale, 'PromptX 任务通知', 'PromptX Task Notification'),
+      },
+    },
+    elements: [
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: `**${text(locale, '任务', 'Task')}**\n${taskTitle}`,
+        },
+      },
+      {
+        tag: 'div',
+        fields: metaFields,
+      },
+      {
+        tag: 'note',
+        elements: [
+          {
+            tag: 'plain_text',
+            content: `${text(locale, '时间', 'Time')}：${finishedAt}`,
+          },
+        ],
+      },
+      {
+        tag: 'hr',
+      },
+      {
+        tag: 'div',
+        text: {
+          tag: 'lark_md',
+          content: buildFeishuSectionMarkdown(
+            getFeishuSectionTitle('summary', locale),
+            summarySections.summary
+          ),
+        },
+      },
+      ...(summarySections.changes.length
+        ? [{
+            tag: 'div',
+            text: {
+              tag: 'lark_md',
+              content: buildFeishuSectionMarkdown(
+                getFeishuSectionTitle('changes', locale),
+                summarySections.changes,
+                { bullet: true }
+              ),
+            },
+          }]
+        : []),
+      ...(summarySections.risks.length
+        ? [{
+            tag: 'div',
+            text: {
+              tag: 'lark_md',
+              content: buildFeishuSectionMarkdown(
+                getFeishuSectionTitle('risks', locale),
+                summarySections.risks,
+                { bullet: true }
+              ),
+            },
+          }]
+        : []),
+      ...(summarySections.nextSteps.length
+        ? [{
+            tag: 'div',
+            text: {
+              tag: 'lark_md',
+              content: buildFeishuSectionMarkdown(
+                getFeishuSectionTitle('nextSteps', locale),
+                summarySections.nextSteps,
+                { bullet: true }
+              ),
+            },
+          }]
+        : []),
+      ...(summarySections.validation.length
+        ? [{
+            tag: 'div',
+            text: {
+              tag: 'lark_md',
+              content: buildFeishuSectionMarkdown(
+                getFeishuSectionTitle('validation', locale),
+                summarySections.validation,
+                { bullet: true }
+              ),
+            },
+          }]
+        : []),
+      ...(detailUrl
+        ? [{
+            tag: 'action',
+            actions: [
+              {
+                tag: 'button',
+                text: {
+                  tag: 'plain_text',
+                  content: detailLabel,
+                },
+                type: 'primary',
+                url: detailUrl,
+              },
+            ],
+          }]
+        : []),
     ],
   }
 }
@@ -366,15 +701,9 @@ function buildNotificationRequest(task = {}, run = {}, options = {}) {
   const secret = String(notification.secret || '').trim()
 
   if (channelType === TASK_NOTIFICATION_CHANNELS.FEISHU) {
-    const localeKey = summary.locale === TASK_NOTIFICATION_LOCALES.EN_US ? 'en_us' : 'zh_cn'
-    const post = buildFeishuNotificationPost(task, run, options)
     const payload = {
-      msg_type: 'post',
-      content: {
-        post: {
-          [localeKey]: post,
-        },
-      },
+      msg_type: 'interactive',
+      card: buildFeishuNotificationCard(task, run, options),
     }
 
     if (secret) {

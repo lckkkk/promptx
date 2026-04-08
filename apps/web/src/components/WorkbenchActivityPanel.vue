@@ -46,6 +46,7 @@ const emit = defineEmits([
   'project-created',
   'selected-session-change',
   'open-diff',
+  'open-files',
   'toast',
 ])
 
@@ -87,6 +88,7 @@ defineExpose({
       @sending-change="emit('sending-change', $event)"
       @selected-session-change="emit('selected-session-change', $event)"
       @open-diff="emit('open-diff', $event)"
+      @open-files="emit('open-files')"
       @toast="emit('toast', $event)"
     />
   </div>

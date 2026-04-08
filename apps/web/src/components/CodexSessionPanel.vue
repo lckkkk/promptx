@@ -9,6 +9,7 @@ import {
   Eye,
   EyeOff,
   FileDiff,
+  FileText,
   Image as ImageIcon,
   LoaderCircle,
   PencilLine,
@@ -24,7 +25,7 @@ import { aggregateProcessEvents } from '../lib/processEventGrouping.js'
 
 const CodexSessionManagerDialog = defineAsyncComponent(() => import('./CodexSessionManagerDialog.vue'))
 
-const emit = defineEmits(['project-created', 'selected-session-change', 'sending-change', 'open-diff', 'toast'])
+const emit = defineEmits(['project-created', 'selected-session-change', 'sending-change', 'open-diff', 'open-files', 'toast'])
 
 const props = defineProps({
   prompt: {
@@ -199,6 +200,10 @@ function openTaskDiff() {
   })
 }
 
+function openTaskFiles() {
+  emit('open-files')
+}
+
 function renderResponseBody(turn) {
   if (turn?.errorMessage) {
     return ''
@@ -352,6 +357,16 @@ defineExpose({
               <FileDiff class="h-4 w-4" />
               <span class="sm:hidden">代码</span>
               <span class="hidden sm:inline">{{ t('sessionPanel.diff') }}</span>
+            </button>
+            <button
+              type="button"
+              class="tool-button inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2 text-xs sm:gap-2 sm:px-3"
+              :disabled="!taskSlug || !selectedSessionId"
+              @click="openTaskFiles"
+            >
+              <FileText class="h-4 w-4" />
+              <span class="sm:hidden">文件</span>
+              <span class="hidden sm:inline">文件</span>
             </button>
             <button
               type="button"

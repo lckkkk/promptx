@@ -9,6 +9,8 @@ const MAX_RECENT_PATHS = 12
 
 export function useWorkspacePickerData(options) {
   const {
+    autoExpandRoots = true,
+    restoreExpandedPaths = true,
     props,
     onSelect,
   } = options
@@ -180,6 +182,11 @@ export function useWorkspacePickerData(options) {
   }
 
   function loadPersistedExpandedPaths() {
+    if (!restoreExpandedPaths) {
+      persistedExpandedPaths.value = []
+      return
+    }
+
     persistedExpandedPaths.value = treeExpandedStorageKey.value
       ? readStoredJson(treeExpandedStorageKey.value, []).filter(Boolean)
       : []
@@ -440,12 +447,17 @@ export function useWorkspacePickerData(options) {
         continue
       }
 
-      node.expanded = hasPersistedPaths ? expandedPathSet.has(node.path) : true
+      node.expanded = hasPersistedPaths ? expandedPathSet.has(node.path) : autoExpandRoots
     }
     refreshTreeView()
 
     if (hasPersistedPaths) {
       await restoreExpandedTree(rootNodes.value, expandedPathSet, options)
+      return
+    }
+
+    if (!autoExpandRoots) {
+      persistExpandedPaths()
       return
     }
 
