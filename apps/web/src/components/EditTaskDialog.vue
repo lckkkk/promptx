@@ -4,16 +4,16 @@ import { Bell, Clock3, LoaderCircle, PencilLine, Save } from 'lucide-vue-next'
 import {
   TASK_AUTOMATION_CONCURRENCY_POLICY_OPTIONS,
   TASK_AUTOMATION_TIMEZONE_OPTIONS,
-  TASK_NOTIFICATION_CHANNEL_OPTIONS,
-  TASK_NOTIFICATION_LOCALE_OPTIONS,
-  TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS,
-  TASK_NOTIFICATION_TRIGGER_OPTIONS,
 } from '@promptx/shared'
 import DialogShell from './DialogShell.vue'
 import DialogSideNav from './DialogSideNav.vue'
 import WorkbenchSelect from './WorkbenchSelect.vue'
 import { formatDateTime as formatLocaleDateTime, useI18n } from '../composables/useI18n.js'
-import { getTask, updateTask } from '../lib/api.js'
+import {
+  getTask,
+  listNotificationProfiles,
+  updateTask,
+} from '../lib/api.js'
 
 const DEFAULT_AUTOMATION_CRON = '0 9 * * 1-5'
 const DEFAULT_AUTOMATION_MODE = 'weekdays'
@@ -53,16 +53,14 @@ const form = reactive({
   automationLastTriggeredAt: '',
   automationNextTriggerAt: '',
   notificationEnabled: false,
-  notificationChannelType: 'dingtalk',
-  notificationWebhookUrl: '',
-  notificationSecret: '',
-  notificationTriggerOn: 'completed',
-  notificationLocale: 'zh-CN',
-  notificationMessageMode: 'summary',
+  notificationProfileId: '',
   notificationLastStatus: '',
   notificationLastError: '',
   notificationLastSentAt: '',
 })
+const notificationProfiles = ref([])
+const notificationProfilesLoading = ref(false)
+const notificationProfilesError = ref('')
 
 const normalizedTaskTitle = computed(() => String(props.taskTitle || '').trim() || t('workbench.untitledTask'))
 const taskSections = computed(() => ([
@@ -111,40 +109,6 @@ const concurrencyPolicyOptions = computed(() => TASK_AUTOMATION_CONCURRENCY_POLI
     ? t('taskDialog.sections.automation.concurrencySkip')
     : option.label,
 })))
-const notificationChannelOptions = computed(() => TASK_NOTIFICATION_CHANNEL_OPTIONS.map((option) => ({
-  ...option,
-  label: option.value === 'dingtalk'
-    ? t('taskDialog.sections.notification.channelDingtalk')
-    : option.value === 'feishu'
-      ? t('taskDialog.sections.notification.channelFeishu')
-      : option.value === 'webhook'
-        ? t('taskDialog.sections.notification.channelWebhook')
-        : option.label,
-})))
-const notificationTriggerOptions = computed(() => TASK_NOTIFICATION_TRIGGER_OPTIONS.map((option) => ({
-  ...option,
-  label: option.value === 'completed'
-    ? t('taskDialog.sections.notification.triggerCompleted')
-    : option.value === 'success'
-      ? t('taskDialog.sections.notification.triggerSuccess')
-      : option.value === 'error'
-        ? t('taskDialog.sections.notification.triggerError')
-        : option.label,
-})))
-const notificationMessageModeOptions = computed(() => TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS.map((option) => ({
-  ...option,
-  label: option.value === 'summary'
-    ? t('taskDialog.sections.notification.messageSummary')
-    : option.label,
-})))
-const notificationLocaleOptions = computed(() => TASK_NOTIFICATION_LOCALE_OPTIONS.map((option) => ({
-  ...option,
-  label: option.value === 'zh-CN'
-    ? t('taskDialog.sections.notification.localeZhCn')
-    : option.value === 'en-US'
-      ? t('taskDialog.sections.notification.localeEnUs')
-      : option.label,
-})))
 const notificationStatusText = computed(() => {
   if (!form.notificationEnabled) {
     return t('taskDialog.sections.notification.statusDisabled')
@@ -157,7 +121,12 @@ const notificationStatusText = computed(() => {
   }
   return t('taskDialog.sections.notification.statusPending')
 })
-
+const notificationProfileOptions = computed(() => (
+  notificationProfiles.value.map((profile) => ({
+    value: String(profile.id),
+    label: profile.name,
+  }))
+))
 function resetForm() {
   form.title = ''
   form.automationEnabled = false
@@ -169,12 +138,7 @@ function resetForm() {
   form.automationLastTriggeredAt = ''
   form.automationNextTriggerAt = ''
   form.notificationEnabled = false
-  form.notificationChannelType = 'dingtalk'
-  form.notificationWebhookUrl = ''
-  form.notificationSecret = ''
-  form.notificationTriggerOn = 'completed'
-  form.notificationLocale = String(locale.value || 'zh-CN')
-  form.notificationMessageMode = 'summary'
+  form.notificationProfileId = ''
   form.notificationLastStatus = ''
   form.notificationLastError = ''
   form.notificationLastSentAt = ''
@@ -267,12 +231,7 @@ function applyTaskToForm(task = {}) {
   form.automationLastTriggeredAt = String(task.automation?.lastTriggeredAt || '')
   form.automationNextTriggerAt = String(task.automation?.nextTriggerAt || '')
   form.notificationEnabled = Boolean(task.notification?.enabled)
-  form.notificationChannelType = String(task.notification?.channelType || 'dingtalk')
-  form.notificationWebhookUrl = String(task.notification?.webhookUrl || '')
-  form.notificationSecret = String(task.notification?.secret || '')
-  form.notificationTriggerOn = String(task.notification?.triggerOn || 'completed')
-  form.notificationLocale = String(task.notification?.locale || locale.value || 'zh-CN')
-  form.notificationMessageMode = String(task.notification?.messageMode || 'summary')
+  form.notificationProfileId = task.notification?.profileId ? String(task.notification.profileId) : ''
   form.notificationLastStatus = String(task.notification?.lastStatus || '')
   form.notificationLastError = String(task.notification?.lastError || '')
   form.notificationLastSentAt = String(task.notification?.lastSentAt || '')
@@ -298,6 +257,21 @@ async function loadTaskSettings() {
   }
 }
 
+async function loadNotificationProfileOptions() {
+  notificationProfilesLoading.value = true
+  notificationProfilesError.value = ''
+
+  try {
+    const payload = await listNotificationProfiles()
+    notificationProfiles.value = Array.isArray(payload.items) ? payload.items : []
+  } catch (nextError) {
+    notificationProfilesError.value = nextError?.message || t('taskDialog.sections.notification.profileLoadFailed')
+    notificationProfiles.value = []
+  } finally {
+    notificationProfilesLoading.value = false
+  }
+}
+
 function buildUpdatePayload() {
   return {
     title: form.title,
@@ -309,12 +283,7 @@ function buildUpdatePayload() {
     },
     notification: {
       enabled: form.notificationEnabled,
-      channelType: form.notificationChannelType,
-      webhookUrl: form.notificationWebhookUrl,
-      secret: form.notificationSecret,
-      triggerOn: form.notificationTriggerOn,
-      locale: form.notificationLocale,
-      messageMode: form.notificationMessageMode,
+      profileId: form.notificationProfileId || null,
     },
   }
 }
@@ -322,6 +291,10 @@ function buildUpdatePayload() {
 async function handleSave() {
   const taskSlug = String(props.taskSlug || '').trim()
   if (!taskSlug || loading.value || saving.value) {
+    return
+  }
+  if (form.notificationEnabled && !String(form.notificationProfileId || '').trim()) {
+    error.value = t('taskDialog.sections.notification.profileRequired')
     return
   }
 
@@ -366,6 +339,7 @@ watch(
     if (open) {
       activeSection.value = 'basic'
       loadTaskSettings()
+      loadNotificationProfileOptions()
       return
     }
   },
@@ -555,92 +529,29 @@ watch(
             </div>
 
             <section class="settings-section-card px-4 py-4">
-              <div class="grid gap-4 sm:grid-cols-2">
+              <div class="grid gap-4">
                 <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.channelType') }}</span>
+                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.profileSelect') }}</span>
                   <WorkbenchSelect
-                    v-model="form.notificationChannelType"
-                    :options="notificationChannelOptions"
-                    :disabled="!form.notificationEnabled"
+                    v-model="form.notificationProfileId"
+                    :options="notificationProfileOptions"
+                    :disabled="!form.notificationEnabled || notificationProfilesLoading"
                     :get-option-value="(option) => option.value"
                   >
                     <template #trigger="{ selectedOption }">
                       <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                        {{ selectedOption?.label || t('common.select') }}
+                        {{
+                          notificationProfilesLoading
+                            ? t('common.loading')
+                            : selectedOption?.label || t('taskDialog.sections.notification.profilePlaceholder')
+                        }}
                       </div>
                     </template>
                   </WorkbenchSelect>
                 </label>
-
-                <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.triggerOn') }}</span>
-                  <WorkbenchSelect
-                    v-model="form.notificationTriggerOn"
-                    :options="notificationTriggerOptions"
-                    :disabled="!form.notificationEnabled"
-                    :get-option-value="(option) => option.value"
-                  >
-                    <template #trigger="{ selectedOption }">
-                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                        {{ selectedOption?.label || t('common.select') }}
-                      </div>
-                    </template>
-                  </WorkbenchSelect>
-                </label>
-
-                <label class="space-y-1.5 sm:col-span-2">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.webhookUrl') }}</span>
-                  <input
-                    v-model="form.notificationWebhookUrl"
-                    type="text"
-                    class="tool-input"
-                    :placeholder="t('taskDialog.sections.notification.webhookUrlPlaceholder')"
-                    :disabled="!form.notificationEnabled"
-                  />
-                </label>
-
-                <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.secret') }}</span>
-                  <input
-                    v-model="form.notificationSecret"
-                    type="text"
-                    class="tool-input"
-                    :placeholder="t('taskDialog.sections.notification.secretPlaceholder')"
-                    :disabled="!form.notificationEnabled"
-                  />
-                </label>
-
-                <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.locale') }}</span>
-                  <WorkbenchSelect
-                    v-model="form.notificationLocale"
-                    :options="notificationLocaleOptions"
-                    :disabled="!form.notificationEnabled"
-                    :get-option-value="(option) => option.value"
-                  >
-                    <template #trigger="{ selectedOption }">
-                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                        {{ selectedOption?.label || t('common.select') }}
-                      </div>
-                    </template>
-                  </WorkbenchSelect>
-                </label>
-
-                <label class="space-y-1.5">
-                  <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.messageMode') }}</span>
-                  <WorkbenchSelect
-                    v-model="form.notificationMessageMode"
-                    :options="notificationMessageModeOptions"
-                    :disabled="!form.notificationEnabled"
-                    :get-option-value="(option) => option.value"
-                  >
-                    <template #trigger="{ selectedOption }">
-                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
-                        {{ selectedOption?.label || t('common.select') }}
-                      </div>
-                    </template>
-                  </WorkbenchSelect>
-                </label>
+                <p class="theme-muted-text text-xs leading-5">
+                  {{ t('settingsDialog.notification.manageInSettingsHint') }}
+                </p>
               </div>
 
               <div class="theme-muted-text mt-3 space-y-1 text-xs leading-6">

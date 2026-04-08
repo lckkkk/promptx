@@ -62,6 +62,7 @@ function registerCodexRoutes(app, options = {}) {
     decorateCodexSessionList,
     deletePromptxCodexSession,
     deleteTaskCodexRuns = () => {},
+    createDirectoryPickerDirectory = () => null,
     getCodexRunById,
     getPromptxCodexSessionById,
     getRunningCodexRunBySessionId,
@@ -105,6 +106,21 @@ function registerCodexRoutes(app, options = {}) {
       limit: request.query?.limit,
     })
   ))
+
+  app.post('/api/codex/directories', async (request, reply) => {
+    try {
+      const directory = createDirectoryPickerDirectory({
+        path: request.body?.path,
+        name: request.body?.name,
+      })
+      return reply.code(201).send({ item: directory })
+    } catch (error) {
+      return reply.code(error?.statusCode || 400).send({
+        messageKey: error?.messageKey || 'errors.directoryCreateFailed',
+        message: error?.message || '目录创建失败。',
+      })
+    }
+  })
 
   app.get('/api/codex/sessions/:sessionId/files/tree', async (request, reply) => {
     const session = getPromptxCodexSessionById(request.params.sessionId)

@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   EXPIRY_OPTIONS,
   VISIBILITY_OPTIONS,
@@ -15,6 +17,18 @@ import {
   getSystemConfigManagedByEnv,
   writeStoredSystemConfig,
 } from './systemConfig.js'
+import { resolvePromptxPaths } from './appPaths.js'
+
+function readLocalUpdateStatus() {
+  try {
+    const { promptxHomeDir } = resolvePromptxPaths()
+    const filePath = path.join(promptxHomeDir, 'run', 'local-update-status.json')
+    const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    return payload && typeof payload === 'object' ? payload : null
+  } catch {
+    return null
+  }
+}
 
 async function fetchRunnerDiagnostics(runnerClient) {
   try {
@@ -36,11 +50,15 @@ async function fetchRunnerDiagnostics(runnerClient) {
 
 function registerSystemRoutes(app, options = {}) {
   const {
+    createNotificationProfile = () => null,
+    deleteNotificationProfile = () => ({ error: 'not_found' }),
+    listNotificationProfiles = () => [],
     promptxVersion,
     relayClient,
     runnerClient,
     runRecoveryService,
     maintenanceService,
+    updateNotificationProfile = () => ({ error: 'not_found' }),
     getGitDiffWorkerDiagnostics,
     localBaseUrl,
   } = options
@@ -74,6 +92,10 @@ function registerSystemRoutes(app, options = {}) {
   app.get('/api/system/config', async () => ({
     config: getSystemConfigForClient(),
     managedByEnv: getSystemConfigManagedByEnv(),
+  }))
+
+  app.get('/api/system/local-update-status', async () => ({
+    status: readLocalUpdateStatus(),
   }))
 
   app.put('/api/system/config', async (request, reply) => {
@@ -140,6 +162,63 @@ function registerSystemRoutes(app, options = {}) {
       ok: true,
       relay: relayClient.getStatus(),
     }
+  })
+
+  app.get('/api/notification-profiles', async (request) => {
+    const userId = request.user?.username || 'default'
+    return {
+      items: listNotificationProfiles(userId),
+    }
+  })
+
+  app.post('/api/notification-profiles', async (request, reply) => {
+    const userId = request.user?.username || 'default'
+    try {
+      const profile = createNotificationProfile(request.body || {}, userId)
+      return reply.code(201).send(profile)
+    } catch (error) {
+      return reply.code(400).send({
+        messageKey: 'errors.notificationProfileCreateFailed',
+        message: error?.message || '通知配置创建失败。',
+      })
+    }
+  })
+
+  app.put('/api/notification-profiles/:profileId', async (request, reply) => {
+    const userId = request.user?.username || 'default'
+    try {
+      const result = updateNotificationProfile(request.params.profileId, request.body || {}, userId)
+      if (result?.error === 'not_found') {
+        return reply.code(404).send({
+          messageKey: 'errors.notificationProfileNotFound',
+          message: '通知配置不存在。',
+        })
+      }
+      return result
+    } catch (error) {
+      return reply.code(400).send({
+        messageKey: 'errors.notificationProfileUpdateFailed',
+        message: error?.message || '通知配置更新失败。',
+      })
+    }
+  })
+
+  app.delete('/api/notification-profiles/:profileId', async (request, reply) => {
+    const userId = request.user?.username || 'default'
+    const result = deleteNotificationProfile(request.params.profileId, userId)
+    if (result?.error === 'not_found') {
+      return reply.code(404).send({
+        messageKey: 'errors.notificationProfileNotFound',
+        message: '通知配置不存在。',
+      })
+    }
+    if (result?.error === 'in_use') {
+      return reply.code(409).send({
+        messageKey: 'errors.notificationProfileInUse',
+        message: `该通知配置仍被 ${result.usageCount} 个任务引用，请先解除引用。`,
+      })
+    }
+    return reply.code(204).send()
   })
 
   app.get('/internal/system-config', async (request, reply) => {

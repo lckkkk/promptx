@@ -1,13 +1,17 @@
 export { getApiBase, resolveAssetUrl, request } from './request.js'
 export {
+  createNotificationProfile,
   createTask,
+  deleteNotificationProfile,
   deleteTask,
   fetchRawTask,
   getMeta,
+  listNotificationProfiles,
   getTask,
   listTasks,
   listTaskWorkspaceDiffSummaries,
   reorderTasks,
+  updateNotificationProfile,
   updateTask,
 } from './taskApi.js'
 export {
@@ -25,6 +29,7 @@ export {
   uploadImage,
 } from './assetApi.js'
 export {
+  createCodexDirectory,
   clearTaskCodexRuns,
   createTaskCodexRun,
   createCodexSession,

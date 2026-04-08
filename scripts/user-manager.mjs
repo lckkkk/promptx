@@ -15,7 +15,6 @@ PromptX 用户管理 CLI
 
 用法：
   promptx user add <username>                  添加用户（交互式输入密码）
-  promptx user add <username> --no-password    添加无密码用户
   promptx user list                            列出所有用户
   promptx user remove <username>               删除用户
   promptx user reset-password <username>       重置密码（交互式输入）
@@ -84,10 +83,8 @@ function promptPassword(promptText) {
 }
 
 async function promptConfirmPassword() {
-  const password1 = await promptPassword('输入密码（留空则无密码）：')
-  if (!password1) {
-    return ''
-  }
+  const password1 = await promptPassword('输入密码：')
+  if (!password1) throw new Error('密码不能为空')
   const password2 = await promptPassword('再次输入密码：')
   if (password1 !== password2) {
     throw new Error('两次输入的密码不一致')
@@ -120,24 +117,19 @@ async function cmdAdd(username, extraArgs) {
   if (!username) {
     throw new Error('请提供用户名，例如：promptx user add alice')
   }
-
-  const noPassword = extraArgs.includes('--no-password')
   const displayNameIdx = extraArgs.indexOf('--display-name')
   const displayName = displayNameIdx >= 0 ? String(extraArgs[displayNameIdx + 1] || '').trim() : ''
 
-  let password = ''
-  if (!noPassword) {
-    password = await promptConfirmPassword()
-  }
+  const password = await promptConfirmPassword()
 
   const user = addUser(username, password, displayName)
   console.log(`[promptx-user] 已添加用户：${user.username}`)
   if (user.displayName && user.displayName !== user.username) {
     console.log(`  显示名：${user.displayName}`)
   }
-  console.log(`  密码：${password ? '已设置' : '无密码（可直接登录）'}`)
+  console.log('  密码：已设置')
   console.log('')
-  console.log('多用户模式已激活，启动时需使用用户名登录。')
+  console.log('登录已切换为账号密码模式。')
 }
 
 async function cmdResetPassword(username) {
@@ -148,7 +140,7 @@ async function cmdResetPassword(username) {
   const password = await promptConfirmPassword()
   resetUserPassword(username, password)
   console.log(`[promptx-user] 已重置用户 "${username}" 的密码`)
-  console.log(`  新密码：${password ? '已设置' : '无密码（可直接登录）'}`)
+  console.log('  新密码：已设置')
 }
 
 function cmdRemove(username) {
@@ -158,11 +150,7 @@ function cmdRemove(username) {
   removeUser(username)
   console.log(`[promptx-user] 已删除用户：${username}`)
   const { users } = readUsersConfig()
-  if (users.length === 0) {
-    console.log('提示：所有用户已删除，系统将退回单 Token 认证模式。')
-  } else {
-    console.log(`当前剩余 ${users.length} 个用户。`)
-  }
+  console.log(`当前剩余 ${users.length} 个用户。`)
 }
 
 async function main() {

@@ -45,6 +45,32 @@ export function updateTask(slug, payload) {
   })
 }
 
+export function listNotificationProfiles() {
+  return request('/api/notification-profiles', {
+    cache: 'no-store',
+  })
+}
+
+export function createNotificationProfile(payload) {
+  return request('/api/notification-profiles', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateNotificationProfile(profileId, payload) {
+  return request(`/api/notification-profiles/${encodeURIComponent(profileId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteNotificationProfile(profileId) {
+  return request(`/api/notification-profiles/${encodeURIComponent(profileId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export function deleteTask(slug) {
   return request(`/api/tasks/${slug}`, {
     method: 'DELETE',

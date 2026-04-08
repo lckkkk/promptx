@@ -5,10 +5,11 @@ import { Node } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Paragraph from '@tiptap/extension-paragraph'
-import { BLOCK_TYPES } from '@promptx/shared'
+import { BLOCK_TYPES, normalizeAgentEngine } from '@promptx/shared'
 import { useI18n } from '../composables/useI18n.js'
 import ImagePreviewOverlay from './ImagePreviewOverlay.vue'
 import PathMentionPicker from './PathMentionPicker.vue'
+import SlashCommandPicker from './SlashCommandPicker.vue'
 import TiptapTextBlockView from './TiptapTextBlockView.vue'
 import TiptapImportedTextBlockView from './TiptapImportedTextBlockView.vue'
 import TiptapImageBlockView from './TiptapImageBlockView.vue'
@@ -27,6 +28,10 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+  agentEngine: {
+    type: String,
+    default: 'codex',
+  },
   codexSessionId: {
     type: String,
     default: '',
@@ -44,6 +49,7 @@ const emit = defineEmits([
   'import-pdf-files',
   'clear-request',
   'file-feedback',
+  'send-request',
 ])
 
 const { t } = useI18n()
@@ -139,10 +145,14 @@ const FILE_INPUT_ACCEPT = [
 
 const fileInputRef = ref(null)
 const mentionPickerRef = ref(null)
+const slashPickerRef = ref(null)
 const previewImageUrl = ref('')
 const mentionState = ref(createMentionState())
 const mentionAnchorRect = ref(null)
 const mentionDismissedState = ref(null)
+const slashState = ref(createSlashState())
+const slashAnchorRect = ref(null)
+const slashDismissedState = ref(null)
 const editorFocused = ref(false)
 const lastInputAt = ref(0)
 
@@ -265,7 +275,24 @@ const editor = useEditor({
       class: 'tiptap-editor min-h-full outline-none',
     },
     handleKeyDown(view, event) {
-      return handleMentionPickerKeydown(event)
+      if (handleMentionPickerKeydown(event)) {
+        return true
+      }
+      if (handleSlashPickerKeydown(event)) {
+        return true
+      }
+
+      if (!event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'Enter') {
+        if (isComposing()) {
+          return false
+        }
+
+        event.preventDefault()
+        emit('send-request')
+        return true
+      }
+
+      return false
     },
   },
   content: blocksToTiptapDoc(blocks.value),
@@ -637,6 +664,17 @@ function createMentionState() {
   }
 }
 
+function createSlashState() {
+  return {
+    open: false,
+    start: -1,
+    end: -1,
+    query: '',
+    blockType: '',
+    clientId: '',
+  }
+}
+
 function isDismissedMentionMatch(left = null, right = null) {
   if (!left || !right) {
     return false
@@ -650,6 +688,10 @@ function isDismissedMentionMatch(left = null, right = null) {
 
 function clearMentionAnchor() {
   mentionAnchorRect.value = null
+}
+
+function clearSlashAnchor() {
+  slashAnchorRect.value = null
 }
 
 function closeMentionPicker(options = {}) {
@@ -671,6 +713,27 @@ function closeMentionPicker(options = {}) {
 
 function dismissMentionPicker() {
   closeMentionPicker({ suppressCurrent: true })
+}
+
+function closeSlashPicker(options = {}) {
+  const { suppressCurrent = false } = options
+  const currentState = slashState.value
+
+  if (suppressCurrent && currentState.open) {
+    slashDismissedState.value = {
+      start: currentState.start,
+      end: currentState.end,
+      query: currentState.query,
+      clientId: currentState.clientId,
+    }
+  }
+
+  slashState.value = createSlashState()
+  clearSlashAnchor()
+}
+
+function dismissSlashPicker() {
+  closeSlashPicker({ suppressCurrent: true })
 }
 
 function getCurrentTextLikeContext(currentEditor = editor.value) {
@@ -727,28 +790,79 @@ function updateMentionAnchor(position = mentionState.value.end) {
   }
 }
 
+function updateSlashAnchor(position = slashState.value.end) {
+  const currentEditor = editor.value
+  if (typeof position === 'object' && position !== null) {
+    position = slashState.value.end
+  }
+  if (!currentEditor || !slashState.value.open || position < 0) {
+    clearSlashAnchor()
+    return
+  }
+
+  try {
+    const coords = currentEditor.view.coordsAtPos(position)
+    slashAnchorRect.value = {
+      left: coords.left,
+      right: coords.left,
+      top: coords.bottom,
+      bottom: coords.bottom,
+      width: 0,
+      height: 0,
+    }
+  } catch {
+    clearSlashAnchor()
+  }
+}
+
 function syncMentionState(currentEditor = editor.value) {
   const context = getCurrentTextLikeContext(currentEditor)
 
   if (!context) {
     closeMentionPicker()
+    closeSlashPicker()
     return
   }
 
   const mentionStart = context.textBefore.lastIndexOf('@')
   if (mentionStart < 0) {
-    closeMentionPicker()
-    return
-  }
+    const slashMatch = context.textBefore.match(/(^|\s)\/([^\s/]*)$/)
+    if (!slashMatch) {
+      closeMentionPicker()
+      closeSlashPicker()
+      return
+    }
 
-  const mentionQuery = context.textBefore.slice(mentionStart + 1)
-  if (/\s/.test(mentionQuery)) {
+    const slashQuery = slashMatch[2] || ''
+    const slashStart = context.nodeStart + context.textBefore.length - slashQuery.length - 1
+    const slashEnd = context.from
+    if (isDismissedMentionMatch(slashDismissedState.value, {
+      start: slashStart,
+      end: slashEnd,
+      query: slashQuery,
+      clientId: context.clientId,
+    })) {
+      closeMentionPicker()
+      return
+    }
+
     closeMentionPicker()
+    slashDismissedState.value = null
+    slashState.value = {
+      open: true,
+      start: slashStart,
+      end: slashEnd,
+      query: slashQuery,
+      blockType: context.nodeTypeName,
+      clientId: context.clientId,
+    }
+    updateSlashAnchor(slashEnd)
     return
   }
 
   const start = context.nodeStart + mentionStart
   const end = context.from
+  closeSlashPicker()
   if (isDismissedMentionMatch(mentionDismissedState.value, {
     start,
     end,
@@ -797,6 +911,32 @@ function applyMentionSelection(item) {
   return true
 }
 
+function applySlashSelection(item) {
+  const currentEditor = editor.value
+  const commandValue = String(item?.command || '').trim().replace(/^\/+/, '')
+  const state = slashState.value
+
+  if (!currentEditor || !commandValue || state.start < 0 || state.end < state.start) {
+    closeSlashPicker()
+    return false
+  }
+
+  const insertedValue = `/${commandValue} `
+  const selectionTo = state.start + insertedValue.length
+
+  currentEditor.chain().focus().command(({ tr, dispatch }) => {
+    tr.insertText(insertedValue, state.start, state.end)
+    tr.setSelection(TextSelection.create(tr.doc, selectionTo))
+    dispatch?.(tr)
+    return true
+  }).run()
+
+  lastInputAt.value = Date.now()
+  slashDismissedState.value = null
+  closeSlashPicker()
+  return true
+}
+
 function handleMentionPickerKeydown(event) {
   if (!mentionState.value.open) {
     return false
@@ -839,22 +979,52 @@ function handleMentionPickerKeydown(event) {
   return false
 }
 
+function handleSlashPickerKeydown(event) {
+  if (!slashState.value.open) {
+    return false
+  }
+
+  if (event.key === 'Escape') {
+    dismissSlashPicker()
+    return true
+  }
+
+  if (event.key === 'ArrowDown') {
+    return Boolean(slashPickerRef.value?.moveActive?.(1))
+  }
+
+  if (event.key === 'ArrowUp') {
+    return Boolean(slashPickerRef.value?.moveActive?.(-1))
+  }
+
+  if (!event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && event.key === 'Enter') {
+    return Boolean(slashPickerRef.value?.confirmActive?.())
+  }
+
+  return false
+}
+
 onMounted(() => {
   window.addEventListener('promptx:tiptap-image-preview', handleImagePreviewEvent)
   window.addEventListener('resize', updateMentionAnchor)
   window.addEventListener('scroll', updateMentionAnchor)
+  window.addEventListener('resize', updateSlashAnchor)
+  window.addEventListener('scroll', updateSlashAnchor)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('promptx:tiptap-image-preview', handleImagePreviewEvent)
   window.removeEventListener('resize', updateMentionAnchor)
   window.removeEventListener('scroll', updateMentionAnchor)
+  window.removeEventListener('resize', updateSlashAnchor)
+  window.removeEventListener('scroll', updateSlashAnchor)
 })
 
 watch(
-  () => props.codexSessionId,
+  () => [props.codexSessionId, normalizeAgentEngine(props.agentEngine)],
   () => {
     closeMentionPicker()
+    closeSlashPicker()
   }
 )
 
@@ -922,6 +1092,15 @@ defineExpose({
       :anchor-rect="mentionAnchorRect"
       @close="dismissMentionPicker"
       @select="applyMentionSelection"
+    />
+    <SlashCommandPicker
+      ref="slashPickerRef"
+      :open="slashState.open && !!slashAnchorRect"
+      :query="slashState.query"
+      :agent-engine="agentEngine"
+      :anchor-rect="slashAnchorRect"
+      @close="dismissSlashPicker"
+      @select="applySlashSelection"
     />
   </section>
 </template>

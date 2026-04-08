@@ -5,10 +5,36 @@ import {
   listStaleActiveCodexRuns,
   updateCodexRunFromRunnerStatus,
 } from './codexRuns.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { resolvePromptxPaths } from './appPaths.js'
 
 const DEFAULT_STARTUP_GRACE_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_RECOVERY_STARTUP_GRACE_MS) || 12000)
 const DEFAULT_STALE_THRESHOLD_MS = Math.max(5000, Number(process.env.PROMPTX_RUNNER_STALE_THRESHOLD_MS) || 20000)
 const DEFAULT_SWEEP_INTERVAL_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_SWEEP_INTERVAL_MS) || 5000)
+
+function getPlannedRestartFilePath() {
+  const { promptxHomeDir } = resolvePromptxPaths()
+  return path.join(promptxHomeDir, 'run', 'planned-restart.json')
+}
+
+function getPlannedRestartRemainingMs(now = Date.now()) {
+  try {
+    const payload = JSON.parse(fs.readFileSync(getPlannedRestartFilePath(), 'utf8'))
+    const expiresAtMs = Date.parse(String(payload?.expiresAt || ''))
+    if (!Number.isFinite(expiresAtMs)) {
+      return 0
+    }
+    const remainingMs = expiresAtMs - now
+    if (remainingMs <= 0) {
+      fs.rmSync(getPlannedRestartFilePath(), { force: true })
+      return 0
+    }
+    return remainingMs
+  } catch {
+    return 0
+  }
+}
 
 function createRunnerLostMessage(status = '') {
   return status === 'stopping'
@@ -22,6 +48,9 @@ export function createRunRecoveryService(options = {}) {
   const onRecoveredRun = typeof options.onRecoveredRun === 'function'
     ? options.onRecoveredRun
     : () => {}
+  const getPlannedRestartDelayMs = typeof options.getPlannedRestartRemainingMs === 'function'
+    ? options.getPlannedRestartRemainingMs
+    : getPlannedRestartRemainingMs
   const startupGraceMs = Math.max(1000, Number(options.startupGraceMs) || DEFAULT_STARTUP_GRACE_MS)
   const staleThresholdMs = Math.max(5000, Number(options.staleThresholdMs) || DEFAULT_STALE_THRESHOLD_MS)
   const sweepIntervalMs = Math.max(1000, Number(options.sweepIntervalMs) || DEFAULT_SWEEP_INTERVAL_MS)
@@ -88,6 +117,13 @@ export function createRunRecoveryService(options = {}) {
   }
 
   function sweep() {
+    const plannedRestartRemainingMs = getPlannedRestartDelayMs()
+    if (plannedRestartRemainingMs > 0) {
+      metrics.lastRecoveredRunIds = []
+      metrics.lastSweepErrorMessage = ''
+      return []
+    }
+
     if (sweeping) {
       return []
     }
@@ -130,13 +166,14 @@ export function createRunRecoveryService(options = {}) {
 
   function start() {
     stop()
+    const initialDelayMs = Math.max(startupGraceMs, getPlannedRestartDelayMs())
     startupTimer = setTimeout(() => {
       sweep()
       sweepTimer = setInterval(() => {
         sweep()
       }, sweepIntervalMs)
       sweepTimer.unref?.()
-    }, startupGraceMs)
+    }, initialDelayMs)
     startupTimer.unref?.()
   }
 

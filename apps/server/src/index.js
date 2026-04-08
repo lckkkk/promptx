@@ -8,14 +8,18 @@ import {
   buildTaskExports,
   canEditTask,
   clearTaskCodexSessionReferences,
+  createNotificationProfile,
   createTask,
+  deleteNotificationProfile,
   deleteTask,
   getTaskBySlug,
+  listNotificationProfiles,
   listAutomationEnabledTasks,
   listTaskSlugsByCodexSessionId,
   listTasks,
   purgeExpiredTasks,
   reorderTasks,
+  updateNotificationProfile,
   updateTaskAutomationRuntime,
   updateTaskCodexSession,
   updateTaskNotificationDelivery,
@@ -51,6 +55,7 @@ import {
 } from './codexRuns.js'
 import { listKnownWorkspacesByEngine } from './agents/index.js'
 import {
+  createDirectoryPickerDirectory,
   listDirectoryPickerTree,
   listWorkspaceTree,
   searchDirectoryPickerEntries,
@@ -340,13 +345,17 @@ registerInternalRunnerRoutes(app, {
 })
 
 registerSystemRoutes(app, {
+  createNotificationProfile,
+  deleteNotificationProfile,
   getGitDiffWorkerDiagnostics,
+  listNotificationProfiles,
   localBaseUrl: process.env.PROMPTX_RELAY_LOCAL_BASE_URL || `http://127.0.0.1:${port}`,
   maintenanceService,
   promptxVersion,
   relayClient,
   runRecoveryService,
   runnerClient,
+  updateNotificationProfile,
 })
 
 registerRealtimeRoutes(app, {
@@ -402,6 +411,7 @@ registerAssetRoutes(app, {
 registerCodexRoutes(app, {
   broadcastServerEvent,
   clearTaskCodexSessionReferences,
+  createDirectoryPickerDirectory,
   createPromptxCodexSession,
   decorateCodexSession,
   decorateCodexSessionList,

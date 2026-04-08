@@ -243,3 +243,55 @@ test('codex routes reset session and clear related run history', async () => {
     await app.close()
   }
 })
+
+test('codex routes create directory picker directories', async () => {
+  const app = Fastify()
+  registerCodexRoutes(app, {
+    broadcastServerEvent: () => {},
+    clearTaskCodexSessionReferences: () => [],
+    createDirectoryPickerDirectory: ({ path: targetPath, name }) => ({
+      path: path.join(targetPath, name),
+      name,
+      type: 'directory',
+      hasChildren: false,
+    }),
+    createPromptxCodexSession: () => ({ id: 'session-1' }),
+    decorateCodexSession: (session) => session,
+    decorateCodexSessionList: (items) => items,
+    deletePromptxCodexSession: () => null,
+    getCodexRunById: () => null,
+    getPromptxCodexSessionById: () => null,
+    getRunningCodexRunBySessionId: () => null,
+    isActiveRunStatus: () => false,
+    listCodexRunEvents: () => [],
+    listDirectoryPickerTree: () => ({}),
+    listPromptxCodexSessions: () => [],
+    listWorkspaceSuggestions: () => [],
+    listWorkspaceTree: () => ({}),
+    runDispatchService: {
+      async requestRunStop() {
+        return null
+      },
+    },
+    searchDirectoryPickerEntries: () => ({}),
+    searchWorkspaceEntries: () => ({}),
+    updatePromptxCodexSession: () => null,
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/codex/directories',
+      payload: {
+        path: '/tmp',
+        name: 'repo-new',
+      },
+    })
+
+    assert.equal(response.statusCode, 201)
+    assert.equal(response.json().item.path, path.join('/tmp', 'repo-new'))
+  } finally {
+    await app.close()
+  }
+})

@@ -1,6 +1,8 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import CodexSessionManagerDialog from '../components/CodexSessionManagerDialog.vue'
+import CreateTaskProjectDialog from '../components/CreateTaskProjectDialog.vue'
 import EditTaskDialog from '../components/EditTaskDialog.vue'
 import WorkbenchActivityPanel from '../components/WorkbenchActivityPanel.vue'
 import WorkbenchInputPanel from '../components/WorkbenchInputPanel.vue'
@@ -11,31 +13,46 @@ import TopToast from '../components/TopToast.vue'
 import { useI18n } from '../composables/useI18n.js'
 import { useWorkbenchMobileLayout } from '../composables/useWorkbenchMobileLayout.js'
 import { usePageTitle } from '../composables/usePageTitle.js'
+import { useWorkbenchRealtime } from '../composables/useWorkbenchRealtime.js'
 import { useToast } from '../composables/useToast.js'
 import { useWorkbenchTasks } from '../composables/useWorkbenchTasks.js'
-import { listCodexSessions } from '../lib/codexApi.js'
-import { getAuthInfo } from '../lib/systemConfigApi.js'
+import {
+  createCodexSession,
+  deleteCodexSession,
+  listCodexSessions,
+  listCodexWorkspaces,
+  resetCodexSession,
+  updateCodexSession,
+} from '../lib/codexApi.js'
+import { getAuthInfo, getLocalUpdateStatus } from '../lib/systemConfigApi.js'
 
 const showClearDialog = ref(false)
 const showDeleteDialog = ref(false)
 const showDiffDialog = ref(false)
 const showSettingsDialog = ref(false)
 const showEditTaskDialog = ref(false)
+const showProjectManagerDialog = ref(false)
+const showCreateTaskProjectDialog = ref(false)
 const showTodoDialog = ref(false)
 const showTodoDeleteConfirm = ref(false)
 const showTodoUseConfirm = ref(false)
+const pendingTaskDeleteSlug = ref('')
 const pendingTodoDeleteId = ref('')
-const pendingTodoUseId = ref('')
+const pendingTodoUseIds = ref([])
+const pendingCreateTaskProjectId = ref('')
 const editingTaskTitleSlug = ref('')
 const diffFocusToken = ref(0)
 const preferredDiffScope = ref('workspace')
 const preferredDiffRunId = ref('')
 const { t } = useI18n()
 const { toastMessage, toastType, flashToast, clearToast } = useToast()
+const { readyVersion } = useWorkbenchRealtime()
 const TaskDiffReviewDialog = defineAsyncComponent(() => import('../components/TaskDiffReviewDialog.vue'))
 const WorkbenchSettingsDialog = defineAsyncComponent(() => import('../components/WorkbenchSettingsDialog.vue'))
+const LOCAL_UPDATE_TOAST_STORAGE_KEY = 'promptx:last-seen-local-update'
 
 const codexPanelRef = ref(null)
+const checkingLocalUpdateToast = ref(false)
 
 function getCurrentPanelRef(currentTaskSlug) {
   if (!currentTaskSlug) {
@@ -49,6 +66,45 @@ function scrollCurrentPanelToBottom() {
   nextTick(() => {
     getCurrentPanelRef(currentTaskSlug.value)?.scrollToBottom?.()
   })
+}
+
+async function maybeNotifyLocalUpdate(options = {}) {
+  if (checkingLocalUpdateToast.value || typeof window === 'undefined') {
+    return
+  }
+
+  checkingLocalUpdateToast.value = true
+  try {
+    const payload = await getLocalUpdateStatus()
+    const status = payload?.status && typeof payload.status === 'object' ? payload.status : null
+    if (!status || String(status.state || '').trim() !== 'restarted') {
+      return
+    }
+
+    const updatedAt = String(status.updatedAt || '').trim()
+    const updatedAtMs = Date.parse(updatedAt)
+    if (!updatedAt || !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > 10 * 60 * 1000) {
+      return
+    }
+
+    const lastSeen = window.localStorage.getItem(LOCAL_UPDATE_TOAST_STORAGE_KEY) || ''
+    if (lastSeen === updatedAt) {
+      return
+    }
+
+    window.localStorage.setItem(LOCAL_UPDATE_TOAST_STORAGE_KEY, updatedAt)
+    flashToast({
+      message: options.afterReconnect
+        ? 'PromptX 已重启完成，页面连接已恢复。'
+        : 'PromptX 已重启完成。',
+      type: 'success',
+      duration: 3200,
+    })
+  } catch {
+    // Ignore local update status lookup failures.
+  } finally {
+    checkingLocalUpdateToast.value = false
+  }
 }
 
 const {
@@ -81,6 +137,7 @@ const {
   pageTitle,
   prepareCodexPromptForTask,
   currentTodoItems,
+  removeTaskBySlug,
   removeTodoItem,
   removeCurrentTask,
   reorderTaskList,
@@ -90,7 +147,7 @@ const {
   saving,
   selectTask,
   updateLastPromptPreview,
-  useTodoItem,
+  useTodoItems,
   uploading,
 } = useWorkbenchTasks({
   clearToast,
@@ -100,6 +157,12 @@ const {
 
 const currentRenderedTask = computed(() =>
   renderedTasks.value.find((task) => task.slug === currentTaskSlug.value) || null
+)
+const currentSelectedSession = computed(() =>
+  codexSessionsForPanel.value.find((session) => String(session?.id || '') === String(currentSelectedSessionId.value || '')) || null
+)
+const pendingDeleteTask = computed(() =>
+  renderedTasks.value.find((task) => task.slug === pendingTaskDeleteSlug.value) || null
 )
 const currentTaskDiffSupported = computed(() => Boolean(currentRenderedTask.value?.workspaceDiffSummary?.supported))
 const currentTaskBuildPrompt = computed(() => {
@@ -119,6 +182,10 @@ const currentTaskBuildPromptBlocks = computed(() => {
   return () => getPromptBlocksForTask(task.slug)
 })
 const codexSessionsForPanel = ref([])
+const codexWorkspacesForManager = ref([])
+const loadingCodexSessionsForPanel = ref(false)
+const loadingProjectManagerResources = ref(false)
+const projectManagerBusy = ref(false)
 const authInfo = ref({ multiUser: false, username: null })
 const taskListPanelProps = computed(() => ({
   codexSessions: codexSessionsForPanel.value,
@@ -148,6 +215,7 @@ const activityPanelProps = computed(() => ({
   taskRunning: Boolean(currentRenderedTask.value?.running),
 }))
 const inputPanelProps = computed(() => ({
+  agentEngine: currentSelectedSession.value?.engine || 'codex',
   canAddTodo: hasCurrentDraftContent.value,
   codexSessionId: currentSelectedSessionId.value,
   isCurrentTaskSending: isCurrentTaskSending.value,
@@ -202,6 +270,19 @@ function closeSettingsDialog() {
   showSettingsDialog.value = false
 }
 
+function openProjectManagerDialog() {
+  showProjectManagerDialog.value = true
+  refreshProjectManagerResources()
+}
+
+function closeProjectManagerDialog() {
+  if (projectManagerBusy.value) {
+    return
+  }
+
+  showProjectManagerDialog.value = false
+}
+
 function openEditTaskDialog() {
   if (!currentTaskSlug.value) {
     return
@@ -231,7 +312,7 @@ function closeTodoDeleteConfirm() {
 
 function closeTodoUseConfirm() {
   showTodoUseConfirm.value = false
-  pendingTodoUseId.value = ''
+  pendingTodoUseIds.value = []
 }
 
 function handleTaskSettingsSaved(task) {
@@ -276,7 +357,11 @@ async function handleTaskTitleClick(taskSlug) {
   beginTaskTitleEdit(taskSlug)
 }
 
-function openDeleteDialog() {
+function openDeleteDialog(taskSlug = currentTaskSlug.value) {
+  pendingTaskDeleteSlug.value = String(taskSlug || currentTaskSlug.value || '').trim()
+  if (!pendingTaskDeleteSlug.value) {
+    return
+  }
   showDeleteDialog.value = true
 }
 
@@ -286,12 +371,24 @@ function closeDeleteDialog() {
   }
 
   showDeleteDialog.value = false
+  pendingTaskDeleteSlug.value = ''
 }
 
 async function confirmRemoveCurrentTask() {
-  await removeCurrentTask()
+  const targetSlug = String(pendingTaskDeleteSlug.value || currentTaskSlug.value || '').trim()
+  if (!targetSlug) {
+    return
+  }
+  const deletingCurrentTask = targetSlug === currentTaskSlug.value
+
+  if (deletingCurrentTask) {
+    await removeCurrentTask()
+  } else {
+    await removeTaskBySlug(targetSlug)
+  }
   showDeleteDialog.value = false
-  if (isMobileLayout.value) {
+  pendingTaskDeleteSlug.value = ''
+  if (isMobileLayout.value && deletingCurrentTask) {
     leaveMobileDetail({ useHistory: false })
   }
 }
@@ -355,11 +452,130 @@ async function copyCodexPrompt() {
 }
 
 async function handleCreateTask() {
-  const created = await createTaskAndSelect()
+  pendingCreateTaskProjectId.value = ''
+  showCreateTaskProjectDialog.value = true
+  refreshCodexSessionsForPanel()
+}
+
+function closeCreateTaskProjectDialog() {
+  if (creatingTask.value) {
+    return
+  }
+
+  showCreateTaskProjectDialog.value = false
+  pendingCreateTaskProjectId.value = ''
+}
+
+async function confirmCreateTaskWithProject() {
+  const selectedProjectId = String(pendingCreateTaskProjectId.value || '').trim()
+  if (!selectedProjectId) {
+    flashToast({ message: t('workbench.selectProjectFirst'), type: 'warning' })
+    return
+  }
+
+  const created = await createTaskAndSelect({ codexSessionId: selectedProjectId })
+  if (created) {
+    showCreateTaskProjectDialog.value = false
+    pendingCreateTaskProjectId.value = ''
+  }
   if (created && isMobileLayout.value) {
     mobileDetailTab.value = 'input'
     enterMobileDetail()
   }
+}
+
+async function refreshCodexSessionsForPanel() {
+  loadingCodexSessionsForPanel.value = true
+  try {
+    const payload = await listCodexSessions()
+    if (Array.isArray(payload?.items)) {
+      codexSessionsForPanel.value = payload.items
+    }
+  } catch {
+    // ignore background refresh failures
+  } finally {
+    loadingCodexSessionsForPanel.value = false
+  }
+}
+
+async function refreshProjectManagerResources() {
+  loadingProjectManagerResources.value = true
+  try {
+    const [sessionPayload, workspacePayload] = await Promise.all([
+      listCodexSessions(),
+      listCodexWorkspaces(),
+    ])
+
+    if (Array.isArray(sessionPayload?.items)) {
+      codexSessionsForPanel.value = sessionPayload.items
+    }
+    if (Array.isArray(workspacePayload?.items)) {
+      codexWorkspacesForManager.value = workspacePayload.items
+    }
+  } catch {
+    // ignore manager background refresh failures
+  } finally {
+    loadingProjectManagerResources.value = false
+  }
+}
+
+async function handleProjectManagerCreateSession(payload) {
+  projectManagerBusy.value = true
+  try {
+    const session = await createCodexSession(payload)
+    await refreshProjectManagerResources()
+    return session
+  } finally {
+    projectManagerBusy.value = false
+  }
+}
+
+async function handleProjectManagerUpdateSession(sessionId, payload) {
+  projectManagerBusy.value = true
+  try {
+    const session = await updateCodexSession(sessionId, payload)
+    await refreshProjectManagerResources()
+    return session
+  } finally {
+    projectManagerBusy.value = false
+  }
+}
+
+async function handleProjectManagerDeleteSession(sessionId) {
+  projectManagerBusy.value = true
+  try {
+    await deleteCodexSession(sessionId)
+    await refreshProjectManagerResources()
+    if (currentSelectedSessionId.value === String(sessionId || '').trim()) {
+      handleCurrentTaskSessionChange('')
+    }
+    return {
+      deletedSessionId: String(sessionId || '').trim(),
+      selectedSessionId: '',
+    }
+  } finally {
+    projectManagerBusy.value = false
+  }
+}
+
+async function handleProjectManagerResetSession(sessionId) {
+  projectManagerBusy.value = true
+  try {
+    const result = await resetCodexSession(sessionId)
+    await refreshProjectManagerResources()
+    flashToast({ message: t('projectManager.sessionReset'), type: 'success' })
+    return result
+  } finally {
+    projectManagerBusy.value = false
+  }
+}
+
+function handleProjectManagerSelectSession(sessionId) {
+  if (!currentTaskSlug.value) {
+    return
+  }
+
+  handleCurrentTaskSessionChange(sessionId)
 }
 
 async function handleTaskSelect(taskSlug) {
@@ -401,14 +617,18 @@ function confirmDeleteTodo() {
   closeTodoDeleteConfirm()
 }
 
-async function applyTodoToEditor(todoId = pendingTodoUseId.value) {
-  const normalizedTodoId = String(todoId || '').trim()
-  if (!normalizedTodoId) {
+async function applyTodoToEditor(todoIds = pendingTodoUseIds.value, options = {}) {
+  const normalizedTodoIds = (Array.isArray(todoIds) ? todoIds : [todoIds])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  if (!normalizedTodoIds.length) {
     return false
   }
 
-  const appliedTodo = useTodoItem(normalizedTodoId)
-  if (!appliedTodo) {
+  const appliedTodos = useTodoItems(normalizedTodoIds, {
+    append: Boolean(options?.append),
+  })
+  if (!appliedTodos.length) {
     return false
   }
 
@@ -417,19 +637,21 @@ async function applyTodoToEditor(todoId = pendingTodoUseId.value) {
   return true
 }
 
-async function handleUseTodo(todoId) {
+async function handleUseTodo(todoIds) {
   await flushCurrentEditorInput()
-  const normalizedTodoId = String(todoId || '').trim()
-  if (!normalizedTodoId) {
+  const normalizedTodoIds = (Array.isArray(todoIds) ? todoIds : [todoIds])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  if (!normalizedTodoIds.length) {
     return
   }
 
   if (!hasCurrentDraftContent.value) {
-    await applyTodoToEditor(normalizedTodoId)
+    await applyTodoToEditor(normalizedTodoIds, { append: false })
     return
   }
 
-  pendingTodoUseId.value = normalizedTodoId
+  pendingTodoUseIds.value = normalizedTodoIds
   showTodoUseConfirm.value = true
 }
 
@@ -501,11 +723,8 @@ function handleWindowKeydown(event) {
 
 onMounted(() => {
   initializeWorkbench()
-  listCodexSessions().then((payload) => {
-    if (Array.isArray(payload?.items)) {
-      codexSessionsForPanel.value = payload.items
-    }
-  }).catch(() => {})
+  refreshCodexSessionsForPanel()
+  maybeNotifyLocalUpdate()
   getAuthInfo().then((info) => {
     authInfo.value = info
   }).catch(() => {})
@@ -516,6 +735,16 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleWindowKeydown)
+})
+
+watch(readyVersion, (value, previousValue) => {
+  if (Number(value || 0) <= 0) {
+    return
+  }
+
+  maybeNotifyLocalUpdate({
+    afterReconnect: Number(previousValue || 0) > 0,
+  })
 })
 
 watch(
@@ -536,6 +765,7 @@ const taskListPanelListeners = {
   'create-task': handleCreateTask,
   'edit-task': openEditTaskDialog,
   'delete-task': openDeleteDialog,
+  'manage-projects': openProjectManagerDialog,
   'open-settings': openSettingsDialog,
   'reorder-task': handleTaskReorder,
   'select-task': handleTaskSelect,
@@ -578,6 +808,35 @@ const mobileDetailHeaderListeners = {
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <TopToast :message="toastMessage" :type="toastType" />
 
+    <CreateTaskProjectDialog
+      :open="showCreateTaskProjectDialog"
+      :loading="creatingTask"
+      :sessions="codexSessionsForPanel"
+      :sessions-loading="loadingCodexSessionsForPanel"
+      :selected-project-id="pendingCreateTaskProjectId"
+      @cancel="closeCreateTaskProjectDialog"
+      @confirm="confirmCreateTaskWithProject"
+      @refresh-projects="refreshCodexSessionsForPanel"
+      @update:selected-project-id="pendingCreateTaskProjectId = $event"
+    />
+    <CodexSessionManagerDialog
+      :open="showProjectManagerDialog"
+      :sessions="codexSessionsForPanel"
+      :workspaces="codexWorkspacesForManager"
+      :selected-session-id="currentSelectedSessionId"
+      :selection-locked="Boolean(currentRenderedTask?.sessionSelectionLocked)"
+      :selection-lock-reason="currentRenderedTask?.sessionSelectionLockReason || ''"
+      :loading="loadingProjectManagerResources"
+      :sending="Boolean(currentRenderedTask?.running)"
+      :on-refresh="refreshProjectManagerResources"
+      :on-create="handleProjectManagerCreateSession"
+      :on-update="handleProjectManagerUpdateSession"
+      :on-delete="handleProjectManagerDeleteSession"
+      :on-reset="handleProjectManagerResetSession"
+      @close="closeProjectManagerDialog"
+      @project-created="flashToast({ message: t('workbench.projectCreated'), type: 'success' })"
+      @select-session="handleProjectManagerSelectSession"
+    />
     <ConfirmDialog
       :open="showClearDialog"
       :title="t('workbench.confirmClearTitle')"
@@ -590,7 +849,7 @@ const mobileDetailHeaderListeners = {
     <ConfirmDialog
       :open="showDeleteDialog"
       :title="t('workbench.confirmDeleteTitle')"
-      :description="t('workbench.confirmDeleteDescription', { title: currentTaskDisplayTitle })"
+      :description="t('workbench.confirmDeleteDescription', { title: pendingDeleteTask?.displayTitle || pendingDeleteTask?.title || pendingDeleteTask?.autoTitle || currentTaskDisplayTitle })"
       :confirm-text="t('workbench.confirmDeleteAction')"
       :cancel-text="t('workbench.keepForNow')"
       :loading="removingTask"
@@ -610,12 +869,12 @@ const mobileDetailHeaderListeners = {
     />
     <ConfirmDialog
       :open="showTodoUseConfirm"
-      :title="t('workbench.replaceEditorTitle')"
-      :description="t('workbench.replaceEditorDescription')"
-      :confirm-text="t('workbench.confirmReplaceAction')"
-      :cancel-text="t('workbench.dontReplaceYet')"
+      :title="t('workbench.appendEditorTitle')"
+      :description="t('workbench.appendEditorDescription', { count: pendingTodoUseIds.length })"
+      :confirm-text="t('workbench.confirmAppendAction')"
+      :cancel-text="t('workbench.dontAppendYet')"
       @cancel="closeTodoUseConfirm"
-      @confirm="applyTodoToEditor()"
+      @confirm="applyTodoToEditor(undefined, { append: true })"
     />
     <WorkbenchTodoDialog
       :open="showTodoDialog"

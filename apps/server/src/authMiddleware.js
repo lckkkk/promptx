@@ -2,12 +2,10 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { parseCookieHeader, constantTimeEqual } from './relayProtocol.js'
-import { getAuthConfigForServer } from './authConfig.js'
+import { parseCookieHeader } from './relayProtocol.js'
 import { validateUserCredentials, hasUsersConfigured } from './usersConfig.js'
 import { ensurePromptxStorageReady } from './appPaths.js'
 
-const ACCESS_COOKIE_NAME = 'promptx_access'
 const SESSION_COOKIE_NAME = 'promptx_session'
 const DEFAULT_LOGIN_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
 const DEFAULT_LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10
@@ -158,22 +156,16 @@ function createLoginRateLimiter({
   }
 }
 
-function buildServerLoginPage({ errorMessage = '', redirectPath = '/', multiUser = false } = {}) {
+function buildServerLoginPage({ errorMessage = '', redirectPath = '/', loginReady = true } = {}) {
   const escapedError = String(errorMessage || '').replace(/[<>&"]/g, '')
   const escapedRedirect = String(redirectPath || '/').replace(/"/g, '&quot;')
-
-  const usernameField = multiUser
-    ? `<label for="username">用户名</label>
-    <input id="username" name="username" type="text" autocomplete="username" required autofocus style="margin-bottom:10px;" />`
-    : ''
-
-  const passwordLabel = multiUser ? '密码' : '访问令牌'
-  const passwordAutocomplete = multiUser ? 'current-password' : 'current-password'
-  const passwordAutoFocus = multiUser ? '' : ' autofocus'
-  const submitLabel = multiUser ? '登录' : '进入 PromptX'
-  const description = multiUser
+  const description = loginReady
     ? '请输入用户名和密码，登录你的 PromptX 工作台。'
-    : '请输入访问令牌，进入你的 PromptX 工作台。'
+    : '当前还没有可登录账号。请先通过 CLI 添加账号，再回到这里登录。'
+  const disabledAttr = loginReady ? '' : ' disabled'
+  const helper = loginReady
+    ? ''
+    : '<div class="helper">请在服务器上执行 `promptx user add <username>`，并按提示设置密码。</div>'
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -190,6 +182,8 @@ function buildServerLoginPage({ errorMessage = '', redirectPath = '/', multiUser
     input { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #a8a29e; padding: 10px 12px; background: white; font: inherit; }
     button { margin-top: 14px; width: 100%; min-height: 44px; border: 1px solid #166534; background: #16a34a; color: white; padding: 10px 12px; cursor: pointer; font: inherit; font-size: 15px; }
     .error { margin-bottom: 12px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; font-size: 13px; }
+    .helper { margin-top: 12px; padding: 10px 12px; border: 1px dashed #d6d3d1; background: #fafaf9; color: #57534e; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+    button:disabled, input:disabled { opacity: .65; cursor: not-allowed; }
     @media (max-width: 640px) {
       body { padding: 12px; align-items: stretch; }
       .card { padding: 18px 16px; box-shadow: 4px 4px 0 rgba(28,25,23,.05); }
@@ -204,10 +198,12 @@ function buildServerLoginPage({ errorMessage = '', redirectPath = '/', multiUser
     <p>${description}</p>
     ${escapedError ? `<div class="error">${escapedError}</div>` : ''}
     <input type="hidden" name="redirect" value="${escapedRedirect}" />
-    ${usernameField}
-    <label for="password">${passwordLabel}</label>
-    <input id="password" name="password" type="password" autocomplete="${passwordAutocomplete}"${passwordAutoFocus ? ` ${passwordAutoFocus}` : ''} required />
-    <button type="submit">${submitLabel}</button>
+    <label for="username">用户名</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus style="margin-bottom:10px;"${disabledAttr} />
+    <label for="password">密码</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required${disabledAttr} />
+    <button type="submit"${disabledAttr}>登录</button>
+    ${helper}
   </form>
 </body>
 </html>`
@@ -221,15 +217,6 @@ function getUserFromSession(request) {
   const username = decryptSession(decodeURIComponent(sessionToken))
   if (!username) return null
   return { username }
-}
-
-// 旧版 Token 认证检查（单 Token 模式向后兼容）
-function isAuthorizedByToken(request, accessToken) {
-  if (!accessToken) return false
-  const bearerToken = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
-  if (bearerToken && constantTimeEqual(bearerToken, accessToken)) return true
-  const cookies = parseCookieHeader(request.headers.cookie)
-  return constantTimeEqual(cookies[ACCESS_COOKIE_NAME] || '', accessToken)
 }
 
 function isPublicPath(request) {
@@ -248,25 +235,10 @@ function registerAuthMiddleware(app) {
   app.addHook('onRequest', async (request, reply) => {
     if (isPublicPath(request)) return
 
-    const multiUser = hasUsersConfigured()
-    const { accessToken } = getAuthConfigForServer()
-
-    // 多用户模式：从 Session Cookie 读取用户
-    if (multiUser) {
-      const user = getUserFromSession(request)
-      if (user) {
-        request.user = user
-        return
-      }
-      // 允许 Bearer token 作为备用（供 API 客户端使用）
-      if (accessToken && isAuthorizedByToken(request, accessToken)) {
-        request.user = { username: 'default' }
-        return
-      }
-    } else {
-      // 旧版 Token 模式（向后兼容）
-      if (!accessToken) return
-      if (isAuthorizedByToken(request, accessToken)) return
+    const user = getUserFromSession(request)
+    if (user) {
+      request.user = user
+      return
     }
 
     if (isHtmlRequest(request)) {
@@ -279,35 +251,35 @@ function registerAuthMiddleware(app) {
   })
 
   app.get('/login', async (request, reply) => {
-    const multiUser = hasUsersConfigured()
-    const { accessToken } = getAuthConfigForServer()
-
-    if (!multiUser && !accessToken) return reply.redirect('/')
+    const loginReady = hasUsersConfigured()
 
     const redirectPath = normalizeRedirectPath(request.query?.redirect)
-
-    if (multiUser) {
-      const user = getUserFromSession(request)
-      if (user) return reply.redirect(redirectPath)
-    } else {
-      if (isAuthorizedByToken(request, accessToken)) return reply.redirect(redirectPath)
-    }
+    const user = getUserFromSession(request)
+    if (user) return reply.redirect(redirectPath)
 
     return reply
       .code(200)
       .type('text/html; charset=utf-8')
-      .send(buildServerLoginPage({ redirectPath, multiUser }))
+      .send(buildServerLoginPage({ redirectPath, loginReady }))
   })
 
   app.post('/login', async (request, reply) => {
-    const multiUser = hasUsersConfigured()
-    const { accessToken } = getAuthConfigForServer()
-
-    if (!multiUser && !accessToken) return reply.redirect('/')
+    const loginReady = hasUsersConfigured()
 
     const form = parseUrlEncodedBody(request.body)
     const redirectPath = normalizeRedirectPath(form.redirect)
     const rateLimitKey = `server-login:${getClientIp(request)}`
+
+    if (!loginReady) {
+      return reply
+        .code(401)
+        .type('text/html; charset=utf-8')
+        .send(buildServerLoginPage({
+          errorMessage: '当前还没有可登录账号，请先通过 CLI 添加账号。',
+          redirectPath,
+          loginReady,
+        }))
+    }
 
     const remaining = loginRateLimiter.getRemaining(rateLimitKey)
     if (!remaining.ok) {
@@ -317,86 +289,55 @@ function registerAuthMiddleware(app) {
         .send(buildServerLoginPage({
           errorMessage: `尝试次数过多，请 ${formatRetryAfterText(remaining.retryAfterMs)} 后再试。`,
           redirectPath,
-          multiUser,
+          loginReady,
         }))
     }
 
-    if (multiUser) {
-      const username = String(form.username || '').trim().toLowerCase()
-      const password = String(form.password || '')
+    const username = String(form.username || '').trim().toLowerCase()
+    const password = String(form.password || '')
 
-      if (!username) {
-        return reply
-          .code(401)
-          .type('text/html; charset=utf-8')
-          .send(buildServerLoginPage({ errorMessage: '请输入用户名。', redirectPath, multiUser }))
-      }
-
-      if (validateUserCredentials(username, password)) {
-        loginRateLimiter.clear(rateLimitKey)
-        reply.header('Set-Cookie', createCookieValue(SESSION_COOKIE_NAME, encryptSession(username)))
-        return reply.redirect(redirectPath)
-      }
-
-      const nextState = loginRateLimiter.recordFailure(rateLimitKey)
-      const errorMessage = nextState.ok
-        ? '用户名或密码不正确。'
-        : `尝试次数过多，请 ${formatRetryAfterText(nextState.retryAfterMs)} 后再试。`
-
+    if (!username) {
       return reply
-        .code(nextState.ok ? 401 : 429)
+        .code(401)
         .type('text/html; charset=utf-8')
-        .send(buildServerLoginPage({ errorMessage, redirectPath, multiUser }))
+        .send(buildServerLoginPage({ errorMessage: '请输入用户名。', redirectPath, loginReady }))
     }
 
-    // 旧版 Token 模式
-    const token = String(form.password || form.token || '').trim()
-    if (token && constantTimeEqual(token, accessToken)) {
+    if (validateUserCredentials(username, password)) {
       loginRateLimiter.clear(rateLimitKey)
-      reply.header('Set-Cookie', createCookieValue(ACCESS_COOKIE_NAME, accessToken))
+      reply.header('Set-Cookie', createCookieValue(SESSION_COOKIE_NAME, encryptSession(username)))
       return reply.redirect(redirectPath)
     }
 
     const nextState = loginRateLimiter.recordFailure(rateLimitKey)
-    if (!nextState.ok) {
-      return reply
-        .code(429)
-        .type('text/html; charset=utf-8')
-        .send(buildServerLoginPage({
-          errorMessage: `尝试次数过多，请 ${formatRetryAfterText(nextState.retryAfterMs)} 后再试。`,
-          redirectPath,
-          multiUser,
-        }))
-    }
+    const errorMessage = nextState.ok
+      ? '用户名或密码不正确。'
+      : `尝试次数过多，请 ${formatRetryAfterText(nextState.retryAfterMs)} 后再试。`
 
     return reply
-      .code(401)
+      .code(nextState.ok ? 401 : 429)
       .type('text/html; charset=utf-8')
       .send(buildServerLoginPage({
-        errorMessage: '访问令牌不正确。',
+        errorMessage,
         redirectPath,
-        multiUser,
+        loginReady,
       }))
   })
 
   app.post('/logout', async (request, reply) => {
     reply.header('Set-Cookie', clearCookieValue(SESSION_COOKIE_NAME))
-    reply.header('Set-Cookie', clearCookieValue(ACCESS_COOKIE_NAME))
     return reply.redirect('/login')
   })
 
   app.get('/api/auth-info', async (request) => {
-    const multiUser = hasUsersConfigured()
     const username = request.user?.username || null
-    return { multiUser, username }
+    return { multiUser: true, username, loginReady: hasUsersConfigured() }
   })
 }
 
 export {
-  ACCESS_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   buildServerLoginPage,
   getUserFromSession,
-  isAuthorizedByToken,
   registerAuthMiddleware,
 }

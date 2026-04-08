@@ -96,6 +96,108 @@ function createEmptyTextBlocks() {
   ])
 }
 
+function createEmptyTextBlock() {
+  return createEmptyTextBlocks()[0]
+}
+
+function extractTodoItemText(todoItem = {}, index = 0) {
+  const blocks = normalizeTodoItemBlocks(todoItem?.blocks || [])
+  const parts = []
+
+  blocks.forEach((block) => {
+    const type = String(block?.type || '').trim()
+    const content = String(block?.content || '').trim()
+    if (!content) {
+      return
+    }
+
+    if (type === BLOCK_TYPES.IMAGE) {
+      parts.push(`[图片${parts.length + 1}]`)
+      return
+    }
+
+    parts.push(content.replace(/\s+/g, ' ').trim())
+  })
+
+  const text = parts.join('；').trim()
+  if (!text) {
+    return ''
+  }
+
+  return `${index + 1}. ${text};`
+}
+
+function createBatchTodoTextBlock(todoItems = []) {
+  const lines = (todoItems || [])
+    .map((item, index) => extractTodoItemText(item, index))
+    .filter(Boolean)
+
+  if (!lines.length) {
+    return null
+  }
+
+  return {
+    type: BLOCK_TYPES.TEXT,
+    content: lines.join('\n'),
+    meta: {},
+  }
+}
+
+function mergeBlocksWithSeparators(groups = []) {
+  const merged = []
+
+  groups.forEach((group) => {
+    const blocks = normalizeTodoItemBlocks(group)
+    if (!blocks.length) {
+      return
+    }
+
+    if (merged.length > 0) {
+      merged.push(createEmptyTextBlock())
+    }
+
+    merged.push(...blocks)
+  })
+
+  return merged
+}
+
+export function buildBlocksFromTodoItems(todoItems = [], options = {}) {
+  const { existingBlocks = [], append = false } = options
+  const meaningfulExistingBlocks = hasMeaningfulBlocks(existingBlocks)
+    ? normalizeTodoItemBlocks(existingBlocks)
+    : []
+  const normalizedTodoItems = Array.isArray(todoItems) ? todoItems.filter(Boolean) : []
+  const todoGroups = (todoItems || [])
+    .map((item) => normalizeTodoItemBlocks(item?.blocks || []))
+    .filter((blocks) => blocks.length > 0)
+  const shouldFormatAsBatchText = normalizedTodoItems.length > 1
+  const batchTextBlock = shouldFormatAsBatchText ? createBatchTodoTextBlock(normalizedTodoItems) : null
+
+  if (!todoGroups.length) {
+    return meaningfulExistingBlocks.length ? meaningfulExistingBlocks : createEmptyTextBlocks()
+  }
+
+  if (batchTextBlock) {
+    if (!append || !meaningfulExistingBlocks.length) {
+      return cloneBlocks([batchTextBlock])
+    }
+
+    return [
+      ...meaningfulExistingBlocks,
+      ...cloneBlocks([batchTextBlock]),
+    ]
+  }
+
+  if (!append || !meaningfulExistingBlocks.length) {
+    const replacedBlocks = mergeBlocksWithSeparators(todoGroups)
+    return replacedBlocks.length ? replacedBlocks : createEmptyTextBlocks()
+  }
+
+  const mergedBlocks = mergeBlocksWithSeparators([meaningfulExistingBlocks, ...todoGroups])
+  return mergedBlocks.length ? mergedBlocks : createEmptyTextBlocks()
+}
+
 function deriveAutoTaskTitle(blocks = [], max = 16) {
   return deriveTitleFromBlocks(blocks, max) || ''
 }
@@ -1214,11 +1316,12 @@ function normalizeTodoItemsForSnapshot(items = []) {
     return saveTask({ auto: false, silent: true })
   }
 
-  async function createTaskAndSelect() {
+  async function createTaskAndSelect(options = {}) {
     if (!(await ensureCurrentTaskReady()) && currentTaskSlug.value) {
       return false
     }
 
+    const { codexSessionId = '' } = options
     creatingTask.value = true
     error.value = ''
 
@@ -1227,6 +1330,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
         title: '',
         expiry: 'none',
         visibility: 'private',
+        codexSessionId: String(codexSessionId || '').trim(),
       })
 
       const initialState = {
@@ -1267,8 +1371,9 @@ function normalizeTodoItemsForSnapshot(items = []) {
     await loadTask(targetSlug)
   }
 
-  async function removeCurrentTask() {
-    if (!currentTaskSlug.value) {
+  async function removeTaskBySlug(taskSlug = '') {
+    const targetSlug = String(taskSlug || currentTaskSlug.value || '').trim()
+    if (!targetSlug) {
       return
     }
 
@@ -1276,7 +1381,6 @@ function normalizeTodoItemsForSnapshot(items = []) {
     error.value = ''
 
     try {
-      const targetSlug = currentTaskSlug.value
       await deleteTask(targetSlug)
       tasks.value = tasks.value.filter((task) => task.slug !== targetSlug)
 
@@ -1292,6 +1396,10 @@ function normalizeTodoItemsForSnapshot(items = []) {
       delete nextSendingMap[targetSlug]
       sendingTaskMap.value = nextSendingMap
 
+      if (targetSlug !== currentTaskSlug.value) {
+        return
+      }
+
       if (tasks.value.length) {
         await loadTask(tasks.value[0].slug, { focusEditor: true })
       } else {
@@ -1300,13 +1408,16 @@ function normalizeTodoItemsForSnapshot(items = []) {
         draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [], todoItems: [] }
         lastSavedSnapshot.value = createSnapshot('', '', '', [], '', [])
         hasUnsavedChanges.value = false
-        await createTaskAndSelect()
       }
     } catch (err) {
       error.value = err.message
     } finally {
       removingTask.value = false
     }
+  }
+
+  async function removeCurrentTask() {
+    await removeTaskBySlug(currentTaskSlug.value)
   }
 
   function clearCurrentTaskContent(options = {}) {
@@ -1389,21 +1500,30 @@ function normalizeTodoItemsForSnapshot(items = []) {
     return true
   }
 
-  function useTodoItem(todoId = '') {
-    const normalizedTodoId = String(todoId || '').trim()
-    if (!currentTaskSlug.value || !normalizedTodoId) {
-      return null
+  function useTodoItems(todoIds = [], options = {}) {
+    const normalizedTodoIds = (Array.isArray(todoIds) ? todoIds : [todoIds])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+    if (!currentTaskSlug.value || !normalizedTodoIds.length) {
+      return []
     }
 
-    const targetTodo = cloneTodoItems(draft.value.todoItems).find((item) => item.id === normalizedTodoId)
-    if (!targetTodo) {
-      return null
+    const { append = false } = options
+    const allTodoItems = cloneTodoItems(draft.value.todoItems)
+    const targetTodos = normalizedTodoIds
+      .map((todoId) => allTodoItems.find((item) => item.id === todoId) || null)
+      .filter(Boolean)
+    if (!targetTodos.length) {
+      return []
     }
 
     draft.value = {
       ...draft.value,
-      blocks: cloneBlocks(targetTodo.blocks),
-      todoItems: cloneTodoItems(draft.value.todoItems).filter((item) => item.id !== normalizedTodoId),
+      blocks: buildBlocksFromTodoItems(targetTodos, {
+        existingBlocks: draft.value.blocks,
+        append,
+      }),
+      todoItems: allTodoItems.filter((item) => !normalizedTodoIds.includes(item.id)),
     }
     setTaskDraftState(currentTaskSlug.value, draft.value)
     syncDraftSummary()
@@ -1411,13 +1531,12 @@ function normalizeTodoItemsForSnapshot(items = []) {
     nextTick(() => {
       editorRef.value?.focusEditor?.()
     })
-    return targetTodo
+    return targetTodos
   }
 
   async function initializeWorkbench() {
     await refreshTaskList()
     if (!tasks.value.length) {
-      await createTaskAndSelect()
       return
     }
 
@@ -1707,6 +1826,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
     pageTitle,
     prepareCodexPromptForTask,
     currentTodoItems,
+    removeTaskBySlug,
     removeTodoItem,
     removeCurrentTask,
     reorderTaskList,
@@ -1720,7 +1840,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
     sendingTaskMap,
     taskDraftMap,
     tasks,
-    useTodoItem,
+    useTodoItems,
     updateLastPromptPreview,
     uploading,
     creatingTask,

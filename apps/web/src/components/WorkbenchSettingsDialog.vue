@@ -1,17 +1,27 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Cpu, Eye, EyeOff, Info, LoaderCircle, Palette, Settings2, Wifi } from 'lucide-vue-next'
+import { Cpu, Bell, Eye, EyeOff, Info, LoaderCircle, Palette, Save, Settings2, Trash2, Wifi } from 'lucide-vue-next'
+import {
+  TASK_NOTIFICATION_CHANNEL_OPTIONS,
+  TASK_NOTIFICATION_LOCALE_OPTIONS,
+  TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS,
+  TASK_NOTIFICATION_TRIGGER_OPTIONS,
+} from '@promptx/shared'
 import DialogShell from './DialogShell.vue'
 import DialogSideNav from './DialogSideNav.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import WorkbenchSelect from './WorkbenchSelect.vue'
 import { formatDateTime as formatLocaleDateTime, useI18n } from '../composables/useI18n.js'
 import {
+  createNotificationProfile,
+  deleteNotificationProfile,
   getMeta,
   getRelayConfig,
   reconnectRelay,
   getRuntimeDiagnostics,
   getSystemConfig,
+  listNotificationProfiles,
+  updateNotificationProfile,
   updateRelayConfig,
   updateSystemConfig,
 } from '../lib/api.js'
@@ -40,6 +50,11 @@ const systemSuccess = ref('')
 const systemDiagnosticsLoading = ref(false)
 const systemDiagnosticsError = ref('')
 const systemDiagnostics = ref(null)
+const notificationProfiles = ref([])
+const notificationProfilesLoading = ref(false)
+const notificationProfilesError = ref('')
+const notificationProfileSaving = ref(false)
+const notificationProfileDeleting = ref(false)
 const relayStatus = ref(null)
 const relayManagedByEnv = ref(false)
 const systemManagedByEnv = reactive({
@@ -57,7 +72,18 @@ const relayForm = reactive({
 })
 const systemForm = reactive({
   runnerMaxConcurrentRuns: 3,
+  defaultNotificationProfileId: '',
   workspaceRootPath: '',
+})
+const profileForm = reactive({
+  id: '',
+  name: '',
+  channelType: 'dingtalk',
+  webhookUrl: '',
+  secret: '',
+  triggerOn: 'completed',
+  locale: 'zh-CN',
+  messageMode: 'summary',
 })
 const activeSection = ref('theme')
 let relayCopyTimer = null
@@ -76,6 +102,12 @@ const settingsSections = computed(() => ([
     label: t('settingsDialog.relay.sectionLabel'),
     description: t('settingsDialog.relay.sectionDescription'),
     icon: Wifi,
+  },
+  {
+    id: 'notification',
+    label: t('settingsDialog.notification.sectionLabel'),
+    description: t('settingsDialog.notification.sectionDescription'),
+    icon: Bell,
   },
   {
     id: 'system',
@@ -313,6 +345,49 @@ const localeFieldOptions = computed(() => localeOptions.value.map((item) => ({
   label: item.value === 'zh-CN' ? t('locale.zhHans') : t('locale.enUs'),
   englishLabel: item.englishLabel,
 })))
+const notificationChannelOptions = computed(() => TASK_NOTIFICATION_CHANNEL_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'dingtalk'
+    ? t('taskDialog.sections.notification.channelDingtalk')
+    : option.value === 'feishu'
+      ? t('taskDialog.sections.notification.channelFeishu')
+      : option.value === 'webhook'
+        ? t('taskDialog.sections.notification.channelWebhook')
+        : option.label,
+})))
+const notificationTriggerOptions = computed(() => TASK_NOTIFICATION_TRIGGER_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'completed'
+    ? t('taskDialog.sections.notification.triggerCompleted')
+    : option.value === 'success'
+      ? t('taskDialog.sections.notification.triggerSuccess')
+      : option.value === 'error'
+        ? t('taskDialog.sections.notification.triggerError')
+        : option.label,
+})))
+const notificationMessageModeOptions = computed(() => TASK_NOTIFICATION_MESSAGE_MODE_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'summary'
+    ? t('taskDialog.sections.notification.messageSummary')
+    : option.label,
+})))
+const notificationLocaleOptions = computed(() => TASK_NOTIFICATION_LOCALE_OPTIONS.map((option) => ({
+  ...option,
+  label: option.value === 'zh-CN'
+    ? t('taskDialog.sections.notification.localeZhCn')
+    : option.value === 'en-US'
+      ? t('taskDialog.sections.notification.localeEnUs')
+      : option.label,
+})))
+const notificationProfileOptions = computed(() => (
+  notificationProfiles.value.map((profile) => ({
+    value: String(profile.id),
+    label: profile.name,
+  }))
+))
+const selectedNotificationProfile = computed(() => (
+  notificationProfiles.value.find((profile) => String(profile.id) === String(profileForm.id || '')) || null
+))
 
 async function loadMeta() {
   versionLoading.value = true
@@ -342,7 +417,47 @@ function syncRelayForm(payload = {}) {
 
 function syncSystemForm(payload = {}) {
   systemForm.runnerMaxConcurrentRuns = Math.max(1, Number(payload?.runner?.maxConcurrentRuns) || 3)
+  systemForm.defaultNotificationProfileId = payload?.notification?.defaultProfileId ? String(payload.notification.defaultProfileId) : ''
   systemForm.workspaceRootPath = String(payload?.workspace?.rootPath || '')
+}
+
+function resetNotificationProfileForm() {
+  profileForm.id = ''
+  profileForm.name = ''
+  profileForm.channelType = 'dingtalk'
+  profileForm.webhookUrl = ''
+  profileForm.secret = ''
+  profileForm.triggerOn = 'completed'
+  profileForm.locale = String(locale.value || 'zh-CN')
+  profileForm.messageMode = 'summary'
+}
+
+function applyNotificationProfileToForm(profile = null) {
+  if (!profile) {
+    resetNotificationProfileForm()
+    return
+  }
+
+  profileForm.id = String(profile.id || '')
+  profileForm.name = String(profile.name || '')
+  profileForm.channelType = String(profile.channelType || 'dingtalk')
+  profileForm.webhookUrl = String(profile.webhookUrl || '')
+  profileForm.secret = String(profile.secret || '')
+  profileForm.triggerOn = String(profile.triggerOn || 'completed')
+  profileForm.locale = String(profile.locale || locale.value || 'zh-CN')
+  profileForm.messageMode = String(profile.messageMode || 'summary')
+}
+
+function buildNotificationProfilePayload() {
+  return {
+    name: profileForm.name,
+    channelType: profileForm.channelType,
+    webhookUrl: profileForm.webhookUrl,
+    secret: profileForm.secret,
+    triggerOn: profileForm.triggerOn,
+    locale: profileForm.locale,
+    messageMode: profileForm.messageMode,
+  }
 }
 
 async function loadRelayConfig() {
@@ -377,6 +492,31 @@ async function loadSystemConfig() {
     systemError.value = error?.message || t('settingsDialog.system.systemConfigLoadFailed')
   } finally {
     systemLoading.value = false
+  }
+}
+
+async function loadNotificationProfileOptions() {
+  notificationProfilesLoading.value = true
+  notificationProfilesError.value = ''
+
+  try {
+    const payload = await listNotificationProfiles()
+    notificationProfiles.value = Array.isArray(payload?.items) ? payload.items : []
+
+    if (profileForm.id) {
+      applyNotificationProfileToForm(selectedNotificationProfile.value)
+    } else if (notificationProfiles.value.length) {
+      const defaultProfile = notificationProfiles.value.find((item) => String(item.id) === String(systemForm.defaultNotificationProfileId || ''))
+      applyNotificationProfileToForm(defaultProfile || notificationProfiles.value[0])
+    } else {
+      applyNotificationProfileToForm(null)
+    }
+  } catch (error) {
+    notificationProfilesError.value = error?.message || t('taskDialog.sections.notification.profileLoadFailed')
+    notificationProfiles.value = []
+    applyNotificationProfileToForm(null)
+  } finally {
+    notificationProfilesLoading.value = false
   }
 }
 
@@ -447,6 +587,9 @@ async function handleSaveSystem() {
       runner: {
         maxConcurrentRuns: systemForm.runnerMaxConcurrentRuns,
       },
+      notification: {
+        defaultProfileId: systemForm.defaultNotificationProfileId || null,
+      },
       workspace: {
         rootPath: systemForm.workspaceRootPath,
       },
@@ -460,6 +603,66 @@ async function handleSaveSystem() {
   } finally {
     systemSaving.value = false
   }
+}
+
+async function handleSaveNotificationProfile() {
+  if (notificationProfileSaving.value || notificationProfileDeleting.value) {
+    return
+  }
+
+  notificationProfileSaving.value = true
+  notificationProfilesError.value = ''
+  systemError.value = ''
+  systemSuccess.value = ''
+
+  try {
+    let profile
+    if (profileForm.id) {
+      profile = await updateNotificationProfile(profileForm.id, buildNotificationProfilePayload())
+    } else {
+      profile = await createNotificationProfile(buildNotificationProfilePayload())
+    }
+
+    await loadNotificationProfileOptions()
+    applyNotificationProfileToForm(profile)
+    systemForm.defaultNotificationProfileId = systemForm.defaultNotificationProfileId || String(profile.id || '')
+    systemSuccess.value = t('settingsDialog.notification.profileSaved')
+  } catch (error) {
+    notificationProfilesError.value = error?.message || t('taskDialog.sections.notification.profileSaveFailed')
+  } finally {
+    notificationProfileSaving.value = false
+  }
+}
+
+async function handleDeleteNotificationProfile() {
+  if (!profileForm.id || notificationProfileDeleting.value || notificationProfileSaving.value) {
+    return
+  }
+
+  notificationProfileDeleting.value = true
+  notificationProfilesError.value = ''
+  systemError.value = ''
+  systemSuccess.value = ''
+
+  try {
+    const deletingProfileId = String(profileForm.id)
+    await deleteNotificationProfile(deletingProfileId)
+    if (String(systemForm.defaultNotificationProfileId || '') === deletingProfileId) {
+      systemForm.defaultNotificationProfileId = ''
+      await handleSaveSystem()
+    }
+    await loadNotificationProfileOptions()
+    systemSuccess.value = t('settingsDialog.notification.profileDeleted')
+  } catch (error) {
+    notificationProfilesError.value = error?.message || t('taskDialog.sections.notification.profileDeleteFailed')
+  } finally {
+    notificationProfileDeleting.value = false
+  }
+}
+
+async function handleSetDefaultNotificationProfile(profileId = '') {
+  systemForm.defaultNotificationProfileId = String(profileId || '').trim()
+  await handleSaveSystem()
 }
 
 function hasCompleteRelayFields() {
@@ -587,6 +790,7 @@ watch(
       loadMeta()
       loadRelayConfig()
       loadSystemConfig()
+      loadNotificationProfileOptions()
       return
     }
   },
@@ -616,6 +820,12 @@ onBeforeUnmount(() => {
     systemCopyTimer = null
   }
   stopSystemDiagnosticsPolling()
+})
+
+watch(selectedNotificationProfile, (profile) => {
+  if (profile) {
+    applyNotificationProfileToForm(profile)
+  }
 })
 </script>
 
@@ -854,6 +1064,230 @@ onBeforeUnmount(() => {
                       <span>{{ relaySaving ? t('common.saving') : t('settingsDialog.relay.saveConfig') }}</span>
                     </button>
                   </div>
+                </div>
+              </section>
+            </section>
+
+            <section
+              v-else-if="activeSection === 'notification'"
+              class="space-y-4"
+            >
+              <div>
+                <div class="theme-heading inline-flex items-center gap-2 text-base font-medium">
+                  <Bell class="h-4 w-4" />
+                  <span>{{ t('settingsDialog.notification.title') }}</span>
+                </div>
+                <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('settingsDialog.notification.intro') }}</p>
+              </div>
+
+              <section class="settings-section-card space-y-4 px-4 py-4">
+                <label class="space-y-1.5">
+                  <span class="theme-muted-text text-xs">{{ t('settingsDialog.notification.defaultProfile') }}</span>
+                  <WorkbenchSelect
+                    v-model="systemForm.defaultNotificationProfileId"
+                    :options="notificationProfileOptions"
+                    :disabled="notificationProfilesLoading || systemSaving"
+                    :get-option-value="(option) => option.value"
+                  >
+                    <template #trigger="{ selectedOption }">
+                      <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                        {{ selectedOption?.label || t('settingsDialog.notification.defaultProfilePlaceholder') }}
+                      </div>
+                    </template>
+                  </WorkbenchSelect>
+                  <p class="theme-muted-text text-xs leading-5">{{ t('settingsDialog.notification.defaultProfileHint') }}</p>
+                </label>
+
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    class="tool-button tool-button-primary inline-flex items-center gap-2 px-3 py-2 text-xs"
+                    :disabled="systemSaving"
+                    @click="handleSaveSystem"
+                  >
+                    <LoaderCircle v-if="systemSaving" class="h-4 w-4 animate-spin" />
+                    <span>{{ systemSaving ? t('common.saving') : t('settingsDialog.notification.saveDefault') }}</span>
+                  </button>
+                </div>
+
+                <div class="theme-divider rounded-sm border border-dashed px-3 py-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <div>
+                      <div class="theme-heading text-sm font-medium">{{ t('settingsDialog.notification.profileListTitle') }}</div>
+                      <p class="theme-muted-text mt-1 text-xs leading-5">{{ t('settingsDialog.notification.profileListIntro') }}</p>
+                    </div>
+                    <button
+                      type="button"
+                      class="tool-button px-3 py-2 text-xs"
+                      :disabled="notificationProfileSaving || notificationProfileDeleting"
+                      @click="applyNotificationProfileToForm(null)"
+                    >
+                      {{ t('taskDialog.sections.notification.newProfile') }}
+                    </button>
+                  </div>
+
+                  <div class="mt-3 space-y-2">
+                    <button
+                      v-for="profile in notificationProfiles"
+                      :key="profile.id"
+                      type="button"
+                      class="settings-form-card w-full rounded-sm border px-3 py-3 text-left"
+                      @click="applyNotificationProfileToForm(profile)"
+                    >
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="truncate text-sm font-medium text-[var(--theme-textPrimary)]">{{ profile.name }}</div>
+                          <div class="theme-muted-text mt-1 truncate text-xs">
+                            {{ profile.channelType }} · {{ profile.triggerOn }} · {{ profile.locale }}
+                          </div>
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <span
+                            v-if="String(systemForm.defaultNotificationProfileId || '') === String(profile.id)"
+                            class="theme-status-success rounded-sm border border-dashed px-2 py-0.5 text-[10px]"
+                          >
+                            {{ t('settingsDialog.notification.defaultBadge') }}
+                          </span>
+                          <button
+                            type="button"
+                            class="tool-button px-2.5 py-1.5 text-[11px]"
+                            @click.stop="handleSetDefaultNotificationProfile(profile.id)"
+                          >
+                            {{ t('settingsDialog.notification.setDefault') }}
+                          </button>
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <label class="space-y-1.5 sm:col-span-2">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.profileName') }}</span>
+                      <input
+                        v-model="profileForm.name"
+                        type="text"
+                        class="tool-input"
+                        :placeholder="t('taskDialog.sections.notification.profileNamePlaceholder')"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                      />
+                    </label>
+
+                    <label class="space-y-1.5">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.channelType') }}</span>
+                      <WorkbenchSelect
+                        v-model="profileForm.channelType"
+                        :options="notificationChannelOptions"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                        :get-option-value="(option) => option.value"
+                      >
+                        <template #trigger="{ selectedOption }">
+                          <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                            {{ selectedOption?.label || t('common.select') }}
+                          </div>
+                        </template>
+                      </WorkbenchSelect>
+                    </label>
+
+                    <label class="space-y-1.5">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.triggerOn') }}</span>
+                      <WorkbenchSelect
+                        v-model="profileForm.triggerOn"
+                        :options="notificationTriggerOptions"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                        :get-option-value="(option) => option.value"
+                      >
+                        <template #trigger="{ selectedOption }">
+                          <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                            {{ selectedOption?.label || t('common.select') }}
+                          </div>
+                        </template>
+                      </WorkbenchSelect>
+                    </label>
+
+                    <label class="space-y-1.5 sm:col-span-2">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.webhookUrl') }}</span>
+                      <input
+                        v-model="profileForm.webhookUrl"
+                        type="text"
+                        class="tool-input"
+                        :placeholder="t('taskDialog.sections.notification.webhookUrlPlaceholder')"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                      />
+                    </label>
+
+                    <label class="space-y-1.5">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.secret') }}</span>
+                      <input
+                        v-model="profileForm.secret"
+                        type="text"
+                        class="tool-input"
+                        :placeholder="t('taskDialog.sections.notification.secretPlaceholder')"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                      />
+                    </label>
+
+                    <label class="space-y-1.5">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.locale') }}</span>
+                      <WorkbenchSelect
+                        v-model="profileForm.locale"
+                        :options="notificationLocaleOptions"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                        :get-option-value="(option) => option.value"
+                      >
+                        <template #trigger="{ selectedOption }">
+                          <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                            {{ selectedOption?.label || t('common.select') }}
+                          </div>
+                        </template>
+                      </WorkbenchSelect>
+                    </label>
+
+                    <label class="space-y-1.5 sm:col-span-2">
+                      <span class="theme-muted-text text-xs">{{ t('taskDialog.sections.notification.messageMode') }}</span>
+                      <WorkbenchSelect
+                        v-model="profileForm.messageMode"
+                        :options="notificationMessageModeOptions"
+                        :disabled="notificationProfileSaving || notificationProfileDeleting"
+                        :get-option-value="(option) => option.value"
+                      >
+                        <template #trigger="{ selectedOption }">
+                          <div class="truncate text-sm text-[var(--theme-textPrimary)]">
+                            {{ selectedOption?.label || t('common.select') }}
+                          </div>
+                        </template>
+                      </WorkbenchSelect>
+                    </label>
+                  </div>
+
+                  <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      class="tool-button inline-flex items-center justify-center gap-2 px-3 py-2 text-xs"
+                      :disabled="notificationProfileSaving || notificationProfileDeleting || !profileForm.id"
+                      @click="handleDeleteNotificationProfile"
+                    >
+                      <LoaderCircle v-if="notificationProfileDeleting" class="h-4 w-4 animate-spin" />
+                      <Trash2 v-else class="h-4 w-4" />
+                      <span>{{ t('taskDialog.sections.notification.deleteProfile') }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="tool-button tool-button-primary inline-flex items-center justify-center gap-2 px-3 py-2 text-xs"
+                      :disabled="notificationProfileSaving || notificationProfileDeleting"
+                      @click="handleSaveNotificationProfile"
+                    >
+                      <LoaderCircle v-if="notificationProfileSaving" class="h-4 w-4 animate-spin" />
+                      <Save v-else class="h-4 w-4" />
+                      <span>{{ profileForm.id ? t('taskDialog.sections.notification.saveProfile') : t('taskDialog.sections.notification.createProfile') }}</span>
+                    </button>
+                  </div>
+
+                  <p v-if="notificationProfilesError" class="theme-danger-text mt-3 text-sm">
+                    {{ notificationProfilesError }}
+                  </p>
+                  <p v-else-if="systemSuccess" class="theme-status-success mt-3 text-sm">
+                    {{ systemSuccess }}
+                  </p>
                 </div>
               </section>
             </section>

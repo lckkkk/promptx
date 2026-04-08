@@ -148,3 +148,150 @@ test('updateTask skips touching updatedAt when payload is unchanged', async () =
     }
   }
 })
+
+test('notification profiles can be reused by tasks and cannot be deleted while referenced', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-repository-'))
+  const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+
+  fs.mkdirSync(dataDir, { recursive: true })
+  process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
+
+  try {
+    const repository = await import(`./repository.js?test=${Date.now()}`)
+    const {
+      createNotificationProfile,
+      createTask,
+      deleteNotificationProfile,
+      getTaskBySlug,
+      updateNotificationProfile,
+    } = repository
+
+    const profile = createNotificationProfile({
+      name: '研发群',
+      channelType: 'dingtalk',
+      webhookUrl: 'https://example.com/hook',
+      triggerOn: 'completed',
+      locale: 'zh-CN',
+      messageMode: 'summary',
+    })
+
+    const task = createTask({
+      title: 'task with notification',
+      visibility: 'private',
+      expiry: 'none',
+      notification: {
+        enabled: true,
+        profileId: profile.id,
+      },
+    })
+
+    const loadedTask = getTaskBySlug(task.slug)
+    assert.equal(loadedTask.notification.profileId, profile.id)
+    assert.equal(loadedTask.notification.profileName, '研发群')
+    assert.equal(loadedTask.notification.webhookUrl, 'https://example.com/hook')
+
+    updateNotificationProfile(profile.id, {
+      name: '研发群',
+      channelType: 'dingtalk',
+      webhookUrl: 'https://example.com/hook-updated',
+      triggerOn: 'completed',
+      locale: 'zh-CN',
+      messageMode: 'summary',
+    })
+
+    const updatedTask = getTaskBySlug(task.slug)
+    assert.equal(updatedTask.notification.webhookUrl, 'https://example.com/hook-updated')
+
+    const deleteResult = deleteNotificationProfile(profile.id)
+    assert.equal(deleteResult.error, 'in_use')
+    assert.equal(deleteResult.usageCount, 1)
+  } finally {
+    process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
+  }
+})
+
+test('createTask applies default notification profile from system config and clears it when profile is deleted', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-repository-'))
+  const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+
+  fs.mkdirSync(dataDir, { recursive: true })
+  process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
+
+  try {
+    const repository = await import(`./repository.js?test=${Date.now()}`)
+    const systemConfig = await import(`./systemConfig.js?test=${Date.now()}`)
+    const {
+      createNotificationProfile,
+      createTask,
+      deleteNotificationProfile,
+      getTaskBySlug,
+    } = repository
+    const {
+      readStoredSystemConfig,
+      writeStoredSystemConfig,
+    } = systemConfig
+
+    const defaultProfile = createNotificationProfile({
+      name: '默认通知',
+      channelType: 'dingtalk',
+      webhookUrl: 'https://example.com/default-hook',
+      triggerOn: 'completed',
+      locale: 'zh-CN',
+      messageMode: 'summary',
+    })
+
+    writeStoredSystemConfig({
+      notification: {
+        defaultProfileId: defaultProfile.id,
+      },
+    })
+
+    const task = createTask({
+      title: 'task with default notification profile',
+      visibility: 'private',
+      expiry: 'none',
+    })
+
+    const loadedTask = getTaskBySlug(task.slug)
+    assert.equal(loadedTask.notification.enabled, true)
+    assert.equal(loadedTask.notification.profileId, defaultProfile.id)
+    assert.equal(loadedTask.notification.profileName, '默认通知')
+
+    const removableProfile = createNotificationProfile({
+      name: '临时通知',
+      channelType: 'webhook',
+      webhookUrl: 'https://example.com/tmp-hook',
+      triggerOn: 'success',
+      locale: 'zh-CN',
+      messageMode: 'summary',
+    })
+
+    writeStoredSystemConfig({
+      notification: {
+        defaultProfileId: removableProfile.id,
+      },
+    })
+
+    const deleteResult = deleteNotificationProfile(removableProfile.id)
+    assert.deepEqual(deleteResult, { ok: true })
+    assert.equal(readStoredSystemConfig().notification.defaultProfileId, null)
+  } finally {
+    process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
+  }
+})

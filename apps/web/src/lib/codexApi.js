@@ -60,6 +60,13 @@ export function searchCodexDirectories(query, options = {}) {
   })
 }
 
+export function createCodexDirectory(payload = {}) {
+  return request('/api/codex/directories', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createCodexSession(payload) {
   return request('/api/codex/sessions', {
     method: 'POST',

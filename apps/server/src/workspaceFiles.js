@@ -229,6 +229,20 @@ function normalizeDirectoryPickerPath(input = '') {
   return resolved
 }
 
+function normalizeNewDirectoryName(value = '') {
+  const name = String(value || '').trim()
+  if (!name) {
+    throw createApiError('errors.directoryNameRequired', '请输入目录名称。')
+  }
+  if (name.includes('\0') || name.includes('/') || name.includes('\\')) {
+    throw createApiError('errors.invalidDirectoryName', '目录名称不合法。')
+  }
+  if (name === '.' || name === '..') {
+    throw createApiError('errors.invalidDirectoryName', '目录名称不合法。')
+  }
+  return name
+}
+
 function getDirectoryParentPath(directoryPath = '') {
   const resolved = path.resolve(String(directoryPath || ''))
   const parsed = path.parse(resolved)
@@ -664,4 +678,21 @@ export function searchDirectoryPickerEntries(options = {}) {
     items: matches.slice(0, limit).map(({ score, ...item }) => item),
     truncated: truncated || matches.length > limit,
   }
+}
+
+export function createDirectoryPickerDirectory(options = {}) {
+  const parentPath = normalizeDirectoryPickerPath(options.path) || getDirectoryPickerHomePath()
+  const directoryName = normalizeNewDirectoryName(options.name)
+  const targetPath = path.resolve(parentPath, directoryName)
+
+  if (path.dirname(targetPath) !== path.resolve(parentPath)) {
+    throw createApiError('errors.pathOutsideWorkspace', '只能在当前目录下创建子目录。', 403)
+  }
+
+  if (fs.existsSync(targetPath)) {
+    throw createApiError('errors.directoryAlreadyExists', '目录已存在，请换一个名称。', 409)
+  }
+
+  fs.mkdirSync(targetPath, { recursive: false })
+  return createDirectoryPickerItem(targetPath, directoryName)
 }

@@ -108,6 +108,12 @@ test('system routes persist config and hot update runner when env does not overr
         runner: {
           maxConcurrentRuns: 4,
         },
+        notification: {
+          defaultProfileId: null,
+        },
+        workspace: {
+          rootPath: '',
+        },
       },
       managedByEnv: {
         runner: {
@@ -116,6 +122,49 @@ test('system routes persist config and hot update runner when env does not overr
       },
     })
     assert.deepEqual(services.runnerUpdates, [{ maxConcurrentRuns: 4 }])
+  })
+})
+
+test('system routes persist default notification profile id', async (t) => {
+  await withTestApp(t, {}, async ({ app, services }) => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/system/config',
+      payload: {
+        notification: {
+          defaultProfileId: 12,
+        },
+      },
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), {
+      config: {
+        runner: {
+          maxConcurrentRuns: 3,
+        },
+        notification: {
+          defaultProfileId: 12,
+        },
+        workspace: {
+          rootPath: '',
+        },
+      },
+      managedByEnv: {
+        runner: {
+          maxConcurrentRuns: false,
+        },
+      },
+    })
+    assert.deepEqual(services.runnerUpdates, [{ maxConcurrentRuns: 3 }])
+
+    const readResponse = await app.inject({
+      method: 'GET',
+      url: '/api/system/config',
+    })
+
+    assert.equal(readResponse.statusCode, 200)
+    assert.equal(readResponse.json().config.notification.defaultProfileId, 12)
   })
 })
 
@@ -247,5 +296,92 @@ test('relay reconnect endpoint rejects when relay is disabled', async (t) => {
 
     assert.equal(response.statusCode, 400)
     assert.match(response.json().message, /尚未启用/)
+  })
+})
+
+test('notification profile routes support CRUD and reject deletion when still referenced', async (t) => {
+  let nextId = 1
+  const profiles = []
+
+  await withTestApp(t, {
+    createNotificationProfile(payload) {
+      const profile = {
+        id: nextId += 1,
+        ...payload,
+      }
+      profiles.unshift(profile)
+      return profile
+    },
+    listNotificationProfiles() {
+      return profiles
+    },
+    updateNotificationProfile(profileId, payload) {
+      const index = profiles.findIndex((item) => String(item.id) === String(profileId))
+      if (index < 0) {
+        return { error: 'not_found' }
+      }
+      profiles[index] = { ...profiles[index], ...payload }
+      return profiles[index]
+    },
+    deleteNotificationProfile(profileId) {
+      if (String(profileId) === '9') {
+        return { error: 'in_use', usageCount: 2 }
+      }
+      const index = profiles.findIndex((item) => String(item.id) === String(profileId))
+      if (index < 0) {
+        return { error: 'not_found' }
+      }
+      profiles.splice(index, 1)
+      return { ok: true }
+    },
+  }, async ({ app }) => {
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/api/notification-profiles',
+      payload: {
+        name: '研发群',
+        channelType: 'dingtalk',
+        webhookUrl: 'https://example.com/hook',
+        triggerOn: 'completed',
+        locale: 'zh-CN',
+        messageMode: 'summary',
+      },
+    })
+    assert.equal(createResponse.statusCode, 201)
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/api/notification-profiles',
+    })
+    assert.equal(listResponse.statusCode, 200)
+    assert.equal(listResponse.json().items.length, 1)
+
+    const updateResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/notification-profiles/2',
+      payload: {
+        name: '研发群-新',
+        channelType: 'dingtalk',
+        webhookUrl: 'https://example.com/hook-2',
+        triggerOn: 'success',
+        locale: 'zh-CN',
+        messageMode: 'summary',
+      },
+    })
+    assert.equal(updateResponse.statusCode, 200)
+    assert.equal(updateResponse.json().name, '研发群-新')
+
+    const inUseResponse = await app.inject({
+      method: 'DELETE',
+      url: '/api/notification-profiles/9',
+    })
+    assert.equal(inUseResponse.statusCode, 409)
+    assert.match(inUseResponse.json().message, /仍被 2 个任务引用/)
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: '/api/notification-profiles/2',
+    })
+    assert.equal(deleteResponse.statusCode, 204)
   })
 })

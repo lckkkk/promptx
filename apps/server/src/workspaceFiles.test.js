@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { listDirectoryPickerTree, searchDirectoryPickerEntries } from './workspaceFiles.js'
+import { createDirectoryPickerDirectory, listDirectoryPickerTree, searchDirectoryPickerEntries } from './workspaceFiles.js'
 
 test('listDirectoryPickerTree returns filesystem roots when path is empty', () => {
   const payload = listDirectoryPickerTree()
@@ -61,4 +61,23 @@ test('searchDirectoryPickerEntries returns matching directories only', () => {
   assert.equal(payload.items.some((item) => item.path === betaDir), false)
   assert.equal(payload.items.some((item) => item.path === hiddenAlphaDir), false)
   assert.equal(payload.items.some((item) => item.path === alphaFile), false)
+})
+
+test('createDirectoryPickerDirectory creates a new child directory and rejects duplicates', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-dir-create-'))
+
+  const created = createDirectoryPickerDirectory({
+    path: tempDir,
+    name: 'project-new',
+  })
+
+  assert.equal(created.path, path.join(tempDir, 'project-new'))
+  assert.equal(fs.existsSync(created.path), true)
+
+  assert.throws(() => {
+    createDirectoryPickerDirectory({
+      path: tempDir,
+      name: 'project-new',
+    })
+  }, /目录已存在/)
 })

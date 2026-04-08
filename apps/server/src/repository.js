@@ -22,10 +22,75 @@ import {
   summarizeTask,
 } from '../../../packages/shared/src/index.js'
 import { all, get, run, transaction } from './db.js'
+import { readStoredSystemConfig, writeStoredSystemConfig } from './systemConfig.js'
 import { getNextCronOccurrence, normalizeCronExpression } from './taskAutomation.js'
 
 const slugTail = customAlphabet('abcdefghijkmnpqrstuvwxyz23456789', 6)
 const tokenId = customAlphabet('abcdefghijkmnpqrstuvwxyz23456789', 20)
+
+function toNotificationProfile(row) {
+  if (!row) {
+    return null
+  }
+
+  return {
+    id: Number(row.id),
+    name: String(row.name || '').trim(),
+    channelType: normalizeTaskNotificationChannel(row.channel_type),
+    webhookUrl: String(row.webhook_url || ''),
+    secret: String(row.secret || ''),
+    triggerOn: normalizeTaskNotificationTrigger(row.trigger_on),
+    locale: normalizeTaskNotificationLocale(row.locale),
+    messageMode: normalizeTaskNotificationMessageMode(row.message_mode),
+    createdAt: String(row.created_at || ''),
+    updatedAt: String(row.updated_at || ''),
+  }
+}
+
+function resolveTaskNotification(row, profile = null) {
+  const profileId = Number(row.notification_profile_id) || null
+  const resolvedProfile = profile && Number(profile.id) === profileId ? profile : null
+  const enabled = Boolean(Number(row.notification_enabled) || 0)
+  const channelType = resolvedProfile
+    ? resolvedProfile.channelType
+    : normalizeTaskNotificationChannel(row.notification_channel_type)
+  const webhookUrl = resolvedProfile
+    ? String(resolvedProfile.webhookUrl || '')
+    : String(row.notification_webhook_url || '')
+  const secret = resolvedProfile
+    ? String(resolvedProfile.secret || '')
+    : String(row.notification_secret || '')
+  const triggerOn = resolvedProfile
+    ? normalizeTaskNotificationTrigger(resolvedProfile.triggerOn)
+    : normalizeTaskNotificationTrigger(row.notification_trigger_on)
+  const locale = resolvedProfile
+    ? normalizeTaskNotificationLocale(resolvedProfile.locale)
+    : normalizeTaskNotificationLocale(row.notification_locale)
+  const messageMode = resolvedProfile
+    ? normalizeTaskNotificationMessageMode(resolvedProfile.messageMode)
+    : normalizeTaskNotificationMessageMode(row.notification_message_mode)
+
+  return {
+    enabled: enabled && Boolean(profileId || webhookUrl),
+    profileId,
+    profileName: resolvedProfile?.name || '',
+    profile: resolvedProfile
+      ? {
+          id: resolvedProfile.id,
+          name: resolvedProfile.name,
+        }
+      : null,
+    channelType,
+    webhookUrl,
+    secret,
+    triggerOn,
+    locale,
+    messageMode,
+    lastStatus: String(row.notification_last_status || ''),
+    lastError: String(row.notification_last_error || ''),
+    lastSentAt: String(row.notification_last_sent_at || ''),
+  }
+}
 
 function toBlock(row) {
   return {
@@ -40,6 +105,7 @@ function toBlock(row) {
 function toTask(row, blocks = [], options = {}) {
   const codexRunCount = Math.max(0, Number(options.codexRunCount) || 0)
   const displayTitle = row.title || row.auto_title || deriveTitleFromBlocks(blocks)
+  const notification = resolveTaskNotification(row, options.notificationProfile || null)
   return {
     id: Number(row.id),
     slug: row.slug,
@@ -61,18 +127,7 @@ function toTask(row, blocks = [], options = {}) {
       lastTriggeredAt: String(row.automation_last_triggered_at || ''),
       nextTriggerAt: String(row.automation_next_trigger_at || ''),
     },
-    notification: {
-      enabled: Boolean(Number(row.notification_enabled) || 0),
-      channelType: normalizeTaskNotificationChannel(row.notification_channel_type),
-      webhookUrl: String(row.notification_webhook_url || ''),
-      secret: String(row.notification_secret || ''),
-      triggerOn: normalizeTaskNotificationTrigger(row.notification_trigger_on),
-      locale: normalizeTaskNotificationLocale(row.notification_locale),
-      messageMode: normalizeTaskNotificationMessageMode(row.notification_message_mode),
-      lastStatus: String(row.notification_last_status || ''),
-      lastError: String(row.notification_last_error || ''),
-      lastSentAt: String(row.notification_last_sent_at || ''),
-    },
+    notification,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     blocks,
@@ -89,13 +144,16 @@ function mapTaskAutomationSummary(row) {
 }
 
 function mapTaskNotificationSummary(row) {
+  const notification = resolveTaskNotification(row)
   return {
-    enabled: Boolean(Number(row.notification_enabled) || 0),
-    channelType: normalizeTaskNotificationChannel(row.notification_channel_type),
-    triggerOn: normalizeTaskNotificationTrigger(row.notification_trigger_on),
-    locale: normalizeTaskNotificationLocale(row.notification_locale),
-    lastStatus: String(row.notification_last_status || ''),
-    lastSentAt: String(row.notification_last_sent_at || ''),
+    enabled: notification.enabled,
+    profileId: notification.profileId,
+    profileName: notification.profileName,
+    channelType: notification.channelType,
+    triggerOn: notification.triggerOn,
+    locale: notification.locale,
+    lastStatus: notification.lastStatus,
+    lastSentAt: notification.lastSentAt,
   }
 }
 
@@ -119,9 +177,17 @@ function normalizeAutomationInput(input = {}, fallback = {}) {
 }
 
 function normalizeNotificationInput(input = {}, fallback = {}) {
-  const enabled = Boolean(input?.enabled)
+  const fallbackProfileId = Number(fallback.profileId) || null
+  const rawProfileId = Object.prototype.hasOwnProperty.call(input || {}, 'profileId')
+    ? input?.profileId
+    : fallbackProfileId
+  const profileId = rawProfileId === null || rawProfileId === '' || typeof rawProfileId === 'undefined'
+    ? null
+    : Math.max(1, Number(rawProfileId) || 0) || null
+  const enabled = Boolean(input?.enabled) && Boolean(profileId)
   return {
     enabled,
+    profileId,
     channelType: normalizeTaskNotificationChannel(input?.channelType || fallback.channelType),
     webhookUrl: enabled ? clampText(input?.webhookUrl || '', 2000).trim() : '',
     secret: enabled ? clampText(input?.secret || '', 200).trim() : '',
@@ -131,6 +197,31 @@ function normalizeNotificationInput(input = {}, fallback = {}) {
     lastStatus: clampText(input?.lastStatus || fallback.lastStatus || '', 32).trim(),
     lastError: clampText(input?.lastError || fallback.lastError || '', 500).trim(),
     lastSentAt: clampText(input?.lastSentAt || fallback.lastSentAt || '', 40).trim(),
+  }
+}
+
+function normalizeNotificationProfileName(value = '') {
+  const name = clampText(value || '', 80).trim()
+  if (!name) {
+    throw new Error('通知配置名称不能为空。')
+  }
+  return name
+}
+
+function normalizeNotificationProfileInput(input = {}, fallback = {}) {
+  const webhookUrl = clampText(input?.webhookUrl || fallback.webhookUrl || '', 2000).trim()
+  if (!webhookUrl) {
+    throw new Error('Webhook 地址不能为空。')
+  }
+
+  return {
+    name: normalizeNotificationProfileName(input?.name || fallback.name || ''),
+    channelType: normalizeTaskNotificationChannel(input?.channelType || fallback.channelType),
+    webhookUrl,
+    secret: clampText(input?.secret || fallback.secret || '', 200).trim(),
+    triggerOn: normalizeTaskNotificationTrigger(input?.triggerOn || fallback.triggerOn),
+    locale: normalizeTaskNotificationLocale(input?.locale || fallback.locale),
+    messageMode: normalizeTaskNotificationMessageMode(input?.messageMode || fallback.messageMode),
   }
 }
 
@@ -262,16 +353,39 @@ function loadCodexRunCounts(taskSlugs = []) {
   )
 }
 
+function loadNotificationProfilesByIds(profileIds = []) {
+  const normalizedIds = [...new Set(
+    profileIds
+      .map((value) => Math.max(1, Number(value) || 0))
+      .filter(Boolean)
+  )]
+
+  if (!normalizedIds.length) {
+    return new Map()
+  }
+
+  const placeholders = normalizedIds.map(() => '?').join(', ')
+  const rows = all(
+    `SELECT id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode, created_at, updated_at
+     FROM notification_profiles
+     WHERE id IN (${placeholders})`,
+    normalizedIds
+  )
+
+  return new Map(rows.map((row) => [Number(row.id), toNotificationProfile(row)]))
+}
+
 function collectImagePaths(blocks = []) {
   return blocks
     .filter((block) => block.type === BLOCK_TYPES.IMAGE && block.content)
     .map((block) => block.content)
 }
 
-function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0) {
+function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0, notificationProfile = null) {
   const textBlock = firstText
     ? [{ type: BLOCK_TYPES.TEXT, content: firstText }]
     : []
+  const notification = resolveTaskNotification(row, notificationProfile)
 
   return {
     slug: row.slug,
@@ -289,7 +403,11 @@ function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0) 
     todoCount: parseTaskTodoItems(row.todo_items_json).length,
     blockCount,
     automation: mapTaskAutomationSummary(row),
-    notification: mapTaskNotificationSummary(row),
+    notification: {
+      ...mapTaskNotificationSummary(row),
+      profileId: notification.profileId,
+      profileName: notification.profileName,
+    },
   }
 }
 
@@ -379,12 +497,191 @@ function parseTaskTodoItems(rawValue = '[]') {
   }
 }
 
+export function listNotificationProfiles(userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+  return all(
+    `SELECT id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode, created_at, updated_at
+     FROM notification_profiles
+     WHERE user_id = ?
+     ORDER BY updated_at DESC, id DESC`,
+    [normalizedUserId]
+  ).map(toNotificationProfile)
+}
+
+export function getNotificationProfileById(profileId, userId = null) {
+  const normalizedId = Math.max(1, Number(profileId) || 0)
+  if (!normalizedId) {
+    return null
+  }
+
+  const row = userId
+    ? get(
+        `SELECT id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode, created_at, updated_at
+         FROM notification_profiles
+         WHERE id = ? AND user_id = ?`,
+        [normalizedId, String(userId || 'default').trim() || 'default']
+      )
+    : get(
+        `SELECT id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode, created_at, updated_at
+         FROM notification_profiles
+         WHERE id = ?`,
+        [normalizedId]
+      )
+
+  return toNotificationProfile(row)
+}
+
+export function createNotificationProfile(input = {}, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+  const profile = normalizeNotificationProfileInput(input)
+  const now = new Date().toISOString()
+
+  const duplicate = get(
+    `SELECT id
+     FROM notification_profiles
+     WHERE user_id = ? AND name = ?`,
+    [normalizedUserId, profile.name]
+  )
+  if (duplicate) {
+    throw new Error('同名通知配置已存在。')
+  }
+
+  run(
+    `INSERT INTO notification_profiles (
+      user_id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode, created_at, updated_at
+    )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      normalizedUserId,
+      profile.name,
+      profile.channelType,
+      profile.webhookUrl,
+      profile.secret,
+      profile.triggerOn,
+      profile.locale,
+      profile.messageMode,
+      now,
+      now,
+    ]
+  )
+
+  const created = get(
+    `SELECT id
+     FROM notification_profiles
+     WHERE user_id = ? AND name = ?`,
+    [normalizedUserId, profile.name]
+  )
+  return getNotificationProfileById(created?.id, normalizedUserId)
+}
+
+export function updateNotificationProfile(profileId, input = {}, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+  const existing = get(
+    `SELECT id, name, channel_type, webhook_url, secret, trigger_on, locale, message_mode
+     FROM notification_profiles
+     WHERE id = ? AND user_id = ?`,
+    [Math.max(1, Number(profileId) || 0), normalizedUserId]
+  )
+  if (!existing) {
+    return { error: 'not_found' }
+  }
+
+  const profile = normalizeNotificationProfileInput(input, {
+    name: existing.name,
+    channelType: existing.channel_type,
+    webhookUrl: existing.webhook_url,
+    secret: existing.secret,
+    triggerOn: existing.trigger_on,
+    locale: existing.locale,
+    messageMode: existing.message_mode,
+  })
+
+  const duplicate = get(
+    `SELECT id
+     FROM notification_profiles
+     WHERE user_id = ? AND name = ? AND id != ?`,
+    [normalizedUserId, profile.name, Number(existing.id)]
+  )
+  if (duplicate) {
+    throw new Error('同名通知配置已存在。')
+  }
+
+  run(
+    `UPDATE notification_profiles
+     SET name = ?, channel_type = ?, webhook_url = ?, secret = ?, trigger_on = ?, locale = ?, message_mode = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+    [
+      profile.name,
+      profile.channelType,
+      profile.webhookUrl,
+      profile.secret,
+      profile.triggerOn,
+      profile.locale,
+      profile.messageMode,
+      new Date().toISOString(),
+      Number(existing.id),
+      normalizedUserId,
+    ]
+  )
+
+  return getNotificationProfileById(existing.id, normalizedUserId)
+}
+
+export function deleteNotificationProfile(profileId, userId = 'default') {
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+  const normalizedId = Math.max(1, Number(profileId) || 0)
+  const existing = get(
+    `SELECT id
+     FROM notification_profiles
+     WHERE id = ? AND user_id = ?`,
+    [normalizedId, normalizedUserId]
+  )
+  if (!existing) {
+    return { error: 'not_found' }
+  }
+
+  const usage = Math.max(
+    0,
+    Number(
+      get(
+        `SELECT COUNT(*) AS count
+         FROM tasks
+         WHERE user_id = ? AND notification_profile_id = ?`,
+        [normalizedUserId, normalizedId]
+      )?.count || 0
+    )
+  )
+
+  if (usage > 0) {
+    return { error: 'in_use', usageCount: usage }
+  }
+
+  run(
+    `DELETE FROM notification_profiles
+     WHERE id = ? AND user_id = ?`,
+    [normalizedId, normalizedUserId]
+  )
+
+  const systemConfig = readStoredSystemConfig()
+  if (Number(systemConfig?.notification?.defaultProfileId) === normalizedId) {
+    writeStoredSystemConfig({
+      ...systemConfig,
+      notification: {
+        ...(systemConfig.notification || {}),
+        defaultProfileId: null,
+      },
+    })
+  }
+
+  return { ok: true }
+}
+
 export function listTasks(limit = 30, userId = 'default') {
   const normalizedUserId = String(userId || 'default').trim() || 'default'
   const rows = all(
     `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
      WHERE user_id = ?
@@ -399,13 +696,15 @@ export function listTasks(limit = 30, userId = 'default') {
     firstTextByTaskId,
   } = loadListMetadata(taskIds)
   const codexRunCountBySlug = loadCodexRunCounts(rows.map((row) => row.slug))
+  const notificationProfilesById = loadNotificationProfilesByIds(rows.map((row) => row.notification_profile_id))
 
   return rows.map((row) =>
     mapTaskSummary(
       row,
       firstTextByTaskId.get(Number(row.id)) || '',
       blockCountByTaskId.get(Number(row.id)) || 0,
-      codexRunCountBySlug.get(String(row.slug || '').trim()) || 0
+      codexRunCountBySlug.get(String(row.slug || '').trim()) || 0,
+      notificationProfilesById.get(Number(row.notification_profile_id)) || null
     )
   )
 }
@@ -416,7 +715,7 @@ export function getTaskBySlug(slug, userId = null) {
     ? get(
         `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
                 automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-                notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+                notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
                 visibility, expires_at, created_at, updated_at
          FROM tasks
          WHERE slug = ? AND user_id = ?`,
@@ -425,7 +724,7 @@ export function getTaskBySlug(slug, userId = null) {
     : get(
         `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
                 automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-                notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+                notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
                 visibility, expires_at, created_at, updated_at
          FROM tasks
          WHERE slug = ?`,
@@ -436,14 +735,20 @@ export function getTaskBySlug(slug, userId = null) {
     return null
   }
 
+  const notificationProfile = Number(row.notification_profile_id)
+    ? getNotificationProfileById(row.notification_profile_id)
+    : null
   const task = toTask(row, loadBlocks(row.id), {
     codexRunCount: getCodexRunCountByTaskSlug(row.slug),
+    notificationProfile,
   })
   return isExpired(task) ? { ...task, expired: true } : task
 }
 
 export function createTask(input = {}, userId = 'default') {
   const normalizedUserId = String(userId || 'default').trim() || 'default'
+  const systemConfig = readStoredSystemConfig()
+  const defaultNotificationProfileId = Number(systemConfig?.notification?.defaultProfileId) || null
   const now = new Date().toISOString()
   const title = clampText(input.title || '', 140)
   const autoTitle = clampText(input.autoTitle || '', 140)
@@ -451,7 +756,21 @@ export function createTask(input = {}, userId = 'default') {
   const todoItemsJson = JSON.stringify(normalizeTaskTodoItemsInput(input.todoItems))
   const codexSessionId = clampText(input.codexSessionId || '', 120)
   const automation = normalizeAutomationInput(input.automation)
-  const notification = normalizeNotificationInput(input.notification)
+  const hasExplicitNotification = Object.prototype.hasOwnProperty.call(input || {}, 'notification')
+  const notification = hasExplicitNotification
+    ? normalizeNotificationInput(input.notification)
+    : defaultNotificationProfileId
+      ? normalizeNotificationInput({
+          enabled: true,
+          profileId: defaultNotificationProfileId,
+        })
+      : normalizeNotificationInput(input.notification)
+  const notificationProfile = notification.profileId
+    ? getNotificationProfileById(notification.profileId, normalizedUserId)
+    : null
+  if (notification.enabled && !notificationProfile) {
+    throw new Error('所选通知配置不存在。')
+  }
   const visibility = normalizeVisibility(input.visibility)
   const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || 'none'))
   const slug = ensureSlug(title)
@@ -464,10 +783,10 @@ export function createTask(input = {}, userId = 'default') {
       `INSERT INTO tasks (
         slug, edit_token, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
         automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-        notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+        notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
         visibility, expires_at, created_at, updated_at, user_id
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         slug,
         editToken,
@@ -484,6 +803,7 @@ export function createTask(input = {}, userId = 'default') {
         automation.lastTriggeredAt,
         automation.nextTriggerAt,
         notification.enabled ? 1 : 0,
+        notification.profileId,
         notification.channelType,
         notification.webhookUrl,
         notification.secret,
@@ -515,7 +835,7 @@ export function updateTask(slug, input = {}, userId = null) {
   const existing = get(
     `SELECT id, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at
      FROM tasks
      ${whereClause}`,
@@ -566,6 +886,7 @@ export function updateTask(slug, input = {}, userId = null) {
   const notification = Object.prototype.hasOwnProperty.call(input, 'notification')
     ? normalizeNotificationInput(input.notification, {
         enabled: existing.notification_enabled,
+        profileId: existing.notification_profile_id,
         channelType: existing.notification_channel_type,
         webhookUrl: existing.notification_webhook_url,
         secret: existing.notification_secret,
@@ -578,6 +899,7 @@ export function updateTask(slug, input = {}, userId = null) {
       })
     : normalizeNotificationInput({
         enabled: existing.notification_enabled,
+        profileId: existing.notification_profile_id,
         channelType: existing.notification_channel_type,
         webhookUrl: existing.notification_webhook_url,
         secret: existing.notification_secret,
@@ -589,6 +911,12 @@ export function updateTask(slug, input = {}, userId = null) {
         lastSentAt: existing.notification_last_sent_at,
       })
   const updatedAt = new Date().toISOString()
+  const notificationProfile = notification.profileId
+    ? getNotificationProfileById(notification.profileId, normalizedUserId || undefined)
+    : null
+  if (notification.enabled && !notificationProfile) {
+    throw new Error('所选通知配置不存在。')
+  }
   const hasBlocks = Array.isArray(input.blocks)
   const blocks = hasBlocks ? input.blocks.map(normalizeBlockInput) : []
   const currentBlocks = loadBlocks(existing.id)
@@ -608,6 +936,7 @@ export function updateTask(slug, input = {}, userId = null) {
     || automation.lastTriggeredAt !== String(existing.automation_last_triggered_at || '')
     || automation.nextTriggerAt !== String(existing.automation_next_trigger_at || '')
     || Number(notification.enabled ? 1 : 0) !== Number(existing.notification_enabled || 0)
+    || Number(notification.profileId || 0) !== Number(existing.notification_profile_id || 0)
     || notification.channelType !== String(existing.notification_channel_type || '')
     || notification.webhookUrl !== String(existing.notification_webhook_url || '')
     || notification.secret !== String(existing.notification_secret || '')
@@ -631,7 +960,7 @@ export function updateTask(slug, input = {}, userId = null) {
       `UPDATE tasks
        SET title = ?, auto_title = ?, last_prompt_preview = ?, todo_items_json = ?, codex_session_id = ?,
            automation_enabled = ?, automation_cron = ?, automation_timezone = ?, automation_concurrency_policy = ?, automation_last_triggered_at = ?, automation_next_trigger_at = ?,
-           notification_enabled = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_locale = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
+           notification_enabled = ?, notification_profile_id = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_locale = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
            visibility = ?, expires_at = ?, updated_at = ?
        WHERE slug = ?`,
       [
@@ -647,6 +976,7 @@ export function updateTask(slug, input = {}, userId = null) {
         automation.lastTriggeredAt,
         automation.nextTriggerAt,
         notification.enabled ? 1 : 0,
+        notification.profileId,
         notification.channelType,
         notification.webhookUrl,
         notification.secret,
@@ -931,7 +1261,7 @@ export function listAutomationEnabledTasks(limit = 200) {
   const rows = all(
     `SELECT id, slug, title, auto_title, last_prompt_preview, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
-            notification_enabled, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
+            notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
             visibility, expires_at, created_at, updated_at
      FROM tasks
      WHERE automation_enabled = 1
@@ -941,8 +1271,10 @@ export function listAutomationEnabledTasks(limit = 200) {
     [Math.max(1, Number(limit) || 200)]
   )
 
+  const notificationProfilesById = loadNotificationProfilesByIds(rows.map((row) => row.notification_profile_id))
   return rows.map((row) => toTask(row, loadBlocks(row.id), {
     codexRunCount: getCodexRunCountByTaskSlug(row.slug),
+    notificationProfile: notificationProfilesById.get(Number(row.notification_profile_id)) || null,
   }))
 }
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  buildBlocksFromTodoItems,
   buildPromptPreview,
   deriveTaskPreview,
   isActiveRunStatus,
@@ -45,6 +46,53 @@ test('deriveTaskPreview compacts whitespace and uses first text-like block', () 
 test('buildPromptPreview trims whitespace and limits length', () => {
   const preview = buildPromptPreview('  hello\n\nworld   from   promptx  ', 12)
   assert.equal(preview, 'hello world ')
+})
+
+test('buildBlocksFromTodoItems replaces editor blocks with numbered text when multiple todos are selected', () => {
+  const blocks = buildBlocksFromTodoItems([
+    {
+      id: 'todo-1',
+      blocks: [{ type: 'text', content: '第一条待办' }],
+    },
+    {
+      id: 'todo-2',
+      blocks: [{ type: 'text', content: '第二条待办' }],
+    },
+  ], {
+    existingBlocks: [{ type: 'text', content: '原有内容' }],
+    append: false,
+  })
+
+  assert.deepEqual(
+    blocks.map((block) => ({ type: block.type, content: block.content })),
+    [
+      { type: 'text', content: '1. 第一条待办;\n2. 第二条待办;' },
+    ]
+  )
+})
+
+test('buildBlocksFromTodoItems appends numbered text without blank separator blocks for multiple todos', () => {
+  const blocks = buildBlocksFromTodoItems([
+    {
+      id: 'todo-1',
+      blocks: [{ type: 'text', content: '追加待办 A' }],
+    },
+    {
+      id: 'todo-2',
+      blocks: [{ type: 'text', content: '追加待办 B' }],
+    },
+  ], {
+    existingBlocks: [{ type: 'text', content: '当前输入' }],
+    append: true,
+  })
+
+  assert.deepEqual(
+    blocks.map((block) => ({ type: block.type, content: block.content })),
+    [
+      { type: 'text', content: '当前输入' },
+      { type: 'text', content: '1. 追加待办 A;\n2. 追加待办 B;' },
+    ]
+  )
 })
 
 test('isTaskRunning only trusts persisted task running state', () => {

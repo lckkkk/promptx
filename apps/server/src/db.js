@@ -3,7 +3,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { ensurePromptxStorageReady } from './appPaths.js'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const { dataDir } = ensurePromptxStorageReady()
 const dbPath = path.join(dataDir, 'promptx.sqlite')
 const dbWalPath = `${dbPath}-wal`
@@ -180,6 +180,7 @@ function migrateToV1() {
       automation_last_triggered_at TEXT NOT NULL DEFAULT '',
       automation_next_trigger_at TEXT NOT NULL DEFAULT '',
       notification_enabled INTEGER NOT NULL DEFAULT 0,
+      notification_profile_id INTEGER,
       notification_channel_type TEXT NOT NULL DEFAULT 'dingtalk',
       notification_webhook_url TEXT NOT NULL DEFAULT '',
       notification_secret TEXT NOT NULL DEFAULT '',
@@ -191,6 +192,20 @@ function migrateToV1() {
       notification_last_sent_at TEXT NOT NULL DEFAULT '',
       visibility TEXT NOT NULL DEFAULT 'private',
       expires_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      name TEXT NOT NULL,
+      channel_type TEXT NOT NULL DEFAULT 'dingtalk',
+      webhook_url TEXT NOT NULL DEFAULT '',
+      secret TEXT NOT NULL DEFAULT '',
+      trigger_on TEXT NOT NULL DEFAULT 'completed',
+      locale TEXT NOT NULL DEFAULT 'zh-CN',
+      message_mode TEXT NOT NULL DEFAULT 'summary',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -209,7 +224,10 @@ function migrateToV1() {
     CREATE INDEX IF NOT EXISTS idx_tasks_sort_order ON tasks(sort_order ASC, created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_tasks_visibility ON tasks(visibility, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_tasks_notification_profile_id ON tasks(notification_profile_id);
     CREATE INDEX IF NOT EXISTS idx_blocks_task_sort ON blocks(task_id, sort_order ASC);
+    CREATE INDEX IF NOT EXISTS idx_notification_profiles_user_id ON notification_profiles(user_id, updated_at DESC, id DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_profiles_user_name ON notification_profiles(user_id, name);
 
     CREATE TABLE IF NOT EXISTS codex_sessions (
       id TEXT PRIMARY KEY,
@@ -324,6 +342,35 @@ function migrateToV1() {
   `)
 }
 
+function migrateToV2() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notification_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      name TEXT NOT NULL,
+      channel_type TEXT NOT NULL DEFAULT 'dingtalk',
+      webhook_url TEXT NOT NULL DEFAULT '',
+      secret TEXT NOT NULL DEFAULT '',
+      trigger_on TEXT NOT NULL DEFAULT 'completed',
+      locale TEXT NOT NULL DEFAULT 'zh-CN',
+      message_mode TEXT NOT NULL DEFAULT 'summary',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_profiles_user_id ON notification_profiles(user_id, updated_at DESC, id DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_profiles_user_name ON notification_profiles(user_id, name);
+  `)
+
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN notification_profile_id INTEGER`)
+  } catch {
+    // Column already exists.
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_notification_profile_id ON tasks(notification_profile_id)')
+}
+
 function applyAdditiveSchemaPatches() {
   const alterStatements = [
     `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
@@ -338,6 +385,7 @@ function applyAdditiveSchemaPatches() {
     `ALTER TABLE tasks ADD COLUMN automation_last_triggered_at TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN automation_next_trigger_at TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN notification_enabled INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE tasks ADD COLUMN notification_profile_id INTEGER`,
     `ALTER TABLE tasks ADD COLUMN notification_channel_type TEXT NOT NULL DEFAULT 'dingtalk'`,
     `ALTER TABLE tasks ADD COLUMN notification_webhook_url TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE tasks ADD COLUMN notification_secret TEXT NOT NULL DEFAULT ''`,
@@ -376,8 +424,26 @@ function applyAdditiveSchemaPatches() {
 
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_sort_order ON tasks(sort_order ASC, created_at DESC, id DESC)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_codex_session_id ON tasks(codex_session_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_notification_profile_id ON tasks(notification_profile_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_codex_sessions_user_id ON codex_sessions(user_id)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notification_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      name TEXT NOT NULL,
+      channel_type TEXT NOT NULL DEFAULT 'dingtalk',
+      webhook_url TEXT NOT NULL DEFAULT '',
+      secret TEXT NOT NULL DEFAULT '',
+      trigger_on TEXT NOT NULL DEFAULT 'completed',
+      locale TEXT NOT NULL DEFAULT 'zh-CN',
+      message_mode TEXT NOT NULL DEFAULT 'summary',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_notification_profiles_user_id ON notification_profiles(user_id, updated_at DESC, id DESC)')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_profiles_user_name ON notification_profiles(user_id, name)')
   db.exec(`
     DELETE FROM blocks
     WHERE task_id NOT IN (SELECT id FROM tasks);
@@ -416,6 +482,11 @@ function ensureSchema() {
   if (currentVersion < 1) {
     migrateToV1()
     writeSchemaVersion(1)
+  }
+
+  if (readSchemaVersion() < 2) {
+    migrateToV2()
+    writeSchemaVersion(2)
   }
 
   applyAdditiveSchemaPatches()

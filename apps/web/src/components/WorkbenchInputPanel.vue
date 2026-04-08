@@ -5,6 +5,10 @@ import WorkbenchEditorActions from './WorkbenchEditorActions.vue'
 import { useI18n } from '../composables/useI18n.js'
 
 const props = defineProps({
+  agentEngine: {
+    type: String,
+    default: 'codex',
+  },
   canAddTodo: {
     type: Boolean,
     default: false,
@@ -120,6 +124,7 @@ defineExpose({
     v-else
     ref="blockEditorRef"
     v-model="blocks"
+    :agent-engine="agentEngine"
     :codex-session-id="codexSessionId"
     :uploading="uploading"
     @upload-files="emit('upload-files', $event)"
@@ -127,6 +132,7 @@ defineExpose({
     @import-pdf-files="emit('import-pdf-files', $event)"
     @file-feedback="emit('file-feedback', $event)"
     @clear-request="emit('clear-request')"
+    @send-request="emit('send-request')"
   >
     <template #header-actions>
       <WorkbenchEditorActions

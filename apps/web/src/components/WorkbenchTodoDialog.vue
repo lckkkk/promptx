@@ -1,6 +1,6 @@
 <script setup>
-import { computed } from 'vue'
-import { ArrowUpLeft, Clock3, FileText, Image as ImageIcon, List, Trash2 } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { ArrowUpLeft, CheckSquare, Clock3, FileText, Image as ImageIcon, List, Square, Trash2 } from 'lucide-vue-next'
 import DialogShell from './DialogShell.vue'
 import { useI18n } from '../composables/useI18n.js'
 
@@ -17,6 +17,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'delete', 'use'])
 const { t } = useI18n()
+const selectedIds = ref([])
 
 const formattedItems = computed(() => (
   (props.items || []).map((item) => {
@@ -43,6 +44,61 @@ const formattedItems = computed(() => (
     }
   })
 ))
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) {
+      selectedIds.value = []
+    }
+  }
+)
+
+watch(
+  formattedItems,
+  (items) => {
+    const availableIds = new Set(items.map((item) => item.id))
+    selectedIds.value = selectedIds.value.filter((id) => availableIds.has(id))
+  }
+)
+
+const allSelected = computed(() => (
+  formattedItems.value.length > 0
+  && selectedIds.value.length === formattedItems.value.length
+))
+
+const hasSelection = computed(() => selectedIds.value.length > 0)
+
+function toggleSelected(todoId = '') {
+  const normalizedTodoId = String(todoId || '').trim()
+  if (!normalizedTodoId) {
+    return
+  }
+
+  if (selectedIds.value.includes(normalizedTodoId)) {
+    selectedIds.value = selectedIds.value.filter((id) => id !== normalizedTodoId)
+    return
+  }
+
+  selectedIds.value = [...selectedIds.value, normalizedTodoId]
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = []
+    return
+  }
+
+  selectedIds.value = formattedItems.value.map((item) => item.id)
+}
+
+function handleUseSelected() {
+  if (!selectedIds.value.length) {
+    return
+  }
+
+  emit('use', [...selectedIds.value])
+}
 
 function formatCreatedAt(value = '') {
   const timestamp = Date.parse(String(value || ''))
@@ -85,11 +141,23 @@ function formatCreatedAt(value = '') {
       </div>
     </template>
 
-    <div class="theme-divider flex items-center justify-between gap-3 border-b border-dashed px-5 py-3 text-xs">
+    <div class="theme-divider flex flex-col items-stretch gap-2 border-b border-dashed px-5 py-3 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <span class="theme-muted-text">{{ t('todoDialog.summary', { count: formattedItems.length }) }}</span>
-      <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-2 py-1">
-        {{ t('todoDialog.summaryHint') }}
-      </span>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          v-if="formattedItems.length"
+          type="button"
+          class="tool-button inline-flex items-center gap-1.5 px-2.5 py-1 text-xs"
+          @click="toggleSelectAll"
+        >
+          <CheckSquare v-if="allSelected" class="h-3.5 w-3.5" />
+          <Square v-else class="h-3.5 w-3.5" />
+          <span>{{ allSelected ? t('todoDialog.clearSelection') : t('todoDialog.selectAll') }}</span>
+        </button>
+        <span class="theme-status-neutral inline-flex items-center rounded-sm border border-dashed px-2 py-1">
+          {{ t('todoDialog.summaryHint') }}
+        </span>
+      </div>
     </div>
 
     <div v-if="formattedItems.length" class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -97,10 +165,20 @@ function formatCreatedAt(value = '') {
             <article
               v-for="item in formattedItems"
               :key="item.id"
-              class="theme-card-idle-muted rounded-sm border border-dashed p-4"
+              class="rounded-sm border border-dashed p-4 transition"
+              :class="selectedIds.includes(item.id) ? 'theme-card-selected' : 'theme-card-idle-muted'"
             >
-              <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
                 <div class="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    class="mb-3 inline-flex items-center gap-2 rounded-sm border border-dashed px-2 py-1 text-[11px]"
+                    @click="toggleSelected(item.id)"
+                  >
+                    <CheckSquare v-if="selectedIds.includes(item.id)" class="h-3.5 w-3.5" />
+                    <Square v-else class="h-3.5 w-3.5" />
+                    <span>{{ selectedIds.includes(item.id) ? t('todoDialog.selected') : t('todoDialog.select') }}</span>
+                  </button>
                   <div class="theme-heading flex flex-wrap items-center gap-2 text-sm font-medium">
                     <span>{{ t('todoDialog.itemTitle') }}</span>
                     <span class="theme-status-neutral inline-flex items-center gap-1 rounded-sm border border-dashed px-2 py-0.5 text-[11px]">
@@ -139,18 +217,18 @@ function formatCreatedAt(value = '') {
                   </div>
                 </div>
 
-                <div class="flex shrink-0 items-center gap-2">
+                <div class="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:items-center">
                   <button
                     type="button"
-                    class="tool-button inline-flex items-center gap-2 px-3 py-2 text-xs"
-                    @click="emit('use', item.id)"
+                    class="tool-button inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-xs sm:w-auto"
+                    @click="emit('use', [item.id])"
                   >
                     <ArrowUpLeft class="h-4 w-4" />
-                    <span>{{ t('todoDialog.use') }}</span>
+                    <span>{{ t('todoDialog.useOne') }}</span>
                   </button>
                   <button
                     type="button"
-                    class="tool-button tool-button-danger-subtle inline-flex items-center gap-2 px-3 py-2 text-xs"
+                    class="tool-button tool-button-danger-subtle inline-flex w-full items-center justify-center gap-2 px-3 py-2 text-xs sm:w-auto"
                     @click="emit('delete', item.id)"
                   >
                     <Trash2 class="h-4 w-4" />
@@ -164,6 +242,23 @@ function formatCreatedAt(value = '') {
 
     <div v-else class="theme-empty-state flex min-h-0 flex-1 items-center justify-center px-6 py-10 text-sm">
       {{ t('todoDialog.empty') }}
+    </div>
+    <div
+      v-if="formattedItems.length"
+      class="theme-divider flex flex-col items-stretch gap-3 border-t border-dashed px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <span class="theme-muted-text text-xs">
+        {{ hasSelection ? t('todoDialog.selectedSummary', { count: selectedIds.length }) : t('todoDialog.selectHint') }}
+      </span>
+      <button
+        type="button"
+        class="tool-button tool-button-primary inline-flex w-full items-center justify-center gap-2 px-4 py-2 text-sm sm:w-auto"
+        :disabled="!hasSelection"
+        @click="handleUseSelected"
+      >
+        <ArrowUpLeft class="h-4 w-4" />
+        <span>{{ t('todoDialog.useSelected', { count: selectedIds.length }) }}</span>
+      </button>
     </div>
   </DialogShell>
 </template>

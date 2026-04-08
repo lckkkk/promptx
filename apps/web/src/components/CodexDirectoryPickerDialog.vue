@@ -11,6 +11,7 @@ import DialogShell from './DialogShell.vue'
 import { useI18n } from '../composables/useI18n.js'
 import {
   listCodexDirectoryTree,
+  createCodexDirectory,
   searchCodexDirectories,
 } from '../lib/api.js'
 
@@ -40,6 +41,9 @@ const searchLoading = ref(false)
 const searchError = ref('')
 const searchResults = ref([])
 const searchTruncated = ref(false)
+const createName = ref('')
+const createLoading = ref(false)
+const createError = ref('')
 const query = ref('')
 const activeTab = ref('tree')
 const selectedPath = ref('')
@@ -271,6 +275,7 @@ function findTreeNode(targetPath, nodes = rootNode.value ? [rootNode.value] : []
 function updateSelectedDirectory(item) {
   selectedPath.value = String(item?.path || '').trim()
   selectedName.value = getDisplayName(item)
+  createError.value = ''
 }
 
 async function loadDirectoryNode(node, options = {}) {
@@ -363,6 +368,8 @@ async function initializePicker() {
   searchResults.value = []
   searchError.value = ''
   searchTruncated.value = false
+  createName.value = ''
+  createError.value = ''
   selectedPath.value = ''
   selectedName.value = ''
 
@@ -478,6 +485,43 @@ async function handleSearchSelect(item) {
   await expandToPath(item.path)
 }
 
+async function handleCreateDirectory() {
+  const parentPath = String(selectedPath.value || homePath.value || '').trim()
+  const directoryName = String(createName.value || '').trim()
+
+  if (!parentPath || !directoryName || createLoading.value) {
+    return
+  }
+
+  createLoading.value = true
+  createError.value = ''
+
+  try {
+    const payload = await createCodexDirectory({
+      path: parentPath,
+      name: directoryName,
+    })
+    createName.value = ''
+    activeTab.value = 'tree'
+    await expandToPath(parentPath)
+    const parentNode = findTreeNode(parentPath)
+    if (parentNode) {
+      parentNode.expanded = true
+      await loadDirectoryNode(parentNode, { force: true })
+    }
+    const createdNode = findTreeNode(payload?.item?.path || '')
+    if (createdNode) {
+      updateSelectedDirectory(createdNode)
+    } else if (payload?.item?.path) {
+      updateSelectedDirectory(payload.item)
+    }
+  } catch (err) {
+    createError.value = err.message || t('directoryPicker.createFailed')
+  } finally {
+    createLoading.value = false
+  }
+}
+
 function handlePick() {
   if (!selectedPath.value) {
     return
@@ -504,6 +548,8 @@ watch(
       window.clearTimeout(searchTimer)
       searchTimer = null
     }
+
+    createLoading.value = false
   }
 )
 
@@ -557,6 +603,32 @@ watch(
               >
             </div>
           </label>
+
+          <div class="theme-divider mt-4 rounded-sm border border-dashed px-3 py-3">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label class="min-w-0 flex-1 text-xs">
+                <span class="theme-muted-text">{{ t('directoryPicker.createLabel', { name: selectedName || t('directoryPicker.currentDirectory') }) }}</span>
+                <input
+                  v-model="createName"
+                  type="text"
+                  class="tool-input mt-1"
+                  :placeholder="t('directoryPicker.createPlaceholder')"
+                  :disabled="createLoading || treeLoading"
+                  @keydown.enter.prevent="handleCreateDirectory"
+                >
+              </label>
+              <button
+                type="button"
+                class="tool-button tool-button-primary px-3 py-2 text-xs"
+                :disabled="createLoading || treeLoading || !selectedPath || !createName.trim()"
+                @click="handleCreateDirectory"
+              >
+                <LoaderCircle v-if="createLoading" class="h-4 w-4 animate-spin" />
+                <span v-else>{{ t('directoryPicker.createAction') }}</span>
+              </button>
+            </div>
+            <p v-if="createError" class="theme-danger-text mt-2 text-xs">{{ createError }}</p>
+          </div>
 
           <div class="mt-4 flex items-center gap-1.5">
             <button

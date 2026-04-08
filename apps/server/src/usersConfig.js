@@ -64,26 +64,26 @@ export function getUserByUsername(username) {
 export function validateUserCredentials(username, password) {
   const user = getUserByUsername(username)
   if (!user) return false
-  if (!user.passwordHash) {
-    // 空密码表示无需密码（兼容 default 用户）
-    return !password || String(password).trim() === ''
-  }
+  if (!user.passwordHash) return false
+  if (!String(password || '').trim()) return false
   return verifyPassword(String(password || ''), user.passwordHash)
 }
 
 export function hasUsersConfigured() {
   const { users } = readUsersConfig()
-  return users.length > 0
+  return users.some((user) => user.username && user.passwordHash)
 }
 
 export function addUser(username, password, displayName = '') {
   const normalizedUsername = String(username || '').trim().toLowerCase()
   if (!normalizedUsername) throw new Error('用户名不能为空')
+  const normalizedPassword = String(password || '')
+  if (!normalizedPassword.trim()) throw new Error('密码不能为空，必须使用账户密码登录')
   const config = readUsersConfig()
   if (config.users.find((u) => u.username === normalizedUsername)) {
     throw new Error(`用户 "${normalizedUsername}" 已存在`)
   }
-  const passwordHash = password ? hashPassword(password) : ''
+  const passwordHash = hashPassword(normalizedPassword)
   const newUser = normalizeUser({ username: normalizedUsername, passwordHash, displayName: displayName || normalizedUsername })
   config.users.push(newUser)
   writeUsersConfig(config)
@@ -101,9 +101,11 @@ export function removeUser(username) {
 
 export function resetUserPassword(username, newPassword) {
   const normalizedUsername = String(username || '').trim().toLowerCase()
+  const normalizedPassword = String(newPassword || '')
+  if (!normalizedPassword.trim()) throw new Error('密码不能为空，必须使用账户密码登录')
   const config = readUsersConfig()
   const user = config.users.find((u) => u.username === normalizedUsername)
   if (!user) throw new Error(`用户 "${normalizedUsername}" 不存在`)
-  user.passwordHash = newPassword ? hashPassword(newPassword) : ''
+  user.passwordHash = hashPassword(normalizedPassword)
   writeUsersConfig(config)
 }

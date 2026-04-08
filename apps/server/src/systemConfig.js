@@ -45,9 +45,24 @@ function normalizeWorkspaceConfig(input = {}) {
   return { rootPath }
 }
 
+function normalizeNotificationConfig(input = {}, fallback = {}) {
+  const fallbackDefaultProfileId = Number(fallback?.defaultProfileId) || 0
+  const hasExplicitDefaultProfileId = Object.prototype.hasOwnProperty.call(input || {}, 'defaultProfileId')
+  const nextDefaultProfileId = Number(input?.defaultProfileId)
+
+  return {
+    defaultProfileId: hasExplicitDefaultProfileId
+      ? (Number.isInteger(nextDefaultProfileId) && nextDefaultProfileId > 0 ? nextDefaultProfileId : null)
+      : fallbackDefaultProfileId > 0
+        ? fallbackDefaultProfileId
+        : null,
+  }
+}
+
 function normalizeSystemConfig(input = {}, fallback = {}) {
   return {
     runner: normalizeRunnerConfig(input?.runner || {}, fallback?.runner || {}),
+    notification: normalizeNotificationConfig(input?.notification || {}, fallback?.notification || {}),
     workspace: normalizeWorkspaceConfig(input?.workspace || {}),
   }
 }
@@ -88,6 +103,12 @@ function getSystemConfigForClient() {
       maxConcurrentRuns: managedByEnv.runner.maxConcurrentRuns
         ? process.env.PROMPTX_RUNNER_MAX_CONCURRENT_RUNS
         : stored.runner.maxConcurrentRuns,
+    },
+    notification: {
+      defaultProfileId: stored.notification?.defaultProfileId,
+    },
+    workspace: {
+      rootPath: stored.workspace?.rootPath,
     },
   }, stored)
 }

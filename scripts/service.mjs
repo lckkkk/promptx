@@ -13,6 +13,7 @@ const DEFAULT_HOST = '127.0.0.1'
 const STARTUP_TIMEOUT_MS = 15_000
 const STOP_TIMEOUT_MS = 8_000
 const POLL_INTERVAL_MS = 250
+const PLANNED_RESTART_GRACE_MS = Math.max(15_000, Number(process.env.PROMPTX_PLANNED_RESTART_GRACE_MS) || 45_000)
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const webDistDir = path.join(rootDir, 'apps', 'web', 'dist')
@@ -32,9 +33,20 @@ function getRuntimePaths() {
   return {
     runtimeDir,
     stateFile: path.join(runtimeDir, 'service.json'),
+    plannedRestartFile: path.join(runtimeDir, 'planned-restart.json'),
     serverLogFile: path.join(runtimeDir, 'server.log'),
     runnerLogFile: path.join(runtimeDir, 'runner.log'),
   }
+}
+
+function writePlannedRestartMarker() {
+  const { plannedRestartFile } = getRuntimePaths()
+  const payload = {
+    reason: 'planned-restart',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + PLANNED_RESTART_GRACE_MS).toISOString(),
+  }
+  fs.writeFileSync(plannedRestartFile, JSON.stringify(payload, null, 2))
 }
 
 function readJsonFile(filePath) {
@@ -296,6 +308,7 @@ async function stopService() {
 }
 
 async function restartService() {
+  writePlannedRestartMarker()
   await stopService()
   await startService()
 }

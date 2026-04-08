@@ -36,7 +36,7 @@ test('db module backs up legacy schema and initializes the latest schema', async
       ['tasks']
     )
 
-    assert.equal(schemaVersionRow?.value, '1')
+    assert.equal(schemaVersionRow?.value, '2')
     assert.equal(tasksTable?.name, 'tasks')
 
     const backupFiles = fs.readdirSync(dataDir).filter((fileName) => fileName.includes('.legacy-') && fileName.endsWith('.bak'))
@@ -169,8 +169,20 @@ test('db module applies additive schema patches for existing schema_version 1 da
        WHERE name = ?`,
       ['prompt_blocks_json']
     )
+    const notificationProfileColumn = dbModule.get(
+      `SELECT name
+       FROM pragma_table_info('tasks')
+       WHERE name = ?`,
+      ['notification_profile_id']
+    )
+    const notificationProfilesTable = dbModule.get(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      ['notification_profiles']
+    )
 
     assert.equal(promptBlocksColumn?.name, 'prompt_blocks_json')
+    assert.equal(notificationProfileColumn?.name, 'notification_profile_id')
+    assert.equal(notificationProfilesTable?.name, 'notification_profiles')
   } finally {
     process.chdir(originalCwd)
     if (typeof originalDataDir === 'string') {
