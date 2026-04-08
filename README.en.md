@@ -37,7 +37,7 @@ promptx doctor
 
 ### Start
 
-Default URL: `http://127.0.0.1:3000`
+Default URL: `http://127.0.0.1:9301`
 
 ```bash
 promptx start

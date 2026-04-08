@@ -12,7 +12,7 @@ function normalizeBaseUrl(value = '') {
 
 function getDefaultRunnerBaseUrl() {
   const host = String(process.env.PROMPTX_RUNNER_HOST || process.env.RUNNER_HOST || '127.0.0.1').trim() || '127.0.0.1'
-  const port = Math.max(1, Number(process.env.PROMPTX_RUNNER_PORT || process.env.RUNNER_PORT || 3002))
+  const port = Math.max(1, Number(process.env.PROMPTX_RUNNER_PORT || process.env.RUNNER_PORT || 9303))
   return `http://${host}:${port}`
 }
 

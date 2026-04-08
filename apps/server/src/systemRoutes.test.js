@@ -14,7 +14,7 @@ function createTestServices(overrides = {}) {
 
   const services = {
     getGitDiffWorkerDiagnostics: () => ({ healthy: true }),
-    localBaseUrl: 'http://127.0.0.1:3001',
+    localBaseUrl: 'http://127.0.0.1:9302',
     maintenanceService: {
       getDiagnostics: () => ({ lastCleanupAt: null }),
       runCleanup: () => ({ removedFiles: 0 }),
@@ -31,7 +31,7 @@ function createTestServices(overrides = {}) {
       getDiagnostics: () => ({ recoveredRuns: 0 }),
     },
     runnerClient: {
-      baseUrl: 'http://127.0.0.1:3002',
+      baseUrl: 'http://127.0.0.1:9303',
       getDiagnostics: async () => ({
         runner: {
           activeRuns: 1,
@@ -171,7 +171,7 @@ test('system routes persist default notification profile id', async (t) => {
 test('system routes keep saved config when runner hot update fails', async (t) => {
   await withTestApp(t, {
     runnerClient: {
-      baseUrl: 'http://127.0.0.1:3002',
+      baseUrl: 'http://127.0.0.1:9303',
       getDiagnostics: async () => ({ runner: null }),
       updateConfig: async () => {
         const error = new Error('runner offline')
@@ -235,7 +235,7 @@ test('system routes respect env managed runner config and expose internal endpoi
 test('runtime diagnostics degrade gracefully when runner diagnostics fail', async (t) => {
   await withTestApp(t, {
     runnerClient: {
-      baseUrl: 'http://127.0.0.1:3002',
+      baseUrl: 'http://127.0.0.1:9303',
       getDiagnostics: async () => {
         throw new Error('timeout')
       },
@@ -250,7 +250,7 @@ test('runtime diagnostics degrade gracefully when runner diagnostics fail', asyn
     assert.equal(response.statusCode, 200)
     const payload = response.json()
     assert.equal(payload.runner.ok, false)
-    assert.equal(payload.runner.baseUrl, 'http://127.0.0.1:3002')
+    assert.equal(payload.runner.baseUrl, 'http://127.0.0.1:9303')
     assert.match(payload.runner.message, /timeout/)
     assert.deepEqual(payload.gitDiffWorker, { healthy: true })
     assert.deepEqual(payload.recovery, { recoveredRuns: 0 })

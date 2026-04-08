@@ -22,7 +22,7 @@ promptx start
 启动后本地访问：
 
 ```text
-http://127.0.0.1:3000
+http://127.0.0.1:9301
 ```
 
 ### 3. 配置远程访问
@@ -52,13 +52,13 @@ https://user1.promptx.mushayu.com
 安装版默认检查命令：
 
 ```bash
-curl http://127.0.0.1:3000/api/relay/status
+curl http://127.0.0.1:9301/api/relay/status
 ```
 
 如果你本地跑的是开发环境 `pnpm dev`，改成：
 
 ```bash
-curl http://127.0.0.1:3001/api/relay/status
+curl http://127.0.0.1:9302/api/relay/status
 ```
 
 重点看这些字段：

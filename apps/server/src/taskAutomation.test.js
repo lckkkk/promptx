@@ -56,7 +56,7 @@ test('notifyRun includes project title in webhook notification payload', async (
       },
       updateTaskNotificationDelivery() {},
       detailUrlBuilder() {
-        return 'http://127.0.0.1:3000/tasks/task-1'
+        return 'http://127.0.0.1:9301/tasks/task-1'
       },
     })
 

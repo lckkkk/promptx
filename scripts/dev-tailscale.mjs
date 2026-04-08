@@ -2,7 +2,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import process from 'node:process'
 import path from 'node:path'
 
-const DEFAULT_SERVER_PORT = 3000
+const DEFAULT_SERVER_PORT = 9302
 const DEFAULT_WEB_PORT = 5173
 
 function resolvePnpmCommand() {
@@ -107,7 +107,7 @@ PromptX Tailscale 开发启动脚本
 
 可选环境变量：
   TAILSCALE_IP          Tailscale IPv4
-  PROMPTX_SERVER_PORT   后端端口，默认 3000
+  PROMPTX_SERVER_PORT   后端端口，默认 9302
   PROMPTX_WEB_PORT      前端端口，默认 5173
 `.trim())
 }

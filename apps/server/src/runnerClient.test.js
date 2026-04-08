@@ -78,3 +78,32 @@ test('runnerClient updates runner config with internal auth header', async () =>
     await new Promise((resolve) => server.close(resolve))
   }
 })
+
+test('runnerClient defaults to runner port 9303', () => {
+  const originalEnv = {
+    PROMPTX_RUNNER_BASE_URL: process.env.PROMPTX_RUNNER_BASE_URL,
+    PROMPTX_RUNNER_HOST: process.env.PROMPTX_RUNNER_HOST,
+    RUNNER_HOST: process.env.RUNNER_HOST,
+    PROMPTX_RUNNER_PORT: process.env.PROMPTX_RUNNER_PORT,
+    RUNNER_PORT: process.env.RUNNER_PORT,
+  }
+
+  delete process.env.PROMPTX_RUNNER_BASE_URL
+  delete process.env.PROMPTX_RUNNER_HOST
+  delete process.env.RUNNER_HOST
+  delete process.env.PROMPTX_RUNNER_PORT
+  delete process.env.RUNNER_PORT
+
+  try {
+    const client = createRunnerClient()
+    assert.equal(client.baseUrl, 'http://127.0.0.1:9303')
+  } finally {
+    Object.entries(originalEnv).forEach(([key, value]) => {
+      if (typeof value === 'undefined') {
+        delete process.env[key]
+        return
+      }
+      process.env[key] = value
+    })
+  }
+})

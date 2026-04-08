@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-const baseUrl = String(process.env.PROMPTX_BASE_URL || 'http://127.0.0.1:3000').replace(/\/$/, '')
+const baseUrl = String(process.env.PROMPTX_BASE_URL || 'http://127.0.0.1:9301').replace(/\/$/, '')
 const smokeWorkspace = String(process.env.PROMPTX_SMOKE_CWD || process.cwd()).trim()
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

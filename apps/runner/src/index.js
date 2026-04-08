@@ -5,7 +5,7 @@ import { assertInternalRequest } from './internalAuth.js'
 import { createServerClient } from './serverClient.js'
 
 const app = Fastify({ logger: true })
-const port = Math.max(1, Number(process.env.PROMPTX_RUNNER_PORT || process.env.RUNNER_PORT || 3002))
+const port = Math.max(1, Number(process.env.PROMPTX_RUNNER_PORT || process.env.RUNNER_PORT || 9303))
 const host = process.env.PROMPTX_RUNNER_HOST || process.env.HOST || '127.0.0.1'
 
 const serverClient = createServerClient()

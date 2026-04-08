@@ -63,8 +63,8 @@
 ### 架构模式
 
 **多进程架构：**
-- **Server**（Fastify，端口 3000）— 主 API、SQLite 数据库、SSE Hub、静态文件服务
-- **Runner**（Fastify，端口 3002）— 启动 Agent CLI 子进程、管理运行生命周期
+- **Server**（Fastify，端口 9301）— 主 API、SQLite 数据库、SSE Hub、静态文件服务
+- **Runner**（Fastify，端口 9303）— 启动 Agent CLI 子进程、管理运行生命周期
 - **Web**（Vue SPA）— 由 Server 作为静态文件提供服务
 - Server 与 Runner 之间通过内部 HTTP + Token 鉴权通信
 

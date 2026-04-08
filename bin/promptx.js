@@ -57,7 +57,7 @@ PromptX CLI
   promptx relay tenant add <key> --domain promptx.mushayu.com
 
 说明：
-  - start: 后台启动 PromptX，本机默认地址 http://127.0.0.1:3000
+  - start: 后台启动 PromptX，本机默认地址 http://127.0.0.1:9301
   - stop: 停止后台服务
   - restart: 重启后台服务
   - status: 查看当前运行状态

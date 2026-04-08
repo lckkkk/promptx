@@ -94,7 +94,7 @@ import { createTempFilePath, normalizeUploadFileName } from './upload.js'
 import { importPdfBlocks } from './pdf.js'
 
 const app = Fastify({ logger: true })
-const port = Number(process.env.PORT || 3000)
+const port = Number(process.env.PORT || 9301)
 const host = process.env.HOST || '127.0.0.1'
 const { tmpDir, uploadsDir } = ensurePromptxStorageReady()
 const workspaceRootDir = path.resolve(serverRootDir, '..', '..')

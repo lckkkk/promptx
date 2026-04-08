@@ -2,8 +2,8 @@
 import process from 'node:process'
 import path from 'node:path'
 
-const DEFAULT_SERVER_PORT = 3001
-const DEFAULT_RUNNER_PORT = 3002
+const DEFAULT_SERVER_PORT = 9302
+const DEFAULT_RUNNER_PORT = 9303
 const DEFAULT_WEB_PORT = 5174
 const DEFAULT_HOST = '127.0.0.1'
 

@@ -4,7 +4,7 @@ const importMetaEnv = typeof import.meta !== 'undefined' && import.meta.env ? im
 
 function resolveDefaultApiBase() {
   if (typeof window === 'undefined') {
-    return 'http://localhost:3000'
+    return 'http://localhost:9301'
   }
 
   const url = new URL(window.location.origin)
@@ -17,7 +17,7 @@ function resolveDefaultApiBase() {
   const currentPort = String(url.port || '')
   const viteDevPorts = new Set(['4173', '5173', '5174'])
   if (viteDevPorts.has(currentPort)) {
-    url.port = '3000'
+    url.port = '9302'
     return url.toString().replace(/\/$/, '')
   }
 

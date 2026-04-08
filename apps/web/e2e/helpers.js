@@ -22,8 +22,8 @@ const DEFAULT_BASE_URL = String(process.env.PROMPTX_E2E_BASE_URL || 'http://127.
 const DEFAULT_API_URL = String(process.env.PROMPTX_E2E_API_URL || '').replace(/\/$/, '')
 const DEFAULT_API_URL_CANDIDATES = Array.from(new Set([
   DEFAULT_API_URL,
-  'http://127.0.0.1:3001',
-  'http://127.0.0.1:3000',
+  'http://127.0.0.1:9302',
+  'http://127.0.0.1:9301',
 ].filter(Boolean)))
 
 let promptxStackPromise = null

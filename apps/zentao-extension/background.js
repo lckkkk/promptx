@@ -1,33 +1,33 @@
 const PROMPTX_TARGETS = [
   {
     name: 'release',
-    appOrigin: 'http://127.0.0.1:3000',
-    apiOrigin: 'http://127.0.0.1:3000',
+    appOrigin: 'http://127.0.0.1:9301',
+    apiOrigin: 'http://127.0.0.1:9301',
   },
   {
     name: 'release-localhost',
-    appOrigin: 'http://localhost:3000',
-    apiOrigin: 'http://localhost:3000',
+    appOrigin: 'http://localhost:9301',
+    apiOrigin: 'http://localhost:9301',
   },
   {
     name: 'dev',
     appOrigin: 'http://127.0.0.1:5174',
-    apiOrigin: 'http://127.0.0.1:3001',
+    apiOrigin: 'http://127.0.0.1:9302',
   },
   {
     name: 'dev-localhost',
     appOrigin: 'http://localhost:5174',
-    apiOrigin: 'http://localhost:3001',
+    apiOrigin: 'http://localhost:9302',
   },
   {
     name: 'legacy-dev',
     appOrigin: 'http://127.0.0.1:5173',
-    apiOrigin: 'http://127.0.0.1:3000',
+    apiOrigin: 'http://127.0.0.1:9301',
   },
   {
     name: 'legacy-dev-localhost',
     appOrigin: 'http://localhost:5173',
-    apiOrigin: 'http://localhost:3000',
+    apiOrigin: 'http://localhost:9301',
   },
 ]
 
@@ -88,7 +88,7 @@ async function resolvePromptxTarget() {
     }
 
     throw new Error(
-      '没有检测到可用的 PromptX 服务。请先启动正式版（127.0.0.1:3000）或开发版（127.0.0.1:3001 / 5174）。'
+      '没有检测到可用的 PromptX 服务。请先启动正式版（127.0.0.1:9301）或开发版（127.0.0.1:9302 / 5174）。'
     )
   })()
 

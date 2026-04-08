@@ -37,7 +37,7 @@ promptx doctor
 
 ### 启动
 
-默认地址：`http://127.0.0.1:3000`
+默认地址：`http://127.0.0.1:9301`
 
 ```bash
 promptx start

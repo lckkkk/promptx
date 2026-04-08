@@ -1,6 +1,6 @@
 # PromptX 架构文档
 
-> 版本：0.1.34 | 更新：2026-04-06
+> 版本：0.1.40 | 更新：2026-04-08
 
 ---
 
@@ -53,7 +53,7 @@ PromptX 是一个**本地优先的 AI Agent 工作台**，为 Codex、Claude Cod
                ▼                    ▼
 ┌──────────────────────┐  ┌────────────────────────┐
 │   Server（Fastify）  │  │   Runner（Fastify）    │
-│   端口：3000         │◄─┤   端口：3002            │
+│   端口：9301         │◄─┤   端口：9303            │
 │                      │  │                        │
 │ • REST API           │  │ • 执行 Agent 子进程    │
 │ • SSE 实时推送       │  │ • 并发队列管理          │
@@ -80,11 +80,11 @@ PromptX 是一个**本地优先的 AI Agent 工作台**，为 Codex、Claude Cod
 
 | 进程 | 端口 | 职责 |
 |------|------|------|
-| Server | 3000 | 主服务：API、数据库、SSE、Relay |
-| Runner | 3002 | 执行引擎：Agent 子进程、事件转发 |
+| Server | 9301 | 主服务：API、数据库、SSE、Relay |
+| Runner | 9303 | 执行引擎：Agent 子进程、事件转发 |
 | Agent  | —   | AI CLI 子进程（由 Runner 启动） |
 
-Server 和 Runner 之间通过 `http://127.0.0.1:3002/internal/*` 通信，带内部 Token 鉴权。
+Server 和 Runner 之间通过 `http://127.0.0.1:9303/internal/*` 通信，带内部 Token 鉴权。
 
 ---
 
@@ -451,7 +451,7 @@ Relay Server（云服务器或本地，端口 3030）
 本地电脑（Relay Client + PromptX 主服务）
     │ HTTP（转发到本地）
     ▼
-PromptX Server（端口 3000）
+PromptX Server（端口 9301）
 ```
 
 ### 通信协议
@@ -596,7 +596,7 @@ PRAGMA synchronous = NORMAL;
 
 ```bash
 # 服务管理
-promptx start           # 后台启动（Server:3000 + Runner:3002）
+promptx start           # 后台启动（Server:9301 + Runner:9303）
 promptx stop            # 停止服务
 promptx restart         # 重启服务
 promptx status          # 查看运行状态
@@ -659,7 +659,7 @@ promptx relay tenant remove <key>
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `3000` | Server 监听端口 |
+| `PORT` | `9301` | Server 监听端口 |
 | `HOST` | `127.0.0.1` | Server 监听地址（`0.0.0.0` 可局域网访问） |
 | `PROMPTX_HOME` | `~/.promptx` | 数据根目录 |
 
@@ -667,7 +667,7 @@ promptx relay tenant remove <key>
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PROMPTX_RUNNER_PORT` | `3002` | Runner 监听端口 |
+| `PROMPTX_RUNNER_PORT` | `9303` | Runner 监听端口 |
 | `PROMPTX_RUNNER_MAX_CONCURRENT_RUNS` | `3` | 最大并发运行数（1-16） |
 
 ### Relay Server 配置
@@ -709,8 +709,8 @@ pnpm install
 # 并行启动所有服务
 pnpm dev
 # 前端：http://127.0.0.1:5174
-# Server：http://127.0.0.1:3001
-# Runner：http://127.0.0.1:3002
+# Server：http://127.0.0.1:9302
+# Runner：http://127.0.0.1:9303
 ```
 
 ### 构建生产版本
@@ -721,7 +721,7 @@ pnpm build
 
 # 启动生产服务
 promptx start
-# http://127.0.0.1:3000
+# http://127.0.0.1:9301
 ```
 
 ### 常用命令

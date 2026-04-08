@@ -105,7 +105,7 @@ function readRelayClientConfig({
     websocketUrl: buildRelayWebSocketUrl(normalizedRelayUrl),
     deviceId: normalizedDeviceId,
     deviceToken: normalizedDeviceToken,
-    localBaseUrl: String(localBaseUrl || 'http://127.0.0.1:3000').trim() || 'http://127.0.0.1:3000',
+    localBaseUrl: String(localBaseUrl || 'http://127.0.0.1:9301').trim() || 'http://127.0.0.1:9301',
   }
 }
 

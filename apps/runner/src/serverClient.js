@@ -2,7 +2,7 @@ import { buildInternalAuthHeaders } from './internalAuth.js'
 
 const DEFAULT_SERVER_BASE_URL = `http://${process.env.PROMPTX_SERVER_HOST || '127.0.0.1'}:${Math.max(
   1,
-  Number(process.env.PROMPTX_SERVER_PORT || process.env.PORT || 3000)
+  Number(process.env.PROMPTX_SERVER_PORT || process.env.PORT || 9301)
 )}`
 const DEFAULT_SERVER_HTTP_TIMEOUT_MS = Math.max(
   500,

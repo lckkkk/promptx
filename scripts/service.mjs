@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 import { resolvePromptxPaths } from '../apps/server/src/appPaths.js'
 
-const DEFAULT_SERVER_PORT = 3000
-const DEFAULT_RUNNER_PORT = 3002
+const DEFAULT_SERVER_PORT = 9301
+const DEFAULT_RUNNER_PORT = 9303
 const DEFAULT_HOST = '127.0.0.1'
 const STARTUP_TIMEOUT_MS = 15_000
 const STOP_TIMEOUT_MS = 8_000

@@ -91,3 +91,31 @@ test('serverClient reads system config with internal auth header', async () => {
     await new Promise((resolve) => server.close(resolve))
   }
 })
+
+test('serverClient defaults to server port 9301', async () => {
+  const originalEnv = {
+    PROMPTX_SERVER_BASE_URL: process.env.PROMPTX_SERVER_BASE_URL,
+    PROMPTX_SERVER_HOST: process.env.PROMPTX_SERVER_HOST,
+    PROMPTX_SERVER_PORT: process.env.PROMPTX_SERVER_PORT,
+    PORT: process.env.PORT,
+  }
+
+  delete process.env.PROMPTX_SERVER_BASE_URL
+  delete process.env.PROMPTX_SERVER_HOST
+  delete process.env.PROMPTX_SERVER_PORT
+  delete process.env.PORT
+
+  try {
+    const { createServerClient: createServerClientWithDefaultPort } = await import(`./serverClient.js?test=${Date.now()}`)
+    const client = createServerClientWithDefaultPort()
+    assert.equal(client.baseUrl, 'http://127.0.0.1:9301')
+  } finally {
+    Object.entries(originalEnv).forEach(([key, value]) => {
+      if (typeof value === 'undefined') {
+        delete process.env[key]
+        return
+      }
+      process.env[key] = value
+    })
+  }
+})
