@@ -285,6 +285,59 @@ function buildNotificationSummary(task = {}, run = {}, options = {}) {
   }
 }
 
+function createFeishuTextTag(textValue = '') {
+  return {
+    tag: 'text',
+    text: String(textValue || ''),
+  }
+}
+
+function createFeishuLinkTag(textValue = '', href = '') {
+  return {
+    tag: 'a',
+    text: String(textValue || ''),
+    href: String(href || ''),
+  }
+}
+
+function buildFeishuNotificationPost(task = {}, run = {}, options = {}) {
+  const locale = resolveNotificationLocale(task)
+  const taskTitle = String(task.displayTitle || task.title || task.autoTitle || task.slug || text(locale, '未命名任务', 'Untitled Task')).trim()
+  const projectTitle = String(options.projectTitle || '').trim()
+  const statusLabel = getRunStatusLabel(run, locale)
+  const engineLabel = String(run.engine || task?.engine || 'codex').trim()
+  const finishedAt = new Date(run.finishedAt || run.updatedAt || Date.now()).toLocaleString(locale)
+  const summary = summarizeRunMessage({ ...run, task })
+  const detailUrl = String(options.detailUrl || '').trim()
+
+  return {
+    title: text(locale, 'PromptX 任务通知', 'PromptX Task Notification'),
+    content: [
+      [
+        createFeishuTextTag(`${text(locale, '任务', 'Task')}：${taskTitle}`),
+      ],
+      ...(projectTitle ? [[
+        createFeishuTextTag(`${text(locale, '项目', 'Project')}：${projectTitle}`),
+      ]] : []),
+      [
+        createFeishuTextTag(`${text(locale, '状态', 'Status')}：${statusLabel}`),
+        createFeishuTextTag('  '),
+        createFeishuTextTag(`${text(locale, '引擎', 'Engine')}：${engineLabel}`),
+      ],
+      [
+        createFeishuTextTag(`${text(locale, '时间', 'Time')}：${finishedAt}`),
+      ],
+      [
+        createFeishuTextTag(`${text(locale, '摘要', 'Summary')}：${summary}`),
+      ],
+      ...(detailUrl ? [[
+        createFeishuTextTag(`${text(locale, '详情', 'Details')}：`),
+        createFeishuLinkTag(text(locale, '打开任务', 'Open task'), detailUrl),
+      ]] : []),
+    ],
+  }
+}
+
 function appendSignedQuery(url, secret = '') {
   const targetUrl = String(url || '').trim()
   if (!secret) {
@@ -313,10 +366,14 @@ function buildNotificationRequest(task = {}, run = {}, options = {}) {
   const secret = String(notification.secret || '').trim()
 
   if (channelType === TASK_NOTIFICATION_CHANNELS.FEISHU) {
+    const localeKey = summary.locale === TASK_NOTIFICATION_LOCALES.EN_US ? 'en_us' : 'zh_cn'
+    const post = buildFeishuNotificationPost(task, run, options)
     const payload = {
-      msg_type: 'text',
+      msg_type: 'post',
       content: {
-        text: summary.text,
+        post: {
+          [localeKey]: post,
+        },
       },
     }
 
