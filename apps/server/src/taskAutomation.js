@@ -259,11 +259,13 @@ function getRunStatusLabel(run = {}, locale = TASK_NOTIFICATION_LOCALES.ZH_CN) {
 function buildNotificationSummary(task = {}, run = {}, options = {}) {
   const locale = resolveNotificationLocale(task)
   const taskTitle = String(task.displayTitle || task.title || task.autoTitle || task.slug || text(locale, '未命名任务', 'Untitled Task')).trim()
+  const projectTitle = String(options.projectTitle || '').trim()
   const statusLabel = getRunStatusLabel(run, locale)
   const engineLabel = String(run.engine || task?.engine || 'codex').trim()
   const summary = summarizeRunMessage({ ...run, task })
   const lines = [
     `${text(locale, '任务', 'Task')}: ${taskTitle}`,
+    ...(projectTitle ? [`${text(locale, '项目', 'Project')}: ${projectTitle}`] : []),
     `${text(locale, '状态', 'Status')}: ${statusLabel}`,
     `${text(locale, '引擎', 'Engine')}: ${engineLabel}`,
     `${text(locale, '时间', 'Time')}: ${new Date(run.finishedAt || run.updatedAt || Date.now()).toLocaleString(locale)}`,
@@ -340,6 +342,7 @@ function buildNotificationRequest(task = {}, run = {}, options = {}) {
         task: {
           slug: task.slug,
           title: summary.title,
+          projectTitle: String(options.projectTitle || '').trim(),
         },
         run: {
           id: run.id,
@@ -421,6 +424,7 @@ export function createTaskAutomationService(options = {}) {
     updateTaskAutomationRuntime = () => null,
     updateTaskNotificationDelivery = () => null,
     createTaskRun = async () => null,
+    getPromptxCodexSessionById = () => null,
     getTaskBySlug = () => null,
     getRunById = () => null,
     detailUrlBuilder = () => '',
@@ -554,8 +558,10 @@ export function createTaskAutomationService(options = {}) {
 
     notifyingRunIds.add(normalizedRunId)
     try {
+      const session = getPromptxCodexSessionById(task.codexSessionId)
       const requestOptions = buildNotificationRequest(task, run, {
         detailUrl: detailUrlBuilder(task.slug),
+        projectTitle: session?.title || '',
       })
       await postNotification(requestOptions, resolveNotificationLocale(task))
       updateTaskNotificationDelivery(task.slug, {

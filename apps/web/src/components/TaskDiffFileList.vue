@@ -111,11 +111,11 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
   <div v-else class="space-y-2">
     <button
       v-for="file in filteredFiles"
-      :key="file.path"
+      :key="file.id || file.path"
       type="button"
       class="w-full rounded-sm border px-3 py-2 text-left transition"
-      :class="file.path === selectedFilePath ? 'theme-filter-active' : 'theme-filter-idle'"
-      @click="emit('select-file', file.path)"
+      :class="String(file.id || file.path || '') === props.selectedFilePath ? 'theme-filter-active' : 'theme-filter-idle'"
+      @click="emit('select-file', String(file.id || file.path || ''))"
     >
       <div class="flex items-start gap-2">
         <span class="inline-flex shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px]" :class="getStatusClass(file.status)">
@@ -123,6 +123,9 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
         </span>
         <div class="min-w-0 flex-1">
           <div class="break-all text-xs font-medium">{{ file.path }}</div>
+          <div v-if="file.repoLabel" class="theme-muted-text mt-1 text-[11px]">
+            {{ file.repoLabel }}
+          </div>
           <div class="mt-1 text-[11px] opacity-75">
             {{ file.statsLoaded ? `+${file.additions} / -${file.deletions}` : t('diffReview.statsOnDemand') }}
           </div>

@@ -10,6 +10,7 @@ export {
   getTask,
   listTasks,
   listTaskWorkspaceDiffSummaries,
+  markTaskReadState,
   reorderTasks,
   updateNotificationProfile,
   updateTask,

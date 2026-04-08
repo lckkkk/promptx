@@ -60,6 +60,17 @@ test('getRealtimeEventSyncFlags skips task list refresh for notification deliver
   assert.equal(flags.updatesTaskDiff, false)
 })
 
+test('getRealtimeEventSyncFlags refreshes task list for read-state updates', () => {
+  const flags = getRealtimeEventSyncFlags({
+    type: 'tasks.changed',
+    taskSlug: 'demo-task',
+    reason: 'read-state-updated',
+  })
+
+  assert.equal(flags.updatesTaskList, true)
+  assert.equal(flags.updatesTaskDiff, false)
+})
+
 test('getRealtimeEventSyncFlags marks run changes for runs sessions and diff', () => {
   const flags = getRealtimeEventSyncFlags({
     type: 'runs.changed',

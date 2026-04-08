@@ -8,6 +8,7 @@ import {
   importPdf,
   listTasks,
   listTaskWorkspaceDiffSummaries,
+  markTaskReadState,
   reorderTasks,
   resolveAssetUrl,
   updateTaskCodexSession,
@@ -474,6 +475,8 @@ function toTaskSummary(taskRecord) {
     preview: String(taskRecord.lastPromptPreview || ''),
     updatedAt: taskRecord.updatedAt || taskRecord.createdAt || new Date().toISOString(),
     createdAt: taskRecord.createdAt || taskRecord.updatedAt || new Date().toISOString(),
+    latestCompletedRunFinishedAt: String(taskRecord.latestCompletedRunFinishedAt || ''),
+    unread: Boolean(taskRecord.unread),
     automation: taskRecord?.automation
       ? {
           enabled: Boolean(taskRecord.automation.enabled),
@@ -540,6 +543,8 @@ export function useWorkbenchTasks(options = {}) {
   let pendingServerSyncTaskSlug = null
   let suppressLocalReorderSseUntil = 0
   let hydratedTaskUpdatedAtMap = {}
+  let taskReadRequestFinishedAtMap = {}
+  let taskReadMarkedFinishedAtMap = {}
 
   const currentTaskAutoTitle = computed(() => deriveAutoTaskTitle(draft.value.blocks))
   const currentTaskDisplayTitle = computed(() => resolveTaskDisplayTitle({
@@ -719,6 +724,71 @@ function normalizeTodoItemsForSnapshot(items = []) {
     taskDraftMap.value = {
       ...taskDraftMap.value,
       [slug]: cloneDraftState(state),
+    }
+  }
+
+  function markTaskReadOptimistically(taskSlug = '', latestCompletedRunFinishedAt = '') {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    const normalizedFinishedAt = String(latestCompletedRunFinishedAt || '').trim()
+    const currentSummary = getTaskSummary(normalizedTaskSlug)
+
+    if (!normalizedTaskSlug || !normalizedFinishedAt || !currentSummary) {
+      return
+    }
+
+    upsertTaskSummary({
+      ...currentSummary,
+      latestCompletedRunFinishedAt: normalizedFinishedAt,
+      unread: false,
+    })
+  }
+
+  async function syncTaskReadState(taskSlug = '', summary = null) {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    const latestCompletedRunFinishedAt = String(summary?.latestCompletedRunFinishedAt || '').trim()
+
+    if (!normalizedTaskSlug || !latestCompletedRunFinishedAt) {
+      return
+    }
+
+    if (String(taskReadMarkedFinishedAtMap[normalizedTaskSlug] || '') === latestCompletedRunFinishedAt) {
+      return
+    }
+
+    if (String(taskReadRequestFinishedAtMap[normalizedTaskSlug] || '') === latestCompletedRunFinishedAt) {
+      return
+    }
+
+    taskReadRequestFinishedAtMap = {
+      ...taskReadRequestFinishedAtMap,
+      [normalizedTaskSlug]: latestCompletedRunFinishedAt,
+    }
+
+    markTaskReadOptimistically(normalizedTaskSlug, latestCompletedRunFinishedAt)
+
+    try {
+      await markTaskReadState(normalizedTaskSlug, {
+        finishedAt: latestCompletedRunFinishedAt,
+      })
+
+      taskReadMarkedFinishedAtMap = {
+        ...taskReadMarkedFinishedAtMap,
+        [normalizedTaskSlug]: latestCompletedRunFinishedAt,
+      }
+    } catch {
+      const currentSummary = getTaskSummary(normalizedTaskSlug)
+      if (String(currentSummary?.latestCompletedRunFinishedAt || '') === latestCompletedRunFinishedAt) {
+        upsertTaskSummary({
+          ...currentSummary,
+          unread: true,
+        })
+      }
+    } finally {
+      if (String(taskReadRequestFinishedAtMap[normalizedTaskSlug] || '') === latestCompletedRunFinishedAt) {
+        const nextRequestMap = { ...taskReadRequestFinishedAtMap }
+        delete nextRequestMap[normalizedTaskSlug]
+        taskReadRequestFinishedAtMap = nextRequestMap
+      }
     }
   }
 
@@ -1211,6 +1281,8 @@ function normalizeTodoItemsForSnapshot(items = []) {
       if (scrollPanelToBottom || targetSlug !== previousTaskSlug) {
         scrollCurrentPanelToBottom()
       }
+      const readStateSummary = summary || getTaskSummary(targetSlug)
+      void syncTaskReadState(targetSlug, readStateSummary)
       return true
     } catch (err) {
       if (requestId === loadRequestId) {

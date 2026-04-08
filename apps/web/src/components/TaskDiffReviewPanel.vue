@@ -242,7 +242,11 @@ watch(diffScope, () => {
             class="theme-status-success inline-flex items-center gap-2 rounded-sm border border-dashed px-2.5 py-1.5"
           >
             <GitBranch class="h-3.5 w-3.5 shrink-0" />
-            <span>{{ diffPayload.branch || t('diffReview.unknownBranch') }}</span>
+            <span>{{
+              Number(diffPayload.repoCount || 0) > 1
+                ? t('diffReview.repoCount', { count: diffPayload.repoCount || 0 })
+                : diffPayload.branch || t('diffReview.unknownBranch')
+            }}</span>
             <span class="opacity-50">•</span>
             <span class="text-[var(--theme-textPrimary)]">{{ t('diffReview.fileCount', { count: diffPayload.summary?.fileCount || 0 }) }}</span>
             <template v-if="diffPayload.summary?.statsComplete">

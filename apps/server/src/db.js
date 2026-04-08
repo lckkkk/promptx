@@ -3,7 +3,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { ensurePromptxStorageReady } from './appPaths.js'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 const { dataDir } = ensurePromptxStorageReady()
 const dbPath = path.join(dataDir, 'promptx.sqlite')
 const dbWalPath = `${dbPath}-wal`
@@ -371,6 +371,25 @@ function migrateToV2() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_notification_profile_id ON tasks(notification_profile_id)')
 }
 
+function migrateToV3() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_read_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      task_slug TEXT NOT NULL,
+      last_read_run_finished_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (task_slug) REFERENCES tasks(slug) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_read_states_user_task
+      ON task_read_states(user_id, task_slug);
+    CREATE INDEX IF NOT EXISTS idx_task_read_states_task_slug
+      ON task_read_states(task_slug);
+  `)
+}
+
 function applyAdditiveSchemaPatches() {
   const alterStatements = [
     `ALTER TABLE tasks ADD COLUMN auto_title TEXT NOT NULL DEFAULT ''`,
@@ -445,6 +464,19 @@ function applyAdditiveSchemaPatches() {
   db.exec('CREATE INDEX IF NOT EXISTS idx_notification_profiles_user_id ON notification_profiles(user_id, updated_at DESC, id DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_profiles_user_name ON notification_profiles(user_id, name)')
   db.exec(`
+    CREATE TABLE IF NOT EXISTS task_read_states (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL DEFAULT 'default',
+      task_slug TEXT NOT NULL,
+      last_read_run_finished_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (task_slug) REFERENCES tasks(slug) ON DELETE CASCADE
+    );
+  `)
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_task_read_states_user_task ON task_read_states(user_id, task_slug)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_task_read_states_task_slug ON task_read_states(task_slug)')
+  db.exec(`
     DELETE FROM blocks
     WHERE task_id NOT IN (SELECT id FROM tasks);
   `)
@@ -487,6 +519,11 @@ function ensureSchema() {
   if (readSchemaVersion() < 2) {
     migrateToV2()
     writeSchemaVersion(2)
+  }
+
+  if (readSchemaVersion() < 3) {
+    migrateToV3()
+    writeSchemaVersion(3)
   }
 
   applyAdditiveSchemaPatches()

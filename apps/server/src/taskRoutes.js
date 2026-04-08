@@ -124,6 +124,7 @@ function registerTaskRoutes(app, options = {}) {
     listTaskCodexRunsWithOptions,
     listTaskWorkspaceDiffSummaries,
     listTasks = () => [],
+    markTaskRead = () => null,
     reorderTasks = () => ({ changed: false, items: [] }),
     purgeExpiredContent = () => {},
     removeAssetFiles = () => {},
@@ -224,6 +225,29 @@ function registerTaskRoutes(app, options = {}) {
     return {
       ...decorateTask(task),
       canEdit: canEditTask(request.params.slug, userId),
+    }
+  })
+
+  app.post('/api/tasks/:slug/read-state', async (request, reply) => {
+    purgeExpiredContent()
+    const userId = request.user?.username || 'default'
+    const task = getTaskBySlug(request.params.slug, userId)
+    if (!task) {
+      return reply.code(404).send({ messageKey: 'errors.taskNotFound', message: '任务不存在。' })
+    }
+    if (task.expired) {
+      return reply.code(410).send({ messageKey: 'errors.taskExpired', message: '任务已过期。' })
+    }
+
+    const result = markTaskRead(request.params.slug, userId, request.body?.finishedAt)
+    broadcastServerEvent('tasks.changed', {
+      taskSlug: request.params.slug,
+      reason: 'read-state-updated',
+    })
+
+    return {
+      ok: true,
+      ...(result || {}),
     }
   })
 
@@ -355,6 +379,7 @@ function registerTaskRoutes(app, options = {}) {
         scope,
         runId: request.query?.runId,
         filePath: request.query?.filePath,
+        repoRoot: request.query?.repoRoot,
         includeFiles: String(request.query?.includeFiles || '').trim() !== 'false',
         includeStats: String(request.query?.includeStats || '').trim() !== 'false',
       })

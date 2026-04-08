@@ -19,6 +19,7 @@ const TASK_LIST_SYNC_REASONS = new Set([
   'updated',
   'deleted',
   'reordered',
+  'read-state-updated',
   'session-linked',
   'session-cleared',
 ])

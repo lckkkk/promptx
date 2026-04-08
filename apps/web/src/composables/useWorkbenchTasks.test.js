@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { nextTick } from 'vue'
 
 import {
   buildBlocksFromTodoItems,
@@ -12,6 +13,7 @@ import {
   reorderTaskSummaries,
   resolveTaskDisplayTitle,
   shouldRefreshWorkspaceDiffSummaries,
+  useWorkbenchTasks,
 } from './useWorkbenchTasks.js'
 
 test('resolveTaskDisplayTitle prefers manual title over auto title and preview', () => {
@@ -301,4 +303,234 @@ test('shouldRefreshWorkspaceDiffSummaries refreshes when running state changes',
       },
     },
   ]), true)
+})
+
+function createJsonResponse(payload) {
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        return String(name || '').toLowerCase() === 'content-type' ? 'application/json' : null
+      },
+    },
+    async json() {
+      return payload
+    },
+    async text() {
+      return JSON.stringify(payload)
+    },
+  }
+}
+
+function createMemoryLocalStorage() {
+  const store = new Map()
+  return {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value))
+    },
+    removeItem(key) {
+      store.delete(String(key))
+    },
+  }
+}
+
+test('initializeWorkbench marks opened unread task as read and clears local badge', async () => {
+  const originalFetch = global.fetch
+  const originalWindow = global.window
+
+  const readStateRequests = []
+  const taskListPayload = {
+    items: [
+      {
+        slug: 'task-1',
+        title: '未读任务',
+        autoTitle: '',
+        lastPromptPreview: '刚跑完',
+        codexSessionId: '',
+        codexRunCount: 1,
+        todoCount: 0,
+        running: false,
+        updatedAt: '2026-04-08T10:00:00.000Z',
+        createdAt: '2026-04-08T09:00:00.000Z',
+        unread: true,
+        latestCompletedRunFinishedAt: '2026-04-08T10:00:00.000Z',
+      },
+    ],
+  }
+  const taskDetailPayload = {
+    slug: 'task-1',
+    title: '未读任务',
+    autoTitle: '',
+    lastPromptPreview: '刚跑完',
+    codexSessionId: '',
+    codexRunCount: 1,
+    todoCount: 0,
+    running: false,
+    updatedAt: '2026-04-08T10:00:00.000Z',
+    createdAt: '2026-04-08T09:00:00.000Z',
+    unread: true,
+    latestCompletedRunFinishedAt: '2026-04-08T10:00:00.000Z',
+    blocks: [
+      { id: 1, type: 'text', content: 'hello', meta: {} },
+    ],
+    todoItems: [],
+  }
+
+  global.window = {
+    location: {
+      href: 'http://localhost:4173/',
+      origin: 'http://localhost:4173',
+      pathname: '/',
+      search: '',
+    },
+    localStorage: createMemoryLocalStorage(),
+    history: {
+      replaceState() {},
+    },
+    EventSource: class {
+      close() {}
+    },
+    setTimeout,
+    clearTimeout,
+  }
+
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    const method = String(options.method || 'GET').toUpperCase()
+
+    if (requestUrl.endsWith('/api/tasks') && method === 'GET') {
+      return createJsonResponse(taskListPayload)
+    }
+
+    if (requestUrl.endsWith('/api/tasks/task-1') && method === 'GET') {
+      return createJsonResponse(taskDetailPayload)
+    }
+
+    if (requestUrl.endsWith('/api/tasks/task-1/read-state') && method === 'POST') {
+      readStateRequests.push(JSON.parse(String(options.body || '{}')))
+      return createJsonResponse({
+        ok: true,
+        lastReadRunFinishedAt: '2026-04-08T10:00:00.000Z',
+      })
+    }
+
+    throw new Error(`Unexpected fetch: ${method} ${requestUrl}`)
+  }
+
+  try {
+    const workbench = useWorkbenchTasks()
+    await workbench.initializeWorkbench()
+    await nextTick()
+
+    assert.equal(readStateRequests.length, 1)
+    assert.deepEqual(readStateRequests[0], {
+      finishedAt: '2026-04-08T10:00:00.000Z',
+    })
+    assert.equal(workbench.renderedTasks.value[0].unread, false)
+  } finally {
+    global.fetch = originalFetch
+    global.window = originalWindow
+  }
+})
+
+test('initializeWorkbench still marks task as read when detail unread flag is stale but terminal run timestamp exists', async () => {
+  const originalFetch = global.fetch
+  const originalWindow = global.window
+
+  const readStateRequests = []
+  const taskListPayload = {
+    items: [
+      {
+        slug: 'task-1',
+        title: '未读任务',
+        autoTitle: '',
+        lastPromptPreview: '刚跑完',
+        codexSessionId: '',
+        codexRunCount: 1,
+        todoCount: 0,
+        running: false,
+        updatedAt: '2026-04-08T10:00:00.000Z',
+        createdAt: '2026-04-08T09:00:00.000Z',
+        unread: true,
+        latestCompletedRunFinishedAt: '2026-04-08T10:00:00.000Z',
+      },
+    ],
+  }
+  const taskDetailPayload = {
+    slug: 'task-1',
+    title: '未读任务',
+    autoTitle: '',
+    lastPromptPreview: '刚跑完',
+    codexSessionId: '',
+    codexRunCount: 1,
+    todoCount: 0,
+    running: false,
+    updatedAt: '2026-04-08T10:00:00.000Z',
+    createdAt: '2026-04-08T09:00:00.000Z',
+    unread: false,
+    latestCompletedRunFinishedAt: '2026-04-08T10:00:00.000Z',
+    blocks: [
+      { id: 1, type: 'text', content: 'hello', meta: {} },
+    ],
+    todoItems: [],
+  }
+
+  global.window = {
+    location: {
+      href: 'http://localhost:4173/',
+      origin: 'http://localhost:4173',
+      pathname: '/',
+      search: '',
+    },
+    localStorage: createMemoryLocalStorage(),
+    history: {
+      replaceState() {},
+    },
+    EventSource: class {
+      close() {}
+    },
+    setTimeout,
+    clearTimeout,
+  }
+
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    const method = String(options.method || 'GET').toUpperCase()
+
+    if (requestUrl.endsWith('/api/tasks') && method === 'GET') {
+      return createJsonResponse(taskListPayload)
+    }
+
+    if (requestUrl.endsWith('/api/tasks/task-1') && method === 'GET') {
+      return createJsonResponse(taskDetailPayload)
+    }
+
+    if (requestUrl.endsWith('/api/tasks/task-1/read-state') && method === 'POST') {
+      readStateRequests.push(JSON.parse(String(options.body || '{}')))
+      return createJsonResponse({
+        ok: true,
+        lastReadRunFinishedAt: '2026-04-08T10:00:00.000Z',
+      })
+    }
+
+    throw new Error(`Unexpected fetch: ${method} ${requestUrl}`)
+  }
+
+  try {
+    const workbench = useWorkbenchTasks()
+    await workbench.initializeWorkbench()
+    await nextTick()
+
+    assert.equal(readStateRequests.length, 1)
+    assert.deepEqual(readStateRequests[0], {
+      finishedAt: '2026-04-08T10:00:00.000Z',
+    })
+  } finally {
+    global.fetch = originalFetch
+    global.window = originalWindow
+  }
 })

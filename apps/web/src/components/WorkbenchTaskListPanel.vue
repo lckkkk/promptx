@@ -651,6 +651,12 @@ function handleDragEnd(event) {  if (props.mobile) {
                           class="h-3.5 w-3.5 shrink-0 opacity-70"
                         />
                         <span class="min-w-0 truncate">{{ getTaskDisplayTitle(task) }}</span>
+                        <span
+                          v-if="task.unread && task.slug !== currentTaskSlug"
+                          class="task-unread-dot shrink-0"
+                          :title="t('workbench.unread')"
+                          :aria-label="t('workbench.unread')"
+                        />
                       </button>
                     </div>
                   </div>
@@ -844,6 +850,14 @@ function handleDragEnd(event) {  if (props.mobile) {
 .task-swipe-row {
   position: relative;
   touch-action: pan-y;
+}
+
+.task-unread-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #dc2626;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-surface) 82%, transparent);
 }
 
 .task-swipe-action {

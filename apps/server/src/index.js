@@ -17,6 +17,7 @@ import {
   listAutomationEnabledTasks,
   listTaskSlugsByCodexSessionId,
   listTasks,
+  markTaskRead,
   purgeExpiredTasks,
   reorderTasks,
   updateNotificationProfile,
@@ -235,6 +236,7 @@ const taskAutomationService = createTaskAutomationService({
   updateTaskAutomationRuntime: updateTaskAutomationRuntimeWithBroadcast,
   updateTaskNotificationDelivery: updateTaskNotificationDeliveryWithBroadcast,
   createTaskRun: async (payload) => runDispatchService.startTaskRunForTask(payload),
+  getPromptxCodexSessionById,
   getTaskBySlug,
   getRunById: getCodexRunById,
   detailUrlBuilder: buildTaskDetailUrl,
@@ -375,7 +377,7 @@ const workspaceSuggestionService = createWorkspaceSuggestionService({
   workspaceRootDir,
 })
 
-registerTaskRoutes(app, {
+  registerTaskRoutes(app, {
   broadcastServerEvent,
   buildTaskExports,
   canEditTask,
@@ -389,9 +391,10 @@ registerTaskRoutes(app, {
   getTaskBySlug,
   getTaskGitDiffReviewInSubprocess,
   listTaskCodexRunsWithOptions,
-  listTaskWorkspaceDiffSummaries: taskWorkspaceDiffSummaryService.listTaskWorkspaceDiffSummaries,
-  listTasks,
-  purgeExpiredContent,
+    listTaskWorkspaceDiffSummaries: taskWorkspaceDiffSummaryService.listTaskWorkspaceDiffSummaries,
+    listTasks,
+    markTaskRead,
+    purgeExpiredContent,
   reorderTasks,
   removeAssetFiles,
   runDispatchService,

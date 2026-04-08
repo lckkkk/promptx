@@ -218,6 +218,68 @@ test('task routes reorder tasks and broadcast list change', async () => {
   }
 })
 
+test('task routes mark task as read and broadcast read-state change', async () => {
+  const broadcasts = []
+  const app = Fastify()
+  registerTaskRoutes(app, {
+    broadcastServerEvent: (type, payload) => broadcasts.push({ type, payload }),
+    buildTaskExports: () => ({ raw: '' }),
+    canEditTask: () => true,
+    createTask: () => null,
+    decorateTask: (task) => task,
+    decorateTaskList: (items) => items,
+    deleteTask: () => ({ error: 'not_found' }),
+    deleteTaskCodexRuns: () => {},
+    getPromptxCodexSessionById: () => null,
+    getRunningCodexRunByTaskSlug: () => null,
+    getTaskBySlug: (slug) => ({ slug, expired: false }),
+    getTaskGitDiffReviewInSubprocess: async () => ({}),
+    listTaskCodexRunsWithOptions: () => [],
+    listTaskWorkspaceDiffSummaries: () => [],
+    listTasks: () => [],
+    markTaskRead: (slug, userId, finishedAt) => ({
+      taskSlug: slug,
+      userId,
+      lastReadRunFinishedAt: finishedAt || '2026-04-08T10:00:00.000Z',
+    }),
+    reorderTasks: () => ({ changed: false, items: [] }),
+    purgeExpiredContent: () => {},
+    removeAssetFiles: () => {},
+    runDispatchService: {
+      async startTaskRunForTask() {
+        return null
+      },
+    },
+    updateTask: () => null,
+    updateTaskCodexSession: () => null,
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/tasks/task-1/read-state',
+      payload: {
+        finishedAt: '2026-04-08T10:05:00.000Z',
+      },
+    })
+
+    assert.equal(response.statusCode, 200)
+    assert.deepEqual(response.json(), {
+      ok: true,
+      taskSlug: 'task-1',
+      userId: 'default',
+      lastReadRunFinishedAt: '2026-04-08T10:05:00.000Z',
+    })
+    assert.deepEqual(broadcasts, [{
+      type: 'tasks.changed',
+      payload: { taskSlug: 'task-1', reason: 'read-state-updated' },
+    }])
+  } finally {
+    await app.close()
+  }
+})
+
 test('task routes reject invalid reorder payload', async () => {
   const app = Fastify()
   registerTaskRoutes(app, {

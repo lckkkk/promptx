@@ -167,6 +167,8 @@ function localizeLegacyDiffMessage(message = '') {
     ['文件内容较大，暂不展示具体 diff。', 'diffReview.fileTooLarge'],
     ['diff 内容较长，暂不在页面内完整展示。', 'diffReview.diffTooLong'],
     ['当前工作目录不是 Git 仓库，暂不支持代码变更审查。', 'diffReview.notGitRepo'],
+    ['当前工作目录及其子目录中没有检测到 Git 仓库，暂不支持代码变更审查。', 'diffReview.noGitReposInWorkspace'],
+    ['没有找到对应的 Git 仓库，暂时无法读取该文件的代码变更。', 'diffReview.targetRepoNotFound'],
     ['任务不存在。', 'diffReview.taskNotFound'],
     ['请选择一轮执行后再查看本轮代码变更。', 'diffReview.runRequired'],
     ['没有找到对应的执行记录。', 'diffReview.runNotFound'],
@@ -208,7 +210,7 @@ function normalizeDiffPayload(payload = null) {
 export function useTaskDiffReviewData(props) {
   const diffScope = ref('workspace')
   const selectedRunId = ref('')
-  const selectedFilePath = ref('')
+  const selectedFileKey = ref('')
   const statusFilter = ref('all')
   const fileSearch = ref('')
   const runs = ref([])
@@ -264,13 +266,16 @@ export function useTaskDiffReviewData(props) {
         return true
       }
 
-      return String(file?.path || '').toLowerCase().includes(normalizedQuery)
+      return [
+        String(file?.path || ''),
+        String(file?.repoLabel || ''),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery))
     })
   })
 
   const selectedFile = computed(() => {
     const files = filteredFiles.value
-    return files.find((file) => file.path === selectedFilePath.value) || files[0] || null
+    return files.find((file) => String(file.id || file.path || '') === selectedFileKey.value) || files[0] || null
   })
 
   const selectedPatchLines = computed(() => parsePatchLines(selectedFile.value?.patch || ''))
@@ -379,15 +384,15 @@ export function useTaskDiffReviewData(props) {
   function syncSelectedFile() {
     const files = filteredFiles.value
     if (!files.length) {
-      selectedFilePath.value = ''
+      selectedFileKey.value = ''
       return
     }
 
-    if (files.some((file) => file.path === selectedFilePath.value)) {
+    if (files.some((file) => String(file.id || file.path || '') === selectedFileKey.value)) {
       return
     }
 
-    selectedFilePath.value = files[0].path
+    selectedFileKey.value = String(files[0].id || files[0].path || '')
   }
 
   function getStatusLabel(status = '') {
@@ -640,7 +645,8 @@ export function useTaskDiffReviewData(props) {
   }
 
   async function loadSelectedFilePatch() {
-    const filePath = String(selectedFilePath.value || '').trim()
+    const currentFile = selectedFile.value
+    const filePath = String(currentFile?.path || '').trim()
     if (!props.taskSlug || !props.active || !filePath || patchLoading.value) {
       return
     }
@@ -649,17 +655,17 @@ export function useTaskDiffReviewData(props) {
     const runId = scope === 'run' ? selectedRunId.value : ''
     const signature = buildLoadSignature(props.taskSlug, scope, runId)
 
-    const currentFile = (diffPayload.value?.files || []).find((file) => file.path === filePath)
     if (!currentFile || currentFile.patchLoaded || currentFile.binary || currentFile.tooLarge || currentFile.message) {
       return
     }
 
-    const patchCacheKey = buildPatchCacheKey(signature, filePath)
+    const fileKey = String(currentFile.id || currentFile.path || '')
+    const patchCacheKey = buildPatchCacheKey(signature, fileKey)
     const cachedFile = getCachedValue(filePatchCache, patchCacheKey)
     if (cachedFile && diffPayload.value?.files) {
       diffPayload.value = {
         ...diffPayload.value,
-        files: diffPayload.value.files.map((file) => (file.path === filePath ? cachedFile : file)),
+        files: diffPayload.value.files.map((file) => (String(file.id || file.path || '') === fileKey ? cachedFile : file)),
       }
       return
     }
@@ -672,6 +678,7 @@ export function useTaskDiffReviewData(props) {
         scope,
         runId,
         filePath,
+        repoRoot: currentFile.repoRoot,
       })
       if (currentPatchRequestId !== patchRequestId) {
         return
@@ -683,7 +690,7 @@ export function useTaskDiffReviewData(props) {
       }
 
       const normalizedPayload = normalizeDiffPayload(payload)
-      const detailedFile = (normalizedPayload.files || []).find((file) => file.path === filePath)
+      const detailedFile = (normalizedPayload.files || []).find((file) => String(file.id || file.path || '') === fileKey)
       if (!detailedFile || !diffPayload.value?.files) {
         return
       }
@@ -693,14 +700,14 @@ export function useTaskDiffReviewData(props) {
         ...diffPayload.value,
         baseline: normalizedPayload.baseline || diffPayload.value.baseline || null,
         warnings: normalizedPayload.warnings || diffPayload.value.warnings || [],
-        files: diffPayload.value.files.map((file) => (file.path === filePath ? detailedFile : file)),
+        files: diffPayload.value.files.map((file) => (String(file.id || file.path || '') === fileKey ? detailedFile : file)),
       }
     } catch (err) {
       error.value = err.message
     } finally {
       if (currentPatchRequestId === patchRequestId) {
         patchLoading.value = false
-        if (String(selectedFilePath.value || '').trim() !== filePath) {
+        if (String(selectedFileKey.value || '').trim() !== fileKey) {
           loadSelectedFilePatch().catch(() => {})
         }
       }
@@ -738,7 +745,7 @@ export function useTaskDiffReviewData(props) {
     ([taskSlug, active], previousValue = []) => {
       const previousTaskSlug = previousValue[0] || ''
       if (taskSlug !== previousTaskSlug) {
-        selectedFilePath.value = ''
+        selectedFileKey.value = ''
         lastLoadedSignature = ''
         runs.value = []
         selectedRunId.value = ''
@@ -764,7 +771,7 @@ export function useTaskDiffReviewData(props) {
   )
 
   watch(
-    () => [selectedFilePath.value, selectedPatchHunks.value.length],
+    () => [selectedFileKey.value, selectedPatchHunks.value.length],
     () => {
       activeHunkIndex.value = 0
       patchLineRefMap.clear()
@@ -779,7 +786,7 @@ export function useTaskDiffReviewData(props) {
   )
 
   watch(
-    () => selectedFilePath.value,
+    () => selectedFileKey.value,
     () => {
       loadSelectedFilePatch().catch(() => {})
     },
@@ -862,7 +869,7 @@ export function useTaskDiffReviewData(props) {
     patchViewportRef,
     runs,
     selectedFile,
-    selectedFilePath,
+    selectedFilePath: selectedFileKey,
     selectedPatchHunks,
     selectedPatchLines,
     selectedRunId,

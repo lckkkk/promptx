@@ -13,6 +13,18 @@ const DIFF_REVIEW_CACHE_TTL_MS = 4000
 const DIFF_REVIEW_CACHE_MAX_ENTRIES = 80
 const FILE_DIFF_CACHE_TTL_MS = 8000
 const FILE_DIFF_CACHE_MAX_ENTRIES = 400
+const GIT_REPO_SCAN_SKIP_DIR_NAMES = new Set([
+  '.git',
+  'node_modules',
+  '.pnpm',
+  '.yarn',
+  '.turbo',
+  '.next',
+  '.nuxt',
+  'dist',
+  'build',
+  'coverage',
+])
 
 const diffReviewCache = new Map()
 const fileDiffCache = new Map()
@@ -212,6 +224,94 @@ function resolveGitRepoRoot(cwd = '') {
   }
 
   return result.stdout.trim()
+}
+
+function normalizeFilesystemPath(value = '') {
+  const rawValue = String(value || '').trim()
+  if (!rawValue) {
+    return ''
+  }
+
+  const normalized = path.resolve(rawValue)
+
+  try {
+    return fs.realpathSync.native(normalized)
+  } catch {
+    return normalized
+  }
+}
+
+function isPathInside(parentPath = '', targetPath = '') {
+  const normalizedParent = normalizeFilesystemPath(parentPath)
+  const normalizedTarget = normalizeFilesystemPath(targetPath)
+  if (!normalizedParent || !normalizedTarget) {
+    return false
+  }
+
+  const relativePath = path.relative(normalizedParent, normalizedTarget)
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath))
+}
+
+function resolveWorkspaceRepoLabel(workspaceCwd = '', repoRoot = '') {
+  const normalizedWorkspace = normalizeFilesystemPath(workspaceCwd)
+  const normalizedRepoRoot = normalizeFilesystemPath(repoRoot)
+  if (!normalizedRepoRoot) {
+    return ''
+  }
+
+  if (normalizedWorkspace && isPathInside(normalizedWorkspace, normalizedRepoRoot)) {
+    const relativePath = path.relative(normalizedWorkspace, normalizedRepoRoot)
+    if (relativePath && relativePath !== '.') {
+      return relativePath
+    }
+  }
+
+  return path.basename(normalizedRepoRoot) || normalizedRepoRoot
+}
+
+function discoverWorkspaceGitRepoRoots(cwd = '') {
+  const normalizedCwd = normalizeFilesystemPath(cwd)
+  if (!normalizedCwd || !fs.existsSync(normalizedCwd)) {
+    return []
+  }
+
+  const repoRoots = new Set()
+  const workspaceRootRepo = resolveGitRepoRoot(normalizedCwd)
+  if (workspaceRootRepo) {
+    repoRoots.add(normalizeFilesystemPath(workspaceRootRepo))
+  }
+
+  function walkDirectory(currentDir) {
+    let entries = []
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    const hasGitMarker = entries.some((entry) => entry.name === '.git')
+    if (hasGitMarker) {
+      const repoRoot = resolveGitRepoRoot(currentDir)
+      if (repoRoot && normalizeFilesystemPath(repoRoot) === normalizeFilesystemPath(currentDir)) {
+        repoRoots.add(normalizeFilesystemPath(repoRoot))
+      }
+    }
+
+    entries.forEach((entry) => {
+      if (!entry.isDirectory()) {
+        return
+      }
+      if (GIT_REPO_SCAN_SKIP_DIR_NAMES.has(entry.name)) {
+        return
+      }
+
+      walkDirectory(path.join(currentDir, entry.name))
+    })
+  }
+
+  walkDirectory(normalizedCwd)
+
+  return [...repoRoots].sort((left, right) => left.localeCompare(right, 'zh-CN'))
 }
 
 function resolveGitHeadOid(repoRoot = '') {
@@ -486,6 +586,116 @@ function parseState(value = '{}') {
   }
 }
 
+function buildWorkspaceEntryKey(repoRoot = '', filePath = '') {
+  const normalizedRepoRoot = normalizeFilesystemPath(repoRoot)
+  const normalizedFilePath = String(filePath || '').trim()
+  if (!normalizedRepoRoot || !normalizedFilePath) {
+    return ''
+  }
+
+  return `${normalizedRepoRoot}::${normalizedFilePath}`
+}
+
+function parseWorkspaceEntryKey(value = '') {
+  const text = String(value || '').trim()
+  const separatorIndex = text.indexOf('::')
+  if (separatorIndex <= 0) {
+    return null
+  }
+
+  const repoRoot = normalizeFilesystemPath(text.slice(0, separatorIndex))
+  const filePath = text.slice(separatorIndex + 2).trim()
+  if (!repoRoot || !filePath) {
+    return null
+  }
+
+  return {
+    repoRoot,
+    filePath,
+  }
+}
+
+function serializeWorkspaceSnapshotMeta(workspaceCwd = '', repos = []) {
+  return JSON.stringify({
+    scope: 'workspace',
+    cwd: normalizeFilesystemPath(workspaceCwd),
+    repos: repos.map((repo) => ({
+      repoRoot: normalizeFilesystemPath(repo.repoRoot),
+      headOid: String(repo.headOid || '').trim(),
+      branchLabel: String(repo.branchLabel || '').trim(),
+    })),
+  })
+}
+
+function parseWorkspaceSnapshotMeta(value = '') {
+  const text = String(value || '').trim()
+  if (!text.startsWith('{')) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(text)
+    if (payload?.scope !== 'workspace' || !Array.isArray(payload.repos)) {
+      return null
+    }
+
+    return {
+      cwd: normalizeFilesystemPath(payload.cwd),
+      repos: payload.repos
+        .map((repo) => ({
+          repoRoot: normalizeFilesystemPath(repo?.repoRoot),
+          headOid: String(repo?.headOid || '').trim(),
+          branchLabel: String(repo?.branchLabel || '').trim(),
+        }))
+        .filter((repo) => repo.repoRoot),
+    }
+  } catch {
+    return null
+  }
+}
+
+function listWorkspaceBaselineEntries(entries = new Map(), repoRoot = '') {
+  const normalizedRepoRoot = normalizeFilesystemPath(repoRoot)
+  const repoEntries = new Map()
+  if (!normalizedRepoRoot || !(entries instanceof Map)) {
+    return repoEntries
+  }
+
+  entries.forEach((state, entryKey) => {
+    const parsed = parseWorkspaceEntryKey(entryKey)
+    if (!parsed || parsed.repoRoot !== normalizedRepoRoot) {
+      return
+    }
+
+    repoEntries.set(parsed.filePath, state)
+  })
+
+  return repoEntries
+}
+
+function captureWorkspaceSnapshot(cwd = '') {
+  const workspaceCwd = normalizeFilesystemPath(cwd)
+  const repoRoots = discoverWorkspaceGitRepoRoots(workspaceCwd)
+  if (!repoRoots.length) {
+    return null
+  }
+
+  const repos = repoRoots.map((repoRoot) => {
+    const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
+    return {
+      repoRoot,
+      headOid,
+      branchLabel: resolveGitBranchLabel(repoRoot),
+      snapshots,
+    }
+  })
+
+  return {
+    workspaceCwd,
+    repos,
+  }
+}
+
 function loadTaskBaseline(taskSlug = '') {
   const row = get(
     `SELECT task_slug, repo_root, head_oid, branch_label, created_at, updated_at
@@ -509,11 +719,15 @@ function loadTaskBaseline(taskSlug = '') {
     entries.set(String(entry.path || '').trim(), parseState(entry.state_json))
   })
 
+  const workspaceMeta = parseWorkspaceSnapshotMeta(row.head_oid)
+
   return {
     taskSlug: row.task_slug,
     repoRoot: String(row.repo_root || ''),
-    headOid: String(row.head_oid || ''),
-    branchLabel: String(row.branch_label || ''),
+    headOid: workspaceMeta ? '' : String(row.head_oid || ''),
+    branchLabel: workspaceMeta ? '' : String(row.branch_label || ''),
+    workspaceCwd: workspaceMeta?.cwd || '',
+    workspaceRepos: workspaceMeta?.repos || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     entries,
@@ -543,11 +757,15 @@ function loadRunBaseline(runId = '') {
     entries.set(String(entry.path || '').trim(), parseState(entry.state_json))
   })
 
+  const workspaceMeta = parseWorkspaceSnapshotMeta(row.head_oid)
+
   return {
     runId: row.run_id,
     repoRoot: String(row.repo_root || ''),
-    headOid: String(row.head_oid || ''),
-    branchLabel: String(row.branch_label || ''),
+    headOid: workspaceMeta ? '' : String(row.head_oid || ''),
+    branchLabel: workspaceMeta ? '' : String(row.branch_label || ''),
+    workspaceCwd: workspaceMeta?.cwd || '',
+    workspaceRepos: workspaceMeta?.repos || [],
     createdAt: row.created_at,
     entries,
   }
@@ -576,19 +794,28 @@ function loadRunFinalSnapshot(runId = '') {
     entries.set(String(entry.path || '').trim(), parseState(entry.state_json))
   })
 
+  const workspaceMeta = parseWorkspaceSnapshotMeta(row.head_oid)
+
   return {
     runId: row.run_id,
     repoRoot: String(row.repo_root || ''),
-    headOid: String(row.head_oid || ''),
-    branchLabel: String(row.branch_label || ''),
+    headOid: workspaceMeta ? '' : String(row.head_oid || ''),
+    branchLabel: workspaceMeta ? '' : String(row.branch_label || ''),
+    workspaceCwd: workspaceMeta?.cwd || '',
+    workspaceRepos: workspaceMeta?.repos || [],
     createdAt: row.created_at,
     entries,
   }
 }
 
-function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
+function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map(), options = {}) {
   const now = new Date().toISOString()
   const normalizedTaskSlug = String(taskSlug || '').trim()
+  const workspaceRepos = Array.isArray(options.workspaceRepos) ? options.workspaceRepos : []
+  const storedHeadOid = workspaceRepos.length
+    ? serializeWorkspaceSnapshotMeta(repoRoot, workspaceRepos)
+    : headOid
+  const storedBranchLabel = workspaceRepos.length ? '' : branchLabel
 
   transaction(() => {
     run('DELETE FROM task_git_baseline_entries WHERE task_slug = ?', [normalizedTaskSlug])
@@ -596,7 +823,7 @@ function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabe
     run(
       `INSERT INTO task_git_baselines (task_slug, repo_root, head_oid, branch_label, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [normalizedTaskSlug, repoRoot, headOid, branchLabel, now, now]
+      [normalizedTaskSlug, repoRoot, storedHeadOid, storedBranchLabel, now, now]
     )
 
     entries.forEach((state, filePath) => {
@@ -611,9 +838,14 @@ function saveTaskBaseline(taskSlug = '', repoRoot = '', headOid = '', branchLabe
   return loadTaskBaseline(normalizedTaskSlug)
 }
 
-function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
+function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map(), options = {}) {
   const now = new Date().toISOString()
   const normalizedRunId = String(runId || '').trim()
+  const workspaceRepos = Array.isArray(options.workspaceRepos) ? options.workspaceRepos : []
+  const storedHeadOid = workspaceRepos.length
+    ? serializeWorkspaceSnapshotMeta(repoRoot, workspaceRepos)
+    : headOid
+  const storedBranchLabel = workspaceRepos.length ? '' : branchLabel
 
   transaction(() => {
     run('DELETE FROM run_git_baseline_entries WHERE run_id = ?', [normalizedRunId])
@@ -621,7 +853,7 @@ function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = 
     run(
       `INSERT INTO run_git_baselines (run_id, repo_root, head_oid, branch_label, created_at)
        VALUES (?, ?, ?, ?, ?)`,
-      [normalizedRunId, repoRoot, headOid, branchLabel, now]
+      [normalizedRunId, repoRoot, storedHeadOid, storedBranchLabel, now]
     )
 
     entries.forEach((state, filePath) => {
@@ -636,9 +868,14 @@ function saveRunBaseline(runId = '', repoRoot = '', headOid = '', branchLabel = 
   return loadRunBaseline(normalizedRunId)
 }
 
-function saveRunFinalSnapshot(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map()) {
+function saveRunFinalSnapshot(runId = '', repoRoot = '', headOid = '', branchLabel = '', entries = new Map(), options = {}) {
   const now = new Date().toISOString()
   const normalizedRunId = String(runId || '').trim()
+  const workspaceRepos = Array.isArray(options.workspaceRepos) ? options.workspaceRepos : []
+  const storedHeadOid = workspaceRepos.length
+    ? serializeWorkspaceSnapshotMeta(repoRoot, workspaceRepos)
+    : headOid
+  const storedBranchLabel = workspaceRepos.length ? '' : branchLabel
 
   transaction(() => {
     run('DELETE FROM run_git_final_snapshot_entries WHERE run_id = ?', [normalizedRunId])
@@ -646,7 +883,7 @@ function saveRunFinalSnapshot(runId = '', repoRoot = '', headOid = '', branchLab
     run(
       `INSERT INTO run_git_final_snapshots (run_id, repo_root, head_oid, branch_label, created_at)
        VALUES (?, ?, ?, ?, ?)`,
-      [normalizedRunId, repoRoot, headOid, branchLabel, now]
+      [normalizedRunId, repoRoot, storedHeadOid, storedBranchLabel, now]
     )
 
     entries.forEach((state, filePath) => {
@@ -662,6 +899,15 @@ function saveRunFinalSnapshot(runId = '', repoRoot = '', headOid = '', branchLab
 }
 
 function resolveTaskRepoRoot(taskSlug = '') {
+  const workspaceCwd = resolveTaskWorkspaceCwd(taskSlug)
+  if (!workspaceCwd) {
+    return ''
+  }
+
+  return resolveGitRepoRoot(workspaceCwd)
+}
+
+function resolveTaskWorkspaceCwd(taskSlug = '') {
   const task = getTaskBySlug(taskSlug)
   if (!task || task.expired) {
     return ''
@@ -677,7 +923,7 @@ function resolveTaskRepoRoot(taskSlug = '') {
     return ''
   }
 
-  return resolveGitRepoRoot(session.cwd)
+  return normalizeFilesystemPath(session.cwd)
 }
 
 function getRunTaskSlug(runId = '') {
@@ -697,18 +943,49 @@ export function captureTaskGitBaseline(taskSlug = '', cwd = '') {
     return null
   }
 
-  const repoRoot = resolveGitRepoRoot(cwd)
-  if (!repoRoot) {
+  const workspaceSnapshot = captureWorkspaceSnapshot(cwd)
+  if (!workspaceSnapshot) {
     return null
   }
 
+  if (workspaceSnapshot.repos.length === 1) {
+    const [repo] = workspaceSnapshot.repos
+    const existing = loadTaskBaseline(normalizedTaskSlug)
+    if (existing?.repoRoot === repo.repoRoot && !(existing.workspaceRepos || []).length) {
+      return existing
+    }
+
+    return saveTaskBaseline(
+      normalizedTaskSlug,
+      repo.repoRoot,
+      repo.headOid,
+      repo.branchLabel,
+      repo.snapshots
+    )
+  }
+
   const existing = loadTaskBaseline(normalizedTaskSlug)
-  if (existing?.repoRoot === repoRoot) {
+  if (existing?.repoRoot === workspaceSnapshot.workspaceCwd && (existing.workspaceRepos || []).length) {
     return existing
   }
 
-  const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
-  return saveTaskBaseline(normalizedTaskSlug, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
+  const entries = new Map()
+  workspaceSnapshot.repos.forEach((repo) => {
+    repo.snapshots.forEach((state, filePath) => {
+      entries.set(buildWorkspaceEntryKey(repo.repoRoot, filePath), state)
+    })
+  })
+
+  return saveTaskBaseline(
+    normalizedTaskSlug,
+    workspaceSnapshot.workspaceCwd,
+    '',
+    '',
+    entries,
+    {
+      workspaceRepos: workspaceSnapshot.repos,
+    }
+  )
 }
 
 export function captureRunGitBaseline(runId = '', cwd = '') {
@@ -717,13 +994,39 @@ export function captureRunGitBaseline(runId = '', cwd = '') {
     return null
   }
 
-  const repoRoot = resolveGitRepoRoot(cwd)
-  if (!repoRoot) {
+  const workspaceSnapshot = captureWorkspaceSnapshot(cwd)
+  if (!workspaceSnapshot) {
     return null
   }
 
-  const { headOid, snapshots } = captureDirtySnapshots(repoRoot)
-  return saveRunBaseline(normalizedRunId, repoRoot, headOid, resolveGitBranchLabel(repoRoot), snapshots)
+  if (workspaceSnapshot.repos.length === 1) {
+    const [repo] = workspaceSnapshot.repos
+    return saveRunBaseline(
+      normalizedRunId,
+      repo.repoRoot,
+      repo.headOid,
+      repo.branchLabel,
+      repo.snapshots
+    )
+  }
+
+  const entries = new Map()
+  workspaceSnapshot.repos.forEach((repo) => {
+    repo.snapshots.forEach((state, filePath) => {
+      entries.set(buildWorkspaceEntryKey(repo.repoRoot, filePath), state)
+    })
+  })
+
+  return saveRunBaseline(
+    normalizedRunId,
+    workspaceSnapshot.workspaceCwd,
+    '',
+    '',
+    entries,
+    {
+      workspaceRepos: workspaceSnapshot.repos,
+    }
+  )
 }
 
 export function captureRunGitFinalSnapshot(runId = '', cwd = '') {
@@ -738,6 +1041,27 @@ export function captureRunGitFinalSnapshot(runId = '', cwd = '') {
   }
 
   const baseline = loadRunBaseline(normalizedRunId)
+  const workspaceSnapshot = captureWorkspaceSnapshot(cwd)
+  if (workspaceSnapshot?.repos?.length > 1) {
+    const entries = new Map()
+    workspaceSnapshot.repos.forEach((repo) => {
+      repo.snapshots.forEach((state, filePath) => {
+        entries.set(buildWorkspaceEntryKey(repo.repoRoot, filePath), state)
+      })
+    })
+
+    return saveRunFinalSnapshot(
+      normalizedRunId,
+      workspaceSnapshot.workspaceCwd,
+      '',
+      '',
+      entries,
+      {
+        workspaceRepos: workspaceSnapshot.repos,
+      }
+    )
+  }
+
   const repoRoot = resolveGitRepoRoot(cwd) || resolveGitRepoRoot(baseline?.repoRoot || '')
   if (!repoRoot) {
     return null
@@ -1044,6 +1368,10 @@ function sortDiffFiles(items = []) {
   }
 
   return [...items].sort((left, right) => {
+    const repoDiff = String(left.repoLabel || '').localeCompare(String(right.repoLabel || ''), 'zh-CN')
+    if (repoDiff) {
+      return repoDiff
+    }
     const statusDiff = (weightMap[left.status] ?? 9) - (weightMap[right.status] ?? 9)
     if (statusDiff) {
       return statusDiff
@@ -1058,8 +1386,13 @@ function createDiffFileEntry(filePath = '', previousState = null, nextState = nu
   }
 
   const patchPayload = buildDiffPayloadForFile(filePath, previousState, nextState, options)
+  const repoRoot = String(options.repoRoot || '').trim()
+  const repoLabel = String(options.repoLabel || '').trim()
   return {
+    id: repoRoot ? `${repoRoot}::${filePath}` : filePath,
     path: filePath,
+    repoRoot,
+    repoLabel,
     status: deriveFileStatus(previousState, nextState),
     additions: patchPayload.additions,
     deletions: patchPayload.deletions,
@@ -1089,12 +1422,7 @@ function createUnsupportedResult(reason = '', repoRoot = '', branch = '') {
   }
 }
 
-export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
-  const repoRoot = resolveGitRepoRoot(cwd)
-  if (!repoRoot) {
-    return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
-  }
-
+function getSingleRepoWorkspaceGitDiffReview(repoRoot = '', workspaceCwd = '', options = {}) {
   const branch = resolveGitBranchLabel(repoRoot)
   const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
   const currentHeadOid = resolveGitHeadOid(repoRoot)
@@ -1144,6 +1472,8 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
     const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
       includePatch: Boolean(targetFilePath),
       includeStats,
+      repoRoot,
+      repoLabel: resolveWorkspaceRepoLabel(workspaceCwd, repoRoot),
     })
     if (!diffEntry) {
       return
@@ -1188,12 +1518,7 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
   return payload
 }
 
-export function getWorkspaceGitDiffStatusSummaryByCwd(cwd = '') {
-  const repoRoot = resolveGitRepoRoot(cwd)
-  if (!repoRoot) {
-    return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
-  }
-
+function getSingleRepoWorkspaceGitDiffStatusSummary(repoRoot = '', workspaceCwd = '') {
   const branch = resolveGitBranchLabel(repoRoot)
   const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
   const cacheKey = JSON.stringify([
@@ -1245,6 +1570,235 @@ export function getWorkspaceGitDiffStatusSummaryByCwd(cwd = '') {
   return payload
 }
 
+export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
+  const repoRoots = discoverWorkspaceGitRepoRoots(cwd)
+  if (!repoRoots.length) {
+    return createUnsupportedResult('当前工作目录及其子目录中没有检测到 Git 仓库，暂不支持代码变更审查。')
+  }
+
+  const targetRepoRoot = normalizeFilesystemPath(options.repoRoot)
+  const selectedRepoRoots = String(options.repoRoot || '').trim()
+    ? repoRoots.filter((repoRoot) => normalizeFilesystemPath(repoRoot) === targetRepoRoot)
+    : repoRoots
+  if (!selectedRepoRoots.length) {
+    return createUnsupportedResult('没有找到对应的 Git 仓库，暂时无法读取该文件的代码变更。')
+  }
+
+  const payloads = selectedRepoRoots.map((repoRoot) => getSingleRepoWorkspaceGitDiffReview(repoRoot, cwd, options))
+  const firstPayload = payloads[0]
+  const fileCount = payloads.reduce((sum, payload) => sum + Math.max(0, Number(payload.summary?.fileCount) || 0), 0)
+  const additions = payloads.reduce((sum, payload) => sum + Math.max(0, Number(payload.summary?.additions) || 0), 0)
+  const deletions = payloads.reduce((sum, payload) => sum + Math.max(0, Number(payload.summary?.deletions) || 0), 0)
+  const includeFiles = String(options.filePath || '').trim() || options.includeFiles !== false
+  const includeStats = String(options.filePath || '').trim() || options.includeStats !== false
+  const files = includeFiles ? sortDiffFiles(payloads.flatMap((payload) => payload.files || [])) : []
+
+  return {
+    supported: true,
+    scope: 'workspace',
+    runId: '',
+    repoRoot: selectedRepoRoots.length === 1 ? firstPayload.repoRoot : normalizeFilesystemPath(cwd),
+    repoRoots: selectedRepoRoots,
+    repoCount: selectedRepoRoots.length,
+    branch: selectedRepoRoots.length === 1 ? firstPayload.branch : '',
+    baseline: null,
+    warnings: [],
+    baselineCreatedAt: '',
+    summary: {
+      fileCount,
+      additions: includeStats ? additions : null,
+      deletions: includeStats ? deletions : null,
+      statsComplete: includeStats,
+    },
+    files,
+  }
+}
+
+export function getWorkspaceGitDiffStatusSummaryByCwd(cwd = '') {
+  const repoRoots = discoverWorkspaceGitRepoRoots(cwd)
+  if (!repoRoots.length) {
+    return createUnsupportedResult('当前工作目录及其子目录中没有检测到 Git 仓库，暂不支持代码变更审查。')
+  }
+
+  const payloads = repoRoots.map((repoRoot) => getSingleRepoWorkspaceGitDiffStatusSummary(repoRoot, cwd))
+  const firstPayload = payloads[0]
+
+  return {
+    supported: true,
+    scope: 'workspace',
+    runId: '',
+    repoRoot: repoRoots.length === 1 ? firstPayload.repoRoot : normalizeFilesystemPath(cwd),
+    repoRoots,
+    repoCount: repoRoots.length,
+    branch: repoRoots.length === 1 ? firstPayload.branch : '',
+    baseline: null,
+    warnings: [],
+    baselineCreatedAt: '',
+    summary: {
+      fileCount: payloads.reduce((sum, payload) => sum + Math.max(0, Number(payload.summary?.fileCount) || 0), 0),
+      additions: 0,
+      deletions: 0,
+      statsComplete: false,
+    },
+    files: [],
+  }
+}
+
+function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline = null, comparisonSnapshot = null, options = {}) {
+  const workspaceCwd = normalizeFilesystemPath(baseline?.repoRoot || baseline?.workspaceCwd || '')
+  const baselineRepos = Array.isArray(baseline?.workspaceRepos) ? baseline.workspaceRepos : []
+  const comparisonRepos = Array.isArray(comparisonSnapshot?.workspaceRepos) ? comparisonSnapshot.workspaceRepos : []
+  const selectedRepoRoot = normalizeFilesystemPath(options.repoRoot)
+  const includeFiles = String(options.filePath || '').trim() || options.includeFiles !== false
+  const includeStats = String(options.filePath || '').trim() || options.includeStats !== false
+  const targetFilePath = String(options.filePath || '').trim()
+  const repoCandidates = String(options.repoRoot || '').trim()
+    ? baselineRepos.filter((repo) => normalizeFilesystemPath(repo.repoRoot) === selectedRepoRoot)
+    : baselineRepos
+
+  if (!repoCandidates.length) {
+    return createUnsupportedResult('没有找到对应的 Git 仓库，暂时无法读取该文件的代码变更。')
+  }
+
+  const baselineRepoMap = new Map(baselineRepos.map((repo) => [normalizeFilesystemPath(repo.repoRoot), repo]))
+  const comparisonRepoMap = new Map(comparisonRepos.map((repo) => [normalizeFilesystemPath(repo.repoRoot), repo]))
+  const files = []
+  const warnings = []
+  const repoRoots = []
+  let fileCount = 0
+  let additions = 0
+  let deletions = 0
+
+  repoCandidates.forEach((baselineRepo) => {
+    const normalizedRepoRoot = normalizeFilesystemPath(baselineRepo.repoRoot)
+    const repoRoot = resolveGitRepoRoot(normalizedRepoRoot)
+    if (!repoRoot) {
+      warnings.push(`${resolveWorkspaceRepoLabel(workspaceCwd, normalizedRepoRoot)} 仓库当前不可用，已跳过`)
+      return
+    }
+
+    const currentBranchLabel = resolveGitBranchLabel(repoRoot)
+    const comparisonRepo = comparisonRepoMap.get(normalizedRepoRoot) || null
+    const currentHeadOid = scope === 'run' && comparisonRepo
+      ? String(comparisonRepo.headOid || '').trim()
+      : resolveGitHeadOid(repoRoot)
+
+    if (baselineRepo.headOid && !commitExists(repoRoot, baselineRepo.headOid)) {
+      warnings.push(`${resolveWorkspaceRepoLabel(workspaceCwd, repoRoot)} 的基线 commit 已不存在，已跳过`)
+      return
+    }
+
+    if (baselineRepo.branchLabel && currentBranchLabel && baselineRepo.branchLabel !== currentBranchLabel) {
+      warnings.push(`${resolveWorkspaceRepoLabel(workspaceCwd, repoRoot)} 当前分支已从 ${baselineRepo.branchLabel} 切换到 ${currentBranchLabel}`)
+    }
+
+    if (
+      baselineRepo.headOid
+      && currentHeadOid
+      && baselineRepo.headOid !== currentHeadOid
+      && !isAncestorCommit(repoRoot, baselineRepo.headOid, currentHeadOid)
+    ) {
+      warnings.push(`${resolveWorkspaceRepoLabel(workspaceCwd, repoRoot)} 当前 HEAD 已不在基线 commit 的后续历史中，仓库可能经历了 reset、rebase 或切分支`)
+    }
+
+    const baselineEntries = listWorkspaceBaselineEntries(baseline.entries, repoRoot)
+    const comparisonEntries = comparisonSnapshot ? listWorkspaceBaselineEntries(comparisonSnapshot.entries, repoRoot) : new Map()
+    const { entries: workingTreeEntries } = listGitChangeEntries(repoRoot)
+    const baselineStateForPath = createBaselineStateResolver(repoRoot, {
+      headOid: baselineRepo.headOid,
+      entries: baselineEntries,
+    })
+    const nextStateForPath = scope === 'run' && comparisonRepo
+      ? createBaselineStateResolver(repoRoot, {
+        headOid: comparisonRepo.headOid,
+        entries: comparisonEntries,
+      })
+      : (filePath) => readFileState(repoRoot, filePath)
+
+    const candidatePaths = targetFilePath
+      ? [targetFilePath]
+      : new Set([
+        ...baselineEntries.keys(),
+        ...listCommittedChangeEntries(repoRoot, baselineRepo.headOid, currentHeadOid).keys(),
+        ...(scope === 'run' && comparisonRepo ? comparisonEntries.keys() : workingTreeEntries.keys()),
+      ])
+
+    candidatePaths.forEach((filePath) => {
+      const previousState = baselineStateForPath(filePath)
+      const nextState = nextStateForPath(filePath)
+      const diffEntry = createDiffFileEntry(filePath, previousState, nextState, {
+        includePatch: Boolean(targetFilePath),
+        includeStats,
+        repoRoot,
+        repoLabel: resolveWorkspaceRepoLabel(workspaceCwd, repoRoot),
+      })
+      if (!diffEntry) {
+        return
+      }
+
+      fileCount += 1
+      additions += Math.max(0, Number(diffEntry.additions) || 0)
+      deletions += Math.max(0, Number(diffEntry.deletions) || 0)
+      if (includeFiles) {
+        files.push(diffEntry)
+      }
+    })
+
+    repoRoots.push(repoRoot)
+  })
+
+  return {
+    supported: true,
+    scope,
+    runId: scope === 'run' ? runId : '',
+    repoRoot: repoRoots.length === 1 ? repoRoots[0] : workspaceCwd,
+    repoRoots,
+    repoCount: repoRoots.length,
+    branch: '',
+    baseline: {
+      createdAt: baseline.createdAt,
+      headOid: '',
+      headShort: '',
+      branch: '',
+      currentHeadOid: '',
+      currentHeadShort: '',
+    },
+    warnings,
+    baselineCreatedAt: baseline.createdAt,
+    summary: {
+      fileCount,
+      additions: includeStats ? additions : null,
+      deletions: includeStats ? deletions : null,
+      statsComplete: includeStats,
+    },
+    files: includeFiles ? sortDiffFiles(files) : [],
+  }
+}
+
+function getLegacyWorkspaceFallbackReview(taskSlug = '', scope = 'task', runId = '', options = {}) {
+  const workspaceCwd = resolveTaskWorkspaceCwd(taskSlug)
+  const repoRoots = discoverWorkspaceGitRepoRoots(workspaceCwd)
+  if (!workspaceCwd || !repoRoots.length) {
+    return null
+  }
+
+  const workspacePayload = getWorkspaceGitDiffReviewByCwd(workspaceCwd, options)
+  if (!workspacePayload?.supported) {
+    return workspacePayload
+  }
+
+  return {
+    ...workspacePayload,
+    scope,
+    runId: scope === 'run' ? runId : '',
+    warnings: [
+      '检测到旧版单仓库代码变更基线已失效，当前已回退展示工作区代码变更。请再执行一轮任务后，后续的任务累计和本轮 diff 将自动按多仓库模式记录。',
+    ],
+    baseline: null,
+    baselineCreatedAt: '',
+  }
+}
+
 export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   const normalizedTaskSlug = String(taskSlug || '').trim()
   if (!normalizedTaskSlug) {
@@ -1263,13 +1817,22 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   const includeStats = targetFilePath || options.includeStats !== false
 
   if (scope === 'workspace') {
-    return getWorkspaceGitDiffReviewByCwd(resolveTaskRepoRoot(normalizedTaskSlug), {
+    return getWorkspaceGitDiffReviewByCwd(resolveTaskWorkspaceCwd(normalizedTaskSlug), {
       filePath: targetFilePath,
+      repoRoot: options.repoRoot,
+      includeFiles,
+      includeStats,
     })
   }
 
   let baseline = null
   let comparisonSnapshot = null
+  const workspaceFallback = () => getLegacyWorkspaceFallbackReview(normalizedTaskSlug, scope, runId, {
+    filePath: targetFilePath,
+    repoRoot: options.repoRoot,
+    includeFiles,
+    includeStats,
+  })
   if (scope === 'run') {
     if (!runId) {
       return createUnsupportedResult('请选择一轮执行后再查看本轮代码变更。')
@@ -1284,6 +1847,11 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
   }
 
   if (!baseline) {
+    const fallbackWorkspacePayload = workspaceFallback()
+    if (fallbackWorkspacePayload?.supported) {
+      return fallbackWorkspacePayload
+    }
+
     const fallbackRepoRoot = resolveTaskRepoRoot(normalizedTaskSlug)
     if (!fallbackRepoRoot) {
       return createUnsupportedResult('当前工作目录不是 Git 仓库，暂不支持代码变更审查。')
@@ -1296,6 +1864,26 @@ export function getTaskGitDiffReview(taskSlug = '', options = {}) {
       fallbackRepoRoot,
       resolveGitBranchLabel(fallbackRepoRoot)
     )
+  }
+
+  if ((baseline.workspaceRepos || []).length) {
+    if (scope === 'run' && !comparisonSnapshot) {
+      return createUnsupportedResult('这轮执行缺少结束快照，暂时无法准确还原本轮代码变更。', baseline.repoRoot)
+    }
+
+    return getWorkspaceTaskScopedDiffReview(scope, runId, baseline, comparisonSnapshot, {
+      filePath: targetFilePath,
+      repoRoot: options.repoRoot,
+      includeFiles,
+      includeStats,
+    })
+  }
+
+  if (!resolveGitRepoRoot(baseline.repoRoot)) {
+    const fallbackWorkspacePayload = workspaceFallback()
+    if (fallbackWorkspacePayload?.supported) {
+      return fallbackWorkspacePayload
+    }
   }
 
   if (scope === 'run' && !comparisonSnapshot) {

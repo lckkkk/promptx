@@ -128,6 +128,8 @@ function toTask(row, blocks = [], options = {}) {
       nextTriggerAt: String(row.automation_next_trigger_at || ''),
     },
     notification,
+    latestCompletedRunFinishedAt: String(row.latest_completed_run_finished_at || ''),
+    unread: Boolean(row.unread),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     blocks,
@@ -408,7 +410,91 @@ function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0, 
       profileId: notification.profileId,
       profileName: notification.profileName,
     },
+    latestCompletedRunFinishedAt: String(row.latest_completed_run_finished_at || ''),
+    unread: Boolean(row.unread),
   }
+}
+
+function loadLatestTerminalRunFinishedAtByTaskSlug(taskSlugs = []) {
+  const normalizedTaskSlugs = [...new Set(
+    (taskSlugs || [])
+      .map((slug) => String(slug || '').trim())
+      .filter(Boolean)
+  )]
+
+  if (!normalizedTaskSlugs.length) {
+    return new Map()
+  }
+
+  const placeholders = normalizedTaskSlugs.map(() => '?').join(', ')
+  const terminalStatuses = ['completed', 'error', 'stopped', 'interrupted', 'stop_timeout']
+  const statusPlaceholders = terminalStatuses.map(() => '?').join(', ')
+  const rows = all(
+    `SELECT
+       task_slug,
+       MAX(COALESCE(NULLIF(finished_at, ''), updated_at, created_at)) AS latest_finished_at
+     FROM codex_runs
+     WHERE task_slug IN (${placeholders})
+       AND status IN (${statusPlaceholders})
+     GROUP BY task_slug`,
+    [...normalizedTaskSlugs, ...terminalStatuses]
+  )
+
+  return new Map(rows.map((row) => [
+    String(row.task_slug || '').trim(),
+    String(row.latest_finished_at || '').trim(),
+  ]))
+}
+
+function loadTaskReadStateByTaskSlug(taskSlugs = [], userId = 'default') {
+  const normalizedTaskSlugs = [...new Set(
+    (taskSlugs || [])
+      .map((slug) => String(slug || '').trim())
+      .filter(Boolean)
+  )]
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+
+  if (!normalizedTaskSlugs.length) {
+    return new Map()
+  }
+
+  const placeholders = normalizedTaskSlugs.map(() => '?').join(', ')
+  const rows = all(
+    `SELECT task_slug, last_read_run_finished_at
+     FROM task_read_states
+     WHERE user_id = ?
+       AND task_slug IN (${placeholders})`,
+    [normalizedUserId, ...normalizedTaskSlugs]
+  )
+
+  return new Map(rows.map((row) => [
+    String(row.task_slug || '').trim(),
+    String(row.last_read_run_finished_at || '').trim(),
+  ]))
+}
+
+function decorateTaskRowsWithUnreadState(rows = [], userId = 'default') {
+  const taskSlugs = (rows || []).map((row) => String(row?.slug || '').trim()).filter(Boolean)
+  const latestFinishedAtByTaskSlug = loadLatestTerminalRunFinishedAtByTaskSlug(taskSlugs)
+  const lastReadAtByTaskSlug = loadTaskReadStateByTaskSlug(taskSlugs, userId)
+
+  return (rows || []).map((row) => {
+    const taskSlug = String(row?.slug || '').trim()
+    const latestCompletedRunFinishedAt = latestFinishedAtByTaskSlug.get(taskSlug) || ''
+    const lastReadRunFinishedAt = lastReadAtByTaskSlug.get(taskSlug) || ''
+
+    return {
+      ...row,
+      latest_completed_run_finished_at: latestCompletedRunFinishedAt,
+      unread: Boolean(
+        latestCompletedRunFinishedAt
+        && (
+          !lastReadRunFinishedAt
+          || latestCompletedRunFinishedAt > lastReadRunFinishedAt
+        )
+      ),
+    }
+  })
 }
 
 function normalizeBlockInput(block = {}) {
@@ -678,7 +764,7 @@ export function deleteNotificationProfile(profileId, userId = 'default') {
 
 export function listTasks(limit = 30, userId = 'default') {
   const normalizedUserId = String(userId || 'default').trim() || 'default'
-  const rows = all(
+  const rows = decorateTaskRowsWithUnreadState(all(
     `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
@@ -688,7 +774,7 @@ export function listTasks(limit = 30, userId = 'default') {
      ORDER BY sort_order ASC, created_at DESC, id DESC
      LIMIT ?`,
     [normalizedUserId, Math.max(1, Number(limit) || 30)]
-  )
+  ), normalizedUserId)
 
   const taskIds = rows.map((row) => Number(row.id))
   const {
@@ -711,7 +797,7 @@ export function listTasks(limit = 30, userId = 'default') {
 
 export function getTaskBySlug(slug, userId = null) {
   const normalizedUserId = userId ? String(userId).trim() : null
-  const row = normalizedUserId
+  const rawRow = normalizedUserId
     ? get(
         `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
                 automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
@@ -731,9 +817,13 @@ export function getTaskBySlug(slug, userId = null) {
         [slug]
       )
 
-  if (!row) {
+  if (!rawRow) {
     return null
   }
+
+  const row = normalizedUserId
+    ? decorateTaskRowsWithUnreadState([rawRow], normalizedUserId)[0]
+    : rawRow
 
   const notificationProfile = Number(row.notification_profile_id)
     ? getNotificationProfileById(row.notification_profile_id)
@@ -743,6 +833,40 @@ export function getTaskBySlug(slug, userId = null) {
     notificationProfile,
   })
   return isExpired(task) ? { ...task, expired: true } : task
+}
+
+export function markTaskRead(taskSlug = '', userId = 'default', finishedAt = '') {
+  const normalizedTaskSlug = String(taskSlug || '').trim()
+  const normalizedUserId = String(userId || 'default').trim() || 'default'
+  if (!normalizedTaskSlug) {
+    return null
+  }
+
+  const task = getTaskBySlug(normalizedTaskSlug, normalizedUserId)
+  if (!task || task.expired) {
+    return null
+  }
+
+  const latestCompletedRunFinishedAt = String(
+    finishedAt
+    || loadLatestTerminalRunFinishedAtByTaskSlug([normalizedTaskSlug]).get(normalizedTaskSlug)
+    || ''
+  ).trim()
+  const now = new Date().toISOString()
+
+  run(
+    `INSERT INTO task_read_states (user_id, task_slug, last_read_run_finished_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, task_slug) DO UPDATE SET
+       last_read_run_finished_at = excluded.last_read_run_finished_at,
+       updated_at = excluded.updated_at`,
+    [normalizedUserId, normalizedTaskSlug, latestCompletedRunFinishedAt, now, now]
+  )
+
+  return {
+    taskSlug: normalizedTaskSlug,
+    lastReadRunFinishedAt: latestCompletedRunFinishedAt,
+  }
 }
 
 export function createTask(input = {}, userId = 'default') {
@@ -757,9 +881,12 @@ export function createTask(input = {}, userId = 'default') {
   const codexSessionId = clampText(input.codexSessionId || '', 120)
   const automation = normalizeAutomationInput(input.automation)
   const hasExplicitNotification = Object.prototype.hasOwnProperty.call(input || {}, 'notification')
+  const defaultNotificationProfile = defaultNotificationProfileId
+    ? getNotificationProfileById(defaultNotificationProfileId, normalizedUserId)
+    : null
   const notification = hasExplicitNotification
     ? normalizeNotificationInput(input.notification)
-    : defaultNotificationProfileId
+    : defaultNotificationProfile
       ? normalizeNotificationInput({
           enabled: true,
           profileId: defaultNotificationProfileId,

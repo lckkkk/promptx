@@ -38,6 +38,13 @@ export function getTask(slug) {
   return request(`/api/tasks/${slug}`)
 }
 
+export function markTaskReadState(slug, payload = {}) {
+  return request(`/api/tasks/${slug}/read-state`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function updateTask(slug, payload) {
   return request(`/api/tasks/${slug}`, {
     method: 'PUT',
