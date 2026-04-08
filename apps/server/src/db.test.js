@@ -36,7 +36,7 @@ test('db module backs up legacy schema and initializes the latest schema', async
       ['tasks']
     )
 
-    assert.equal(schemaVersionRow?.value, '2')
+    assert.equal(schemaVersionRow?.value, '3')
     assert.equal(tasksTable?.name, 'tasks')
 
     const backupFiles = fs.readdirSync(dataDir).filter((fileName) => fileName.includes('.legacy-') && fileName.endsWith('.bak'))
