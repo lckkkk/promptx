@@ -3,9 +3,15 @@ import { getTaskGitDiff, listTaskCodexRuns } from '../lib/api.js'
 import { formatDateTime, getCurrentLocale, translate } from './useI18n.js'
 import { useWorkbenchRealtime } from './useWorkbenchRealtime.js'
 
-function buildLoadSignature(taskSlug, scope, runId = '') {
+function buildRepoRootsSignature(repoRoots = []) {
+  return Array.isArray(repoRoots)
+    ? repoRoots.map((item) => String(item || '').trim()).filter(Boolean).sort().join('|')
+    : ''
+}
+
+function buildLoadSignature(taskSlug, scope, runId = '', repoRoots = []) {
   const normalizedScope = scope === 'run' ? 'run' : scope === 'task' ? 'task' : 'workspace'
-  return [String(taskSlug || '').trim(), normalizedScope, String(runId || '').trim()].join('::')
+  return [String(taskSlug || '').trim(), normalizedScope, String(runId || '').trim(), buildRepoRootsSignature(repoRoots)].join('::')
 }
 
 function buildPatchCacheKey(signature = '', filePath = '') {
@@ -210,6 +216,7 @@ function normalizeDiffPayload(payload = null) {
 export function useTaskDiffReviewData(props) {
   const diffScope = ref('workspace')
   const selectedRunId = ref('')
+  const selectedRepoRoots = ref([])
   const selectedFileKey = ref('')
   const statusFilter = ref('all')
   const fileSearch = ref('')
@@ -236,6 +243,8 @@ export function useTaskDiffReviewData(props) {
   const filePatchCache = new Map()
 
   const terminalRuns = computed(() => runs.value.filter((run) => run.completed))
+  const repoSummaries = computed(() => Array.isArray(diffPayload.value?.repoSummaries) ? diffPayload.value.repoSummaries : [])
+  const selectedRepoRootsSignature = computed(() => buildRepoRootsSignature(selectedRepoRoots.value))
   const statusCounts = computed(() => {
     const counts = {
       all: 0,
@@ -271,6 +280,21 @@ export function useTaskDiffReviewData(props) {
         String(file?.repoLabel || ''),
       ].some((value) => value.toLowerCase().includes(normalizedQuery))
     })
+  })
+
+  const selectedRepoFileCount = computed(() => {
+    if (!repoSummaries.value.length) {
+      return 0
+    }
+
+    const selectedSet = new Set(selectedRepoRoots.value)
+    return repoSummaries.value.reduce((sum, item) => {
+      const repoRoot = String(item?.repoRoot || '').trim()
+      if (!repoRoot || !selectedSet.has(repoRoot)) {
+        return sum
+      }
+      return sum + Math.max(0, Number(item?.fileCount) || 0)
+    }, 0)
   })
 
   const selectedFile = computed(() => {
@@ -379,6 +403,32 @@ export function useTaskDiffReviewData(props) {
     }
 
     selectedRunId.value = nextRuns[0].id
+  }
+
+  function syncSelectedRepoRoots() {
+    const nextRepoRoots = repoSummaries.value
+      .map((item) => String(item?.repoRoot || '').trim())
+      .filter(Boolean)
+
+    if (!nextRepoRoots.length) {
+      selectedRepoRoots.value = []
+      return
+    }
+
+    if (!selectedRepoRoots.value.length) {
+      selectedRepoRoots.value = [...nextRepoRoots]
+      return
+    }
+
+    const availableSet = new Set(nextRepoRoots)
+    const filteredSelection = selectedRepoRoots.value.filter((item) => availableSet.has(String(item || '').trim()))
+    selectedRepoRoots.value = filteredSelection.length ? filteredSelection : [...nextRepoRoots]
+  }
+
+  function updateSelectedRepoRoots(nextRepoRoots = []) {
+    selectedRepoRoots.value = Array.isArray(nextRepoRoots)
+      ? nextRepoRoots.map((item) => String(item || '').trim()).filter(Boolean)
+      : []
   }
 
   function syncSelectedFile() {
@@ -509,7 +559,7 @@ export function useTaskDiffReviewData(props) {
       if (scope === 'run') {
         await loadRuns()
       }
-      const signature = buildLoadSignature(props.taskSlug, scope, scope === 'run' ? selectedRunId.value : '')
+      const signature = buildLoadSignature(props.taskSlug, scope, scope === 'run' ? selectedRunId.value : '', selectedRepoRoots.value)
 
       if (scope === 'run' && !selectedRunId.value) {
         diffPayload.value = {
@@ -527,6 +577,7 @@ export function useTaskDiffReviewData(props) {
       if (cachedListPayload) {
         diffPayload.value = cachedListPayload
         lastLoadedSignature = signature
+        syncSelectedRepoRoots()
 
         const cachedStatsPayload = getCachedValue(diffStatsCache, signature)
         if (cachedStatsPayload) {
@@ -543,7 +594,7 @@ export function useTaskDiffReviewData(props) {
 
         syncSelectedFile()
         loadSelectedFilePatch().catch(() => {})
-        if (!cachedStatsPayload) {
+        if (!cachedStatsPayload && !cachedListPayload.fileListDeferred) {
           loadDiffStats().catch(() => {})
         }
         return
@@ -552,6 +603,7 @@ export function useTaskDiffReviewData(props) {
       const payload = await getTaskGitDiff(props.taskSlug, {
         scope,
         runId: scope === 'run' ? selectedRunId.value : '',
+        repoRoots: selectedRepoRoots.value,
         includeStats: false,
       })
 
@@ -564,9 +616,12 @@ export function useTaskDiffReviewData(props) {
       setCachedValue(diffListCache, signature, normalizedPayload, 36)
       lastLoadedSignature = signature
       lastStatsLoadedSignature = ''
+      syncSelectedRepoRoots()
       syncSelectedFile()
       loadSelectedFilePatch().catch(() => {})
-      loadDiffStats().catch(() => {})
+      if (!normalizedPayload.fileListDeferred) {
+        loadDiffStats().catch(() => {})
+      }
     } catch (err) {
       if (currentRequestId !== loadRequestId) {
         return
@@ -588,7 +643,7 @@ export function useTaskDiffReviewData(props) {
 
     const scope = diffScope.value === 'run' ? 'run' : diffScope.value === 'task' ? 'task' : 'workspace'
     const runId = scope === 'run' ? selectedRunId.value : ''
-    const signature = buildLoadSignature(props.taskSlug, scope, runId)
+    const signature = buildLoadSignature(props.taskSlug, scope, runId, selectedRepoRoots.value)
     if (lastStatsLoadedSignature === signature && diffPayload.value?.summary?.statsComplete) {
       return
     }
@@ -612,11 +667,12 @@ export function useTaskDiffReviewData(props) {
       const payload = await getTaskGitDiff(props.taskSlug, {
         scope,
         runId,
+        repoRoots: selectedRepoRoots.value,
         includeFiles: false,
         includeStats: true,
       })
 
-      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '')
+      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '', selectedRepoRoots.value)
       if (signature !== latestSignature || !diffPayload.value) {
         return
       }
@@ -637,7 +693,7 @@ export function useTaskDiffReviewData(props) {
     } catch {
       // Keep the lighter file list usable even if stats loading fails.
     } finally {
-      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '')
+      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '', selectedRepoRoots.value)
       if (signature === latestSignature) {
         statsLoading.value = false
       }
@@ -653,7 +709,7 @@ export function useTaskDiffReviewData(props) {
 
     const scope = diffScope.value === 'run' ? 'run' : diffScope.value === 'task' ? 'task' : 'workspace'
     const runId = scope === 'run' ? selectedRunId.value : ''
-    const signature = buildLoadSignature(props.taskSlug, scope, runId)
+    const signature = buildLoadSignature(props.taskSlug, scope, runId, selectedRepoRoots.value)
 
     if (!currentFile || currentFile.patchLoaded || currentFile.binary || currentFile.tooLarge || currentFile.message) {
       return
@@ -684,7 +740,7 @@ export function useTaskDiffReviewData(props) {
         return
       }
 
-      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '')
+      const latestSignature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '', selectedRepoRoots.value)
       if (signature !== latestSignature) {
         return
       }
@@ -719,7 +775,7 @@ export function useTaskDiffReviewData(props) {
       return
     }
 
-    const signature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '')
+    const signature = buildLoadSignature(props.taskSlug, diffScope.value, diffScope.value === 'run' ? selectedRunId.value : '', selectedRepoRoots.value)
     if (!force && signature === lastLoadedSignature) {
       return
     }
@@ -741,11 +797,12 @@ export function useTaskDiffReviewData(props) {
   }
 
   watch(
-    () => [props.taskSlug, props.active, diffScope.value, selectedRunId.value],
+    () => [props.taskSlug, props.active, diffScope.value, selectedRunId.value, selectedRepoRootsSignature.value],
     ([taskSlug, active], previousValue = []) => {
       const previousTaskSlug = previousValue[0] || ''
       if (taskSlug !== previousTaskSlug) {
         selectedFileKey.value = ''
+        selectedRepoRoots.value = []
         lastLoadedSignature = ''
         runs.value = []
         selectedRunId.value = ''
@@ -766,6 +823,7 @@ export function useTaskDiffReviewData(props) {
   watch(
     () => [statusFilter.value, diffPayload.value?.files?.length || 0],
     () => {
+      syncSelectedRepoRoots()
       syncSelectedFile()
     }
   )
@@ -867,9 +925,12 @@ export function useTaskDiffReviewData(props) {
     normalizeFileStatus,
     patchLoading,
     patchViewportRef,
+    repoSummaries,
     runs,
     selectedFile,
+    selectedRepoFileCount,
     selectedFilePath: selectedFileKey,
+    selectedRepoRoots,
     selectedPatchHunks,
     selectedPatchLines,
     selectedRunId,
@@ -879,6 +940,7 @@ export function useTaskDiffReviewData(props) {
     statusCounts,
     statusFilter,
     terminalRuns,
+    updateSelectedRepoRoots,
     formatRunOptionLabel,
     refreshDiff,
   }

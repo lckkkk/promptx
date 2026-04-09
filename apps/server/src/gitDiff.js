@@ -9,6 +9,7 @@ import { getTaskBySlug } from './repository.js'
 
 const MAX_SNAPSHOT_TEXT_BYTES = 220_000
 const MAX_PATCH_TEXT_BYTES = 260_000
+const MULTI_REPO_DEFER_FILE_LIST_THRESHOLD = 400
 const DIFF_REVIEW_CACHE_TTL_MS = 4000
 const DIFF_REVIEW_CACHE_MAX_ENTRIES = 80
 const FILE_DIFF_CACHE_TTL_MS = 8000
@@ -1419,7 +1420,50 @@ function createUnsupportedResult(reason = '', repoRoot = '', branch = '') {
       deletions: 0,
     },
     files: [],
+    repoSummaries: [],
+    fileListDeferred: false,
+    deferredReason: '',
   }
+}
+
+function createRepoSummary(repoRoot = '', workspaceCwd = '', summary = {}, branch = '') {
+  return {
+    repoRoot,
+    repoLabel: resolveWorkspaceRepoLabel(workspaceCwd, repoRoot),
+    branch: String(branch || '').trim(),
+    fileCount: Math.max(0, Number(summary?.fileCount) || 0),
+    additions: Math.max(0, Number(summary?.additions) || 0),
+    deletions: Math.max(0, Number(summary?.deletions) || 0),
+    statsComplete: Boolean(summary?.statsComplete),
+  }
+}
+
+function shouldDeferMultiRepoFileList(repoSummaries = [], options = {}) {
+  if (String(options.filePath || '').trim()) {
+    return false
+  }
+
+  if (options.includeFiles === false) {
+    return false
+  }
+
+  if (!Array.isArray(repoSummaries) || repoSummaries.length <= 1) {
+    return false
+  }
+
+  const totalFileCount = repoSummaries.reduce((sum, item) => sum + Math.max(0, Number(item?.fileCount) || 0), 0)
+  return totalFileCount > MULTI_REPO_DEFER_FILE_LIST_THRESHOLD
+}
+
+function normalizeSelectedRepoRoots(value = '') {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeFilesystemPath(item)).filter(Boolean)
+  }
+
+  return String(value || '')
+    .split(',')
+    .map((item) => normalizeFilesystemPath(item))
+    .filter(Boolean)
 }
 
 function getSingleRepoWorkspaceGitDiffReview(repoRoot = '', workspaceCwd = '', options = {}) {
@@ -1503,6 +1547,9 @@ function getSingleRepoWorkspaceGitDiffReview(repoRoot = '', workspaceCwd = '', o
       statsComplete: includeStats,
     },
     files: includeFiles ? sortDiffFiles(files) : [],
+    repoSummaries: [],
+    fileListDeferred: false,
+    deferredReason: '',
   }
   setCachedValue(diffReviewCache, cacheKey, payload, DIFF_REVIEW_CACHE_MAX_ENTRIES, {
     channel: 'review',
@@ -1577,9 +1624,12 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
   }
 
   const targetRepoRoot = normalizeFilesystemPath(options.repoRoot)
-  const selectedRepoRoots = String(options.repoRoot || '').trim()
-    ? repoRoots.filter((repoRoot) => normalizeFilesystemPath(repoRoot) === targetRepoRoot)
-    : repoRoots
+  const targetRepoRoots = normalizeSelectedRepoRoots(options.repoRoots)
+  const selectedRepoRoots = targetRepoRoots.length
+    ? repoRoots.filter((repoRoot) => targetRepoRoots.includes(normalizeFilesystemPath(repoRoot)))
+    : String(options.repoRoot || '').trim()
+      ? repoRoots.filter((repoRoot) => normalizeFilesystemPath(repoRoot) === targetRepoRoot)
+      : repoRoots
   if (!selectedRepoRoots.length) {
     return createUnsupportedResult('没有找到对应的 Git 仓库，暂时无法读取该文件的代码变更。')
   }
@@ -1591,7 +1641,9 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
   const deletions = payloads.reduce((sum, payload) => sum + Math.max(0, Number(payload.summary?.deletions) || 0), 0)
   const includeFiles = String(options.filePath || '').trim() || options.includeFiles !== false
   const includeStats = String(options.filePath || '').trim() || options.includeStats !== false
-  const files = includeFiles ? sortDiffFiles(payloads.flatMap((payload) => payload.files || [])) : []
+  const repoSummaries = payloads.map((payload) => createRepoSummary(payload.repoRoot, cwd, payload.summary, payload.branch))
+  const fileListDeferred = shouldDeferMultiRepoFileList(repoSummaries, options)
+  const files = includeFiles && !fileListDeferred ? sortDiffFiles(payloads.flatMap((payload) => payload.files || [])) : []
 
   return {
     supported: true,
@@ -1611,6 +1663,9 @@ export function getWorkspaceGitDiffReviewByCwd(cwd = '', options = {}) {
       statsComplete: includeStats,
     },
     files,
+    repoSummaries,
+    fileListDeferred,
+    deferredReason: fileListDeferred ? '当前工作区包含过多跨仓库变更文件，请先选择要查看的 Git 仓库。' : '',
   }
 }
 
@@ -1641,6 +1696,9 @@ export function getWorkspaceGitDiffStatusSummaryByCwd(cwd = '') {
       statsComplete: false,
     },
     files: [],
+    repoSummaries: payloads.map((payload) => createRepoSummary(payload.repoRoot, cwd, payload.summary, payload.branch)),
+    fileListDeferred: false,
+    deferredReason: '',
   }
 }
 
@@ -1649,12 +1707,15 @@ function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline =
   const baselineRepos = Array.isArray(baseline?.workspaceRepos) ? baseline.workspaceRepos : []
   const comparisonRepos = Array.isArray(comparisonSnapshot?.workspaceRepos) ? comparisonSnapshot.workspaceRepos : []
   const selectedRepoRoot = normalizeFilesystemPath(options.repoRoot)
+  const selectedRepoRoots = normalizeSelectedRepoRoots(options.repoRoots)
   const includeFiles = String(options.filePath || '').trim() || options.includeFiles !== false
   const includeStats = String(options.filePath || '').trim() || options.includeStats !== false
   const targetFilePath = String(options.filePath || '').trim()
-  const repoCandidates = String(options.repoRoot || '').trim()
-    ? baselineRepos.filter((repo) => normalizeFilesystemPath(repo.repoRoot) === selectedRepoRoot)
-    : baselineRepos
+  const repoCandidates = selectedRepoRoots.length
+    ? baselineRepos.filter((repo) => selectedRepoRoots.includes(normalizeFilesystemPath(repo.repoRoot)))
+    : String(options.repoRoot || '').trim()
+      ? baselineRepos.filter((repo) => normalizeFilesystemPath(repo.repoRoot) === selectedRepoRoot)
+      : baselineRepos
 
   if (!repoCandidates.length) {
     return createUnsupportedResult('没有找到对应的 Git 仓库，暂时无法读取该文件的代码变更。')
@@ -1665,6 +1726,7 @@ function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline =
   const files = []
   const warnings = []
   const repoRoots = []
+  const repoSummaries = []
   let fileCount = 0
   let additions = 0
   let deletions = 0
@@ -1723,6 +1785,10 @@ function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline =
         ...(scope === 'run' && comparisonRepo ? comparisonEntries.keys() : workingTreeEntries.keys()),
       ])
 
+    let repoFileCount = 0
+    let repoAdditions = 0
+    let repoDeletions = 0
+
     candidatePaths.forEach((filePath) => {
       const previousState = baselineStateForPath(filePath)
       const nextState = nextStateForPath(filePath)
@@ -1737,15 +1803,26 @@ function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline =
       }
 
       fileCount += 1
+      repoFileCount += 1
       additions += Math.max(0, Number(diffEntry.additions) || 0)
       deletions += Math.max(0, Number(diffEntry.deletions) || 0)
+      repoAdditions += Math.max(0, Number(diffEntry.additions) || 0)
+      repoDeletions += Math.max(0, Number(diffEntry.deletions) || 0)
       if (includeFiles) {
         files.push(diffEntry)
       }
     })
 
     repoRoots.push(repoRoot)
+    repoSummaries.push(createRepoSummary(repoRoot, workspaceCwd, {
+      fileCount: repoFileCount,
+      additions: includeStats ? repoAdditions : 0,
+      deletions: includeStats ? repoDeletions : 0,
+      statsComplete: includeStats,
+    }, currentBranchLabel))
   })
+
+  const fileListDeferred = shouldDeferMultiRepoFileList(repoSummaries, options)
 
   return {
     supported: true,
@@ -1771,7 +1848,10 @@ function getWorkspaceTaskScopedDiffReview(scope = 'task', runId = '', baseline =
       deletions: includeStats ? deletions : null,
       statsComplete: includeStats,
     },
-    files: includeFiles ? sortDiffFiles(files) : [],
+    files: includeFiles && !fileListDeferred ? sortDiffFiles(files) : [],
+    repoSummaries,
+    fileListDeferred,
+    deferredReason: fileListDeferred ? '当前工作区包含过多跨仓库变更文件，请先选择要查看的 Git 仓库。' : '',
   }
 }
 

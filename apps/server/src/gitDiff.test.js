@@ -414,6 +414,55 @@ test('workspace diff review aggregates nested git repositories under the workspa
   assert.match(adminFileDetail.files[0]?.patch || '', /changed admin/)
 })
 
+test('workspace diff review defers file list for oversized multi-repo changes', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-git-diff-multi-repo-deferred-'))
+  const workspaceDir = path.join(tempDir, 'workspace')
+  const appDir = path.join(workspaceDir, 'app')
+  const adminDir = path.join(workspaceDir, 'admin')
+  fs.mkdirSync(appDir, { recursive: true })
+  fs.mkdirSync(adminDir, { recursive: true })
+
+  ;[appDir, adminDir].forEach((repoDir) => {
+    git(repoDir, ['init'])
+    git(repoDir, ['config', 'user.email', 'promptx@example.com'])
+    git(repoDir, ['config', 'user.name', 'PromptX'])
+  })
+
+  for (let index = 0; index < 205; index += 1) {
+    fs.writeFileSync(path.join(appDir, `app-${index}.txt`), `base app ${index}\n`)
+    fs.writeFileSync(path.join(adminDir, `admin-${index}.txt`), `base admin ${index}\n`)
+  }
+  git(appDir, ['add', '.'])
+  git(appDir, ['commit', '-m', 'init app'])
+  git(adminDir, ['add', '.'])
+  git(adminDir, ['commit', '-m', 'init admin'])
+
+  for (let index = 0; index < 205; index += 1) {
+    fs.writeFileSync(path.join(appDir, `app-${index}.txt`), `changed app ${index}\n`)
+    fs.writeFileSync(path.join(adminDir, `admin-${index}.txt`), `changed admin ${index}\n`)
+  }
+
+  const { getWorkspaceGitDiffReviewByCwd } = await import(`./gitDiff.js?multiRepoDeferred=${Date.now()}`)
+  const deferredPayload = getWorkspaceGitDiffReviewByCwd(workspaceDir, {
+    includeStats: false,
+  })
+  const appPayload = getWorkspaceGitDiffReviewByCwd(workspaceDir, {
+    includeStats: false,
+    repoRoot: appDir,
+  })
+
+  assert.equal(deferredPayload.supported, true)
+  assert.equal(deferredPayload.fileListDeferred, true)
+  assert.equal(deferredPayload.summary.fileCount, 410)
+  assert.equal(deferredPayload.files.length, 0)
+  assert.equal(deferredPayload.repoSummaries.length, 2)
+  assert.match(deferredPayload.deferredReason || '', /先选择要查看的 Git 仓库/)
+
+  assert.equal(appPayload.fileListDeferred, false)
+  assert.equal(appPayload.repoCount, 1)
+  assert.equal(appPayload.files.length, 205)
+})
+
 test('task and run diff review support workspace cwd with multiple nested git repositories', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-git-diff-workspace-baseline-'))
   const workspaceDir = path.join(tempDir, 'workspace')

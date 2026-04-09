@@ -380,6 +380,7 @@ function registerTaskRoutes(app, options = {}) {
         runId: request.query?.runId,
         filePath: request.query?.filePath,
         repoRoot: request.query?.repoRoot,
+        repoRoots: request.query?.repoRoots,
         includeFiles: String(request.query?.includeFiles || '').trim() !== 'false',
         includeStats: String(request.query?.includeStats || '').trim() !== 'false',
       })

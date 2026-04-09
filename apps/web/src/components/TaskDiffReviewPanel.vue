@@ -51,8 +51,11 @@ const {
   patchLoading,
   patchViewportRef,
   refreshDiff,
+  repoSummaries,
   selectedFile,
   selectedFilePath,
+  selectedRepoFileCount,
+  selectedRepoRoots,
   selectedPatchHunks,
   selectedPatchLines,
   selectedRunId,
@@ -62,6 +65,7 @@ const {
   statusCounts,
   statusFilter,
   terminalRuns,
+  updateSelectedRepoRoots,
 } = useTaskDiffReviewData(props)
 
 const { matches: isMobileLayout } = useMediaQuery('(max-width: 767px)')
@@ -77,6 +81,28 @@ function handleSelectFile(path) {
 
 function setPatchViewportElement(element) {
   patchViewportRef.value = element || null
+}
+
+function toggleRepoRoot(repoRoot) {
+  const normalizedRepoRoot = String(repoRoot || '').trim()
+  if (!normalizedRepoRoot) {
+    return
+  }
+
+  const currentSelection = Array.isArray(selectedRepoRoots.value) ? [...selectedRepoRoots.value] : []
+  if (currentSelection.includes(normalizedRepoRoot)) {
+    if (currentSelection.length <= 1) {
+      return
+    }
+    updateSelectedRepoRoots(currentSelection.filter((item) => item !== normalizedRepoRoot))
+    return
+  }
+
+  updateSelectedRepoRoots([...currentSelection, normalizedRepoRoot])
+}
+
+function selectAllRepoRoots() {
+  updateSelectedRepoRoots(repoSummaries.value.map((item) => String(item?.repoRoot || '').trim()).filter(Boolean))
 }
 
 watch(
@@ -277,6 +303,40 @@ watch(diffScope, () => {
             {{ warning }}
           </p>
         </div>
+      </div>
+
+      <div v-if="repoSummaries.length > 1" class="theme-divider border-b px-4 py-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="theme-muted-text text-[11px]">
+            {{ t('diffReview.repoFilterSummary', { selected: selectedRepoRoots.length, total: repoSummaries.length, files: selectedRepoFileCount }) }}
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" class="tool-button px-2 py-1 text-[11px]" @click="selectAllRepoRoots">
+              {{ t('diffReview.selectAllRepos') }}
+            </button>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-for="repo in repoSummaries"
+            :key="repo.repoRoot"
+            type="button"
+            class="rounded-sm border px-2.5 py-1.5 text-left text-[11px] transition"
+            :class="selectedRepoRoots.includes(repo.repoRoot) ? 'theme-filter-active' : 'theme-filter-idle'"
+            @click="toggleRepoRoot(repo.repoRoot)"
+          >
+            <div class="font-medium text-[var(--theme-textPrimary)]">{{ repo.repoLabel || repo.repoRoot }}</div>
+            <div class="theme-muted-text mt-1">
+              {{ t('diffReview.repoFilterItem', { count: repo.fileCount }) }}
+            </div>
+          </button>
+        </div>
+        <p
+          v-if="diffPayload.fileListDeferred"
+          class="mt-3 text-[11px] leading-5 text-[var(--theme-warningText)]"
+        >
+          {{ diffPayload.deferredReason || t('diffReview.repoFilterDeferred') }}
+        </p>
       </div>
 
       <div v-if="isMobileLayout" class="flex flex-col">

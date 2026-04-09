@@ -198,6 +198,9 @@ export function getTaskGitDiff(taskSlug, options = {}) {
   const runId = String(options.runId || '').trim()
   const filePath = String(options.filePath || '').trim()
   const repoRoot = String(options.repoRoot || '').trim()
+  const repoRoots = Array.isArray(options.repoRoots)
+    ? options.repoRoots.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
   const includeFiles = options.includeFiles !== false
   const includeStats = options.includeStats !== false
 
@@ -217,6 +220,9 @@ export function getTaskGitDiff(taskSlug, options = {}) {
   }
   if (repoRoot) {
     params.set('repoRoot', repoRoot)
+  }
+  if (repoRoots.length) {
+    params.set('repoRoots', repoRoots.join(','))
   }
   if (!includeFiles) {
     params.set('includeFiles', 'false')

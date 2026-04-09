@@ -101,7 +101,10 @@ const hasDiffFiles = computed(() => Array.isArray(props.diffPayload?.files) && p
     {{ t('diffReview.statsPending') }}
   </div>
 
-  <div v-if="!hasDiffFiles" class="theme-empty-state px-3 py-4 text-xs">
+  <div v-if="diffPayload?.fileListDeferred" class="theme-empty-state px-3 py-4 text-xs">
+    {{ diffPayload?.deferredReason || t('diffReview.repoFilterDeferred') }}
+  </div>
+  <div v-else-if="!hasDiffFiles" class="theme-empty-state px-3 py-4 text-xs">
     {{ t('diffReview.noChanges') }}
   </div>
   <div v-else-if="!filteredFiles.length" class="theme-empty-state px-3 py-4 text-xs">
