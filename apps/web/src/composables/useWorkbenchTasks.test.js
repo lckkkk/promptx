@@ -402,7 +402,7 @@ test('initializeWorkbench marks opened unread task as read and clears local badg
     const requestUrl = String(url)
     const method = String(options.method || 'GET').toUpperCase()
 
-    if (requestUrl.endsWith('/api/tasks') && method === 'GET') {
+    if (requestUrl.endsWith('/api/tasks?view=active') && method === 'GET') {
       return createJsonResponse(taskListPayload)
     }
 
@@ -501,7 +501,7 @@ test('initializeWorkbench still marks task as read when detail unread flag is st
     const requestUrl = String(url)
     const method = String(options.method || 'GET').toUpperCase()
 
-    if (requestUrl.endsWith('/api/tasks') && method === 'GET') {
+    if (requestUrl.endsWith('/api/tasks?view=active') && method === 'GET') {
       return createJsonResponse(taskListPayload)
     }
 
@@ -529,6 +529,183 @@ test('initializeWorkbench still marks task as read when detail unread flag is st
     assert.deepEqual(readStateRequests[0], {
       finishedAt: '2026-04-08T10:00:00.000Z',
     })
+  } finally {
+    global.fetch = originalFetch
+    global.window = originalWindow
+  }
+})
+
+test('refreshTaskList defaults to active view and switches to archived view explicitly', async () => {
+  const originalFetch = global.fetch
+  const originalWindow = global.window
+  const requests = []
+
+  global.window = {
+    location: {
+      href: 'http://localhost:4173/',
+      origin: 'http://localhost:4173',
+      pathname: '/',
+      search: '',
+    },
+    localStorage: createMemoryLocalStorage(),
+    history: {
+      replaceState() {},
+    },
+    EventSource: class {
+      close() {}
+    },
+    setTimeout,
+    clearTimeout,
+  }
+
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    const method = String(options.method || 'GET').toUpperCase()
+    requests.push({ requestUrl, method })
+
+    if (requestUrl.includes('/api/tasks') && method === 'GET') {
+      return createJsonResponse({
+        items: [
+          {
+            slug: requestUrl.includes('view=archived') ? 'task-archived' : 'task-active',
+            title: requestUrl.includes('view=archived') ? '已归档任务' : '进行中任务',
+            autoTitle: '',
+            lastPromptPreview: '',
+            codexSessionId: '',
+            codexRunCount: 0,
+            todoCount: 0,
+            running: false,
+            archivedAt: requestUrl.includes('view=archived') ? '2026-04-16T08:00:00.000Z' : '',
+            updatedAt: '2026-04-16T08:00:00.000Z',
+            createdAt: '2026-04-16T07:00:00.000Z',
+            unread: false,
+            latestCompletedRunFinishedAt: '',
+          },
+        ],
+      })
+    }
+
+    throw new Error(`Unexpected fetch: ${method} ${requestUrl}`)
+  }
+
+  try {
+    const workbench = useWorkbenchTasks()
+    await workbench.refreshTaskList()
+    assert.equal(requests[0].requestUrl.endsWith('/api/tasks?view=active'), true)
+    assert.equal(workbench.currentTaskListView.value, 'active')
+    assert.equal(workbench.renderedTasks.value[0].slug, 'task-active')
+
+    await workbench.setTaskListView('archived')
+    assert.equal(requests[1].requestUrl.endsWith('/api/tasks?view=archived'), true)
+    assert.equal(workbench.currentTaskListView.value, 'archived')
+    assert.equal(workbench.renderedTasks.value[0].slug, 'task-archived')
+  } finally {
+    global.fetch = originalFetch
+    global.window = originalWindow
+  }
+})
+
+test('archiveTaskBySlug and restoreTaskBySlug update archived task list in place', async () => {
+  const originalFetch = global.fetch
+  const originalWindow = global.window
+  const updateRequests = []
+
+  global.window = {
+    location: {
+      href: 'http://localhost:4173/',
+      origin: 'http://localhost:4173',
+      pathname: '/',
+      search: '',
+    },
+    localStorage: createMemoryLocalStorage(),
+    history: {
+      replaceState() {},
+    },
+    EventSource: class {
+      close() {}
+    },
+    setTimeout,
+    clearTimeout,
+  }
+
+  global.fetch = async (url, options = {}) => {
+    const requestUrl = String(url)
+    const method = String(options.method || 'GET').toUpperCase()
+
+    if (requestUrl.endsWith('/api/tasks?view=active') && method === 'GET') {
+      return createJsonResponse({
+        items: [
+          {
+            slug: 'task-1',
+            title: '任务 1',
+            autoTitle: '',
+            lastPromptPreview: '',
+            codexSessionId: '',
+            codexRunCount: 0,
+            todoCount: 0,
+            running: false,
+            archivedAt: '',
+            updatedAt: '2026-04-16T08:00:00.000Z',
+            createdAt: '2026-04-16T07:00:00.000Z',
+            unread: false,
+            latestCompletedRunFinishedAt: '',
+          },
+        ],
+      })
+    }
+
+    if (requestUrl.endsWith('/api/tasks/task-1') && method === 'PUT') {
+      const payload = JSON.parse(String(options.body || '{}'))
+      updateRequests.push(payload)
+      return createJsonResponse({
+        slug: 'task-1',
+        title: '任务 1',
+        autoTitle: '',
+        lastPromptPreview: '',
+        codexSessionId: '',
+        codexRunCount: 0,
+        todoCount: 0,
+        running: false,
+        archivedAt: String(payload.archivedAt || ''),
+        updatedAt: '2026-04-16T08:30:00.000Z',
+        createdAt: '2026-04-16T07:00:00.000Z',
+        unread: false,
+        latestCompletedRunFinishedAt: '',
+      })
+    }
+
+    throw new Error(`Unexpected fetch: ${method} ${requestUrl}`)
+  }
+
+  try {
+    const workbench = useWorkbenchTasks()
+    await workbench.refreshTaskList()
+    assert.deepEqual(workbench.renderedTasks.value.map((task) => task.slug), ['task-1'])
+
+    await workbench.archiveTaskBySlug('task-1')
+    assert.equal(Boolean(updateRequests[0].archivedAt), true)
+    assert.deepEqual(workbench.renderedTasks.value.map((task) => task.slug), [])
+
+    workbench.tasks.value = [{
+      slug: 'task-1',
+      title: '任务 1',
+      autoTitle: '',
+      lastPromptPreview: '',
+      codexSessionId: '',
+      codexRunCount: 0,
+      todoCount: 0,
+      running: false,
+      archivedAt: '2026-04-16T08:30:00.000Z',
+      updatedAt: '2026-04-16T08:30:00.000Z',
+      createdAt: '2026-04-16T07:00:00.000Z',
+      unread: false,
+      latestCompletedRunFinishedAt: '',
+    }]
+    workbench.currentTaskListView.value = 'archived'
+
+    await workbench.restoreTaskBySlug('task-1')
+    assert.equal(updateRequests[1].archivedAt, '')
+    assert.deepEqual(workbench.renderedTasks.value.map((task) => task.slug), [])
   } finally {
     global.fetch = originalFetch
     global.window = originalWindow

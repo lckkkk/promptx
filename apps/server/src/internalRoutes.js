@@ -1,12 +1,19 @@
 import { assertInternalRequest } from './internalAuth.js'
 
+const INTERNAL_RUNNER_EVENTS_BODY_LIMIT = Math.max(
+  1024 * 1024,
+  Number(process.env.PROMPTX_INTERNAL_RUNNER_EVENTS_BODY_LIMIT) || 10 * 1024 * 1024
+)
+
 function registerInternalRunnerRoutes(app, options = {}) {
   const {
     runEventIngestService,
     taskAutomationService,
   } = options
 
-  app.post('/internal/runner-events', async (request, reply) => {
+  app.post('/internal/runner-events', {
+    bodyLimit: INTERNAL_RUNNER_EVENTS_BODY_LIMIT,
+  }, async (request, reply) => {
     try {
       assertInternalRequest(request.headers)
       return runEventIngestService.ingestEvents(request.body?.items || [])
@@ -20,12 +27,13 @@ function registerInternalRunnerRoutes(app, options = {}) {
   app.post('/internal/runner-status', async (request, reply) => {
     try {
       assertInternalRequest(request.headers)
-      const run = runEventIngestService.ingestStatus(request.body || {})
+      const result = runEventIngestService.ingestStatus(request.body || {})
+      const run = result?.run || null
       if (!run) {
         return reply.code(404).send({ message: '没有找到对应的运行记录。' })
       }
 
-      if (run.completed) {
+      if (result.transitionedToTerminal) {
         taskAutomationService.notifyRun(run.taskSlug, run.id).catch(() => {})
       }
 

@@ -4,6 +4,14 @@ import { normalizeCodexRunEventsMode } from '../../../packages/shared/src/index.
 import { getApiErrorPayload } from './apiErrors.js'
 
 const MAX_TASK_REORDER_COUNT = 200
+const DEFAULT_WORKSPACE_DIFF_SUMMARY_TIMEOUT_MS = Math.max(
+  1,
+  Number(process.env.PROMPTX_WORKSPACE_DIFF_SUMMARY_TIMEOUT_MS) || 1200
+)
+const DEFAULT_WORKSPACE_DIFF_SUMMARY_CACHE_TTL_MS = Math.max(
+  DEFAULT_WORKSPACE_DIFF_SUMMARY_TIMEOUT_MS,
+  Number(process.env.PROMPTX_WORKSPACE_DIFF_SUMMARY_CACHE_TTL_MS) || 5000
+)
 
 function createEmptyWorkspaceDiffSummary() {
   return {
@@ -31,14 +39,84 @@ function toWorkspaceDiffSummary(payload = null) {
 
 function createTaskWorkspaceDiffSummaryService(options = {}) {
   const getPromptxCodexSessionById = options.getPromptxCodexSessionById || (() => null)
-  const getWorkspaceGitDiffStatusSummaryByCwd = options.getWorkspaceGitDiffStatusSummaryByCwd || (() => null)
+  const getWorkspaceGitDiffStatusSummaryByCwd = options.getWorkspaceGitDiffStatusSummaryByCwd || (async () => null)
   const listTasks = options.listTasks || (() => [])
+  const summaryTimeoutMs = Math.max(1, Number(options.summaryTimeoutMs) || DEFAULT_WORKSPACE_DIFF_SUMMARY_TIMEOUT_MS)
+  const summaryCacheTtlMs = Math.max(summaryTimeoutMs, Number(options.summaryCacheTtlMs) || Number(options.summaryCacheTtlMs) || DEFAULT_WORKSPACE_DIFF_SUMMARY_CACHE_TTL_MS)
+  const summaryCache = new Map()
 
-  function attachTaskWorkspaceDiffSummaries(items = []) {
+  function getCachedSummaryEntry(workspaceKey = '') {
+    if (!summaryCache.has(workspaceKey)) {
+      summaryCache.set(workspaceKey, {
+        value: null,
+        updatedAt: 0,
+        pending: null,
+      })
+    }
+    return summaryCache.get(workspaceKey)
+  }
+
+  function withTimeout(promise, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`workspace diff summary timeout after ${timeoutMs}ms`))
+      }, timeoutMs)
+      timer.unref?.()
+
+      Promise.resolve(promise)
+        .then((value) => {
+          clearTimeout(timer)
+          resolve(value)
+        })
+        .catch((error) => {
+          clearTimeout(timer)
+          reject(error)
+        })
+    })
+  }
+
+  function loadWorkspaceSummary(workspaceKey = '', cwd = '') {
+    const entry = getCachedSummaryEntry(workspaceKey)
+    if (entry.pending) {
+      return entry.pending
+    }
+
+    entry.pending = Promise.resolve(getWorkspaceGitDiffStatusSummaryByCwd(cwd))
+      .then((payload) => {
+        entry.value = toWorkspaceDiffSummary(payload)
+        entry.updatedAt = Date.now()
+        entry.pending = null
+        return entry.value
+      })
+      .catch((error) => {
+        entry.pending = null
+        throw error
+      })
+
+    entry.pending.catch(() => {})
+    return entry.pending
+  }
+
+  async function resolveWorkspaceSummary(workspaceKey = '', cwd = '') {
+    const entry = getCachedSummaryEntry(workspaceKey)
+    const now = Date.now()
+    if (entry.value && now - entry.updatedAt <= summaryCacheTtlMs) {
+      return entry.value
+    }
+
+    const pending = loadWorkspaceSummary(workspaceKey, cwd)
+    try {
+      return await withTimeout(pending, summaryTimeoutMs)
+    } catch {
+      return entry.value || createEmptyWorkspaceDiffSummary()
+    }
+  }
+
+  async function attachTaskWorkspaceDiffSummaries(items = []) {
     const summaryByWorkspaceKey = new Map()
     const emptySummary = createEmptyWorkspaceDiffSummary()
 
-    return items.map((task) => {
+    const resolvedItems = await Promise.all(items.map(async (task) => {
       const sessionId = String(task?.codexSessionId || '').trim()
       if (!sessionId) {
         return {
@@ -50,19 +128,24 @@ function createTaskWorkspaceDiffSummaryService(options = {}) {
       const session = getPromptxCodexSessionById(sessionId)
       const workspaceKey = String(session?.cwd || sessionId).trim()
       if (!summaryByWorkspaceKey.has(workspaceKey)) {
-        const payload = session?.cwd ? getWorkspaceGitDiffStatusSummaryByCwd(session.cwd) : null
-        summaryByWorkspaceKey.set(workspaceKey, toWorkspaceDiffSummary(payload))
+        const payload = session?.cwd
+          ? resolveWorkspaceSummary(workspaceKey, session.cwd)
+          : Promise.resolve(emptySummary)
+        summaryByWorkspaceKey.set(workspaceKey, payload)
       }
 
       return {
         ...task,
-        workspaceDiffSummary: summaryByWorkspaceKey.get(workspaceKey) || emptySummary,
+        workspaceDiffSummary: await summaryByWorkspaceKey.get(workspaceKey) || emptySummary,
       }
-    })
+    }))
+
+    return resolvedItems
   }
 
-  function listTaskWorkspaceDiffSummaries(limit = 30, userId = 'default') {
-    return attachTaskWorkspaceDiffSummaries(listTasks(limit, userId)).map((task) => ({
+  async function listTaskWorkspaceDiffSummaries(limit = 30, userId = 'default') {
+    const items = await attachTaskWorkspaceDiffSummaries(listTasks(limit, userId))
+    return items.map((task) => ({
       slug: String(task?.slug || '').trim(),
       workspaceDiffSummary: task?.workspaceDiffSummary || createEmptyWorkspaceDiffSummary(),
     }))
@@ -137,7 +220,9 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const userId = request.user?.username || 'default'
     return {
-      items: decorateTaskList(listTasks(30, userId)),
+      items: decorateTaskList(listTasks(30, userId, {
+        view: request.query?.view,
+      })),
     }
   })
 
@@ -145,7 +230,7 @@ function registerTaskRoutes(app, options = {}) {
     purgeExpiredContent()
     const userId = request.user?.username || 'default'
     return {
-      items: listTaskWorkspaceDiffSummaries(request.query?.limit, userId),
+      items: await listTaskWorkspaceDiffSummaries(request.query?.limit, userId),
     }
   })
 
@@ -254,6 +339,13 @@ function registerTaskRoutes(app, options = {}) {
   app.put('/api/tasks/:slug', async (request, reply) => {
     purgeExpiredContent()
     const userId = request.user?.username || 'default'
+    const isArchiving = Boolean(String(request.body?.archivedAt || '').trim())
+    if (isArchiving && getRunningCodexRunByTaskSlug(request.params.slug)) {
+      return reply.code(409).send({
+        messageKey: 'errors.taskArchiveWhileRunning',
+        message: '当前任务正在执行中，请先停止后再归档。',
+      })
+    }
     let result
     try {
       result = updateTask(request.params.slug, request.body || {}, userId)

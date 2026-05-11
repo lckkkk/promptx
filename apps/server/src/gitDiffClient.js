@@ -284,6 +284,74 @@ export function getTaskGitDiffReviewInSubprocess(taskSlug = '', options = {}) {
   })
 }
 
+export function getWorkspaceGitDiffStatusSummaryByCwdInSubprocess(cwd = '', options = {}) {
+  const timeoutMs = Math.max(1, Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS)
+  const requestId = String(nextRequestId++)
+  const requestMeta = {
+    requestId,
+    taskSlug: '',
+    scope: 'workspace-status-summary',
+    filePath: String(cwd || '').trim(),
+    startedAt: new Date().toISOString(),
+  }
+  const child = ensureGitDiffWorker()
+  workerMetrics.totalRequests += 1
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingRequests.delete(requestId)
+      workerMetrics.timeoutRequests += 1
+      workerMetrics.failedRequests += 1
+      markLastRequest(requestMeta, {
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - Date.parse(requestMeta.startedAt),
+        status: 'timeout',
+        timeout: true,
+        errorMessage: `git diff request timed out after ${timeoutMs}ms`,
+      })
+      stopGitDiffWorker()
+      reject(createTimeoutError(timeoutMs))
+    }, timeoutMs)
+
+    pendingRequests.set(requestId, {
+      resolve: (value) => {
+        workerMetrics.completedRequests += 1
+        markLastRequest(requestMeta, {
+          finishedAt: new Date().toISOString(),
+          durationMs: Date.now() - Date.parse(requestMeta.startedAt),
+          status: 'completed',
+        })
+        resolve(value)
+      },
+      reject: (error) => {
+        workerMetrics.failedRequests += 1
+        markLastRequest(requestMeta, {
+          finishedAt: new Date().toISOString(),
+          durationMs: Date.now() - Date.parse(requestMeta.startedAt),
+          status: error?.code === 'GIT_DIFF_TIMEOUT' ? 'timeout' : 'failed',
+          timeout: error?.code === 'GIT_DIFF_TIMEOUT',
+          errorMessage: String(error?.message || error || 'git diff request failed'),
+        })
+        reject(error)
+      },
+      timer,
+    })
+
+    try {
+      child.stdin?.write(`${JSON.stringify({
+        requestId,
+        action: 'getWorkspaceGitDiffStatusSummaryByCwd',
+        cwd: String(cwd || '').trim(),
+      })}\n`)
+    } catch (error) {
+      settlePendingRequest(requestId, ({ reject: rejectPending }) => {
+        rejectPending(createWorkerError(String(error?.message || error)))
+      })
+      stopGitDiffWorker()
+    }
+  })
+}
+
 export function __getGitDiffWorkerPidForTest() {
   return Number(workerProcess?.pid || 0)
 }

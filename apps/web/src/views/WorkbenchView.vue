@@ -28,6 +28,7 @@ import { getAuthInfo, getLocalUpdateStatus } from '../lib/systemConfigApi.js'
 
 const showClearDialog = ref(false)
 const showDeleteDialog = ref(false)
+const showArchiveDialog = ref(false)
 const showDiffDialog = ref(false)
 const preferredInspectorView = ref('diff')
 const showSettingsDialog = ref(false)
@@ -38,6 +39,7 @@ const showTodoDialog = ref(false)
 const showTodoDeleteConfirm = ref(false)
 const showTodoUseConfirm = ref(false)
 const pendingTaskDeleteSlug = ref('')
+const pendingTaskArchiveSlug = ref('')
 const pendingTodoDeleteId = ref('')
 const pendingTodoUseIds = ref([])
 const pendingCreateTaskProjectId = ref('')
@@ -117,6 +119,7 @@ const {
   createTaskAndSelect,
   creatingTask,
   currentSelectedSessionId,
+  currentTaskListView,
   currentTaskSendState,
   currentTaskAutoTitle,
   currentTaskDisplayTitle,
@@ -147,9 +150,12 @@ const {
   saveTask,
   saving,
   selectTask,
+  setTaskListView,
   updateLastPromptPreview,
   useTodoItems,
   uploading,
+  archiveTaskBySlug,
+  restoreTaskBySlug,
 } = useWorkbenchTasks({
   clearToast,
   flashToast,
@@ -164,6 +170,9 @@ const currentSelectedSession = computed(() =>
 )
 const pendingDeleteTask = computed(() =>
   renderedTasks.value.find((task) => task.slug === pendingTaskDeleteSlug.value) || null
+)
+const pendingArchiveTask = computed(() =>
+  renderedTasks.value.find((task) => task.slug === pendingTaskArchiveSlug.value) || null
 )
 const currentTaskDiffSupported = computed(() => Boolean(currentRenderedTask.value?.workspaceDiffSummary?.supported))
 const currentTaskBuildPrompt = computed(() => {
@@ -204,6 +213,7 @@ const taskListPanelProps = computed(() => ({
   removingTask: removingTask.value,
   tasks: renderedTasks.value,
   uploading: uploading.value,
+  currentTaskListView: currentTaskListView.value,
 }))
 const activityPanelProps = computed(() => ({
   buildPromptBlocks: currentTaskBuildPromptBlocks.value,
@@ -291,8 +301,17 @@ function closeProjectManagerDialog() {
   showProjectManagerDialog.value = false
 }
 
-function openEditTaskDialog() {
-  if (!currentTaskSlug.value) {
+async function openEditTaskDialog(taskSlug = currentTaskSlug.value) {
+  const targetSlug = String(taskSlug || currentTaskSlug.value || '').trim()
+  if (!targetSlug) {
+    return
+  }
+
+  if (targetSlug !== currentTaskSlug.value) {
+    await handleTaskSelect(targetSlug)
+  }
+
+  if (currentTaskSlug.value !== targetSlug) {
     return
   }
 
@@ -373,6 +392,19 @@ function openDeleteDialog(taskSlug = currentTaskSlug.value) {
   showDeleteDialog.value = true
 }
 
+function openArchiveDialog(taskSlug = currentTaskSlug.value) {
+  pendingTaskArchiveSlug.value = String(taskSlug || currentTaskSlug.value || '').trim()
+  if (!pendingTaskArchiveSlug.value) {
+    return
+  }
+  showArchiveDialog.value = true
+}
+
+function closeArchiveDialog() {
+  showArchiveDialog.value = false
+  pendingTaskArchiveSlug.value = ''
+}
+
 function closeDeleteDialog() {
   if (removingTask.value) {
     return
@@ -399,6 +431,45 @@ async function confirmRemoveCurrentTask() {
   if (isMobileLayout.value && deletingCurrentTask) {
     leaveMobileDetail({ useHistory: false })
   }
+}
+
+async function confirmArchiveTask() {
+  const targetSlug = String(pendingTaskArchiveSlug.value || currentTaskSlug.value || '').trim()
+  if (!targetSlug) {
+    return
+  }
+
+  await archiveTaskBySlug(targetSlug)
+  flashToast({
+    message: t('taskActions.taskArchived'),
+    type: 'success',
+  })
+  showArchiveDialog.value = false
+  pendingTaskArchiveSlug.value = ''
+}
+
+async function handleRestoreTask(taskSlug = currentTaskSlug.value) {
+  const targetSlug = String(taskSlug || currentTaskSlug.value || '').trim()
+  if (!targetSlug) {
+    return
+  }
+
+  await restoreTaskBySlug(targetSlug)
+  flashToast({
+    message: t('taskActions.taskRestored'),
+    type: 'success',
+  })
+}
+
+async function handleTaskListViewChange(view) {
+  await setTaskListView(view)
+
+  const hasCurrentVisibleTask = renderedTasks.value.some((task) => task.slug === currentTaskSlug.value)
+  if (hasCurrentVisibleTask || !renderedTasks.value.length) {
+    return
+  }
+
+  await handleTaskSelect(renderedTasks.value[0].slug)
 }
 
 function openClearDialog() {
@@ -766,6 +837,7 @@ watch(
 )
 
 const taskListPanelListeners = {
+  'archive-task': openArchiveDialog,
   'update:draftTitle': updateDraftTitle,
   'cancel-title-edit': () => {
     editingTaskTitleSlug.value = ''
@@ -776,7 +848,9 @@ const taskListPanelListeners = {
   'manage-projects': openProjectManagerDialog,
   'open-settings': openSettingsDialog,
   'reorder-task': handleTaskReorder,
+  'restore-task': handleRestoreTask,
   'select-task': handleTaskSelect,
+  'set-task-list-view': handleTaskListViewChange,
   'title-blur': handleTaskTitleBlur,
   'title-click': handleTaskTitleClick,
 }
@@ -865,6 +939,15 @@ const mobileDetailHeaderListeners = {
       danger
       @cancel="closeDeleteDialog"
       @confirm="confirmRemoveCurrentTask"
+    />
+    <ConfirmDialog
+      :open="showArchiveDialog"
+      :title="t('workbench.confirmArchiveTitle')"
+      :description="t('workbench.confirmArchiveDescription', { title: pendingArchiveTask?.displayTitle || pendingArchiveTask?.title || pendingArchiveTask?.autoTitle || currentTaskDisplayTitle })"
+      :confirm-text="t('workbench.confirmArchiveAction')"
+      :cancel-text="t('workbench.keepForNow')"
+      @cancel="closeArchiveDialog"
+      @confirm="confirmArchiveTask"
     />
     <ConfirmDialog
       :open="showTodoDeleteConfirm"

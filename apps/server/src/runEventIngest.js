@@ -141,7 +141,10 @@ export function createRunEventIngestService(options = {}) {
       }
 
       if (previousRun && isTerminalRunStatus(previousRun.status)) {
-        return previousRun
+        return {
+          run: previousRun,
+          transitionedToTerminal: false,
+        }
       }
 
       const updatedRun = updateCodexRunFromRunnerStatus(runId, {
@@ -157,6 +160,9 @@ export function createRunEventIngestService(options = {}) {
         return null
       }
 
+      const transitionedToTerminal = !isTerminalRunStatus(previousRun?.status)
+        && isTerminalRunStatus(updatedRun.status)
+
       const shouldNotify = !previousRun
         || previousRun.status !== updatedRun.status
         || previousRun.responseMessage !== updatedRun.responseMessage
@@ -166,7 +172,10 @@ export function createRunEventIngestService(options = {}) {
       if (shouldNotify) {
         notifyRunUpdated(updatedRun)
       }
-      return updatedRun
+      return {
+        run: updatedRun,
+        transitionedToTerminal,
+      }
     },
   }
 }

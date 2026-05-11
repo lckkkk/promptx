@@ -40,12 +40,25 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - `pnpm install`：安装工作区依赖
 - `pnpm dev`：同时启动前端和后端开发环境
 - `pnpm build`：构建前端并执行工作区构建脚本
+- `pnpm local:update`：执行本地更新，按 `build -> install -> 空闲后自动重启` 流程刷新当前本地运行版本
+
+开发流程约定：
+
+- 任何代码、脚本、配置修改完成后，都必须执行一次 `pnpm local:update`，并通过该方式重启项目；不要再改用单独的 `start`、`restart` 或手工重启来替代最终重启步骤。
+- 如果本次修改影响了本地运行结果，交付前应确认 `pnpm local:update` 已成功完成，并以该次重启后的进程状态作为最终验证基线。
+
+补充约定：
+
+- 执行 `pnpm local:update` 时，不能只看命令退出码是否为 `0`；还要确认触发它的当前 run 没有长时间停留在 `running` 或 `stopping`。
+- 如果 `local:update` 后疑似卡住，优先检查 `C:\Users\Administrator\.promptx\run\local-update.log` 和 `C:\Users\Administrator\.promptx\run\local-update-status.json`，判断是 watcher 在等待空闲，还是触发 update 的 run 没有正常结束。
+- PromptX 的 runner 命令事件在 Windows 上可能会把 `local:update` 记录成 `powershell.exe -Command 'corepack pnpm local:update'` 这类包装格式；判断是否命中 `local:update` 时，不能只按裸命令字符串假设。
 
 示例：
 
 ```bash
 pnpm install
 pnpm dev
+pnpm local:update
 ```
 
 ## 代码风格与命名规范
@@ -81,6 +94,7 @@ pnpm dev
 
 - 运行 `pnpm build`
 - 使用 `pnpm dev` 做基础冒烟验证
+- 在所有修改完成后执行 `pnpm local:update`，确认项目通过本地更新流程完成重启
 - 手动检查核心流程：创建文档、编辑保存、上传图片、打开公开页、访问 Raw 导出
 
 后续新增测试时，建议放在功能附近或 `__tests__` 目录，并使用 `*.test.js` 命名。

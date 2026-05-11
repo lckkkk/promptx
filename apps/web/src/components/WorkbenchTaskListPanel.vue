@@ -1,5 +1,5 @@
 <script setup>
-import { Blocks, CircleAlert, Clock3, GripVertical, LogOut, PencilLine, Plus, Settings2, Trash2 } from 'lucide-vue-next'
+import { Archive, Blocks, CircleAlert, Clock3, GripVertical, LogOut, PencilLine, Plus, Settings2, Trash2, Undo2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import ConfirmDialog from './ConfirmDialog.vue'
@@ -55,6 +55,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  currentTaskListView: {
+    type: String,
+    default: 'active',
+  },
   isCurrentTaskSending: {
     type: Boolean,
     default: false,
@@ -85,6 +89,9 @@ const emit = defineEmits([
   'update:draftTitle',
   'edit-task',
   'delete-task',
+  'set-task-list-view',
+  'archive-task',
+  'restore-task',
 ])
 
 const { t } = useI18n()
@@ -112,6 +119,12 @@ const PROJECT_ACCENT_PALETTE = [
   { accent: '#be185d', tint: 'rgba(190, 24, 93, 0.16)' },
   { accent: '#0369a1', tint: 'rgba(3, 105, 161, 0.16)' },
 ]
+const TASK_SWIPE_ACTION_WIDTH = 264
+const taskViewOptions = computed(() => ([
+  { value: 'active', label: t('workbench.activeTasks') },
+  { value: 'all', label: t('workbench.allTasks') },
+  { value: 'archived', label: t('workbench.archivedTasks') },
+]))
 
 watch(
   () => props.tasks,
@@ -172,6 +185,9 @@ const selectedSessionFilterLabel = computed(() => {
 
   return t('workbench.selectedProjects', { count: selectedSessionFilters.value.length })
 })
+const currentTaskRecord = computed(() => (
+  localTasks.value.find((task) => String(task?.slug || '').trim() === String(props.currentTaskSlug || '').trim()) || null
+))
 
 // 获取任务的项目名（用于分行展示）
 function getTaskSessionTitle(task) {
@@ -227,6 +243,34 @@ function shouldEnableDrag(task) {
     && Boolean(task?.slug)
     && task.slug !== props.editingTaskTitleSlug
     && props.tasks.length > 1
+}
+
+function isTaskArchived(task) {
+  return Boolean(String(task?.archivedAt || '').trim())
+}
+
+function canArchiveTask(task) {
+  return !props.removingTask && !props.creatingTask && !task?.sending
+}
+
+function getTaskArchiveActionLabel(task) {
+  return isTaskArchived(task) ? t('workbench.restoreTask') : t('workbench.archiveTask')
+}
+
+const currentTaskArchiveActionLabel = computed(() => getTaskArchiveActionLabel(currentTaskRecord.value))
+
+function emitTaskArchiveAction(taskSlug = '') {
+  const task = localTasks.value.find((item) => String(item?.slug || '').trim() === String(taskSlug || '').trim())
+  if (!task) {
+    return
+  }
+
+  if (isTaskArchived(task)) {
+    emit('restore-task', task.slug)
+    return
+  }
+
+  emit('archive-task', task.slug)
 }
 
 function getTaskCardClass(task) {
@@ -324,7 +368,7 @@ function setSwipeOffset(taskSlug = '', offset = 0) {
 
   swipeOffsetBySlug.value = {
     ...swipeOffsetBySlug.value,
-    [normalizedTaskSlug]: Math.max(0, Math.min(88, Number(offset) || 0)),
+    [normalizedTaskSlug]: Math.max(0, Math.min(TASK_SWIPE_ACTION_WIDTH, Number(offset) || 0)),
   }
 }
 
@@ -445,7 +489,9 @@ async function handleLogout() {
   await fetch('/logout', { method: 'POST' })
   window.location.href = '/login'
 }
-function handleDragEnd(event) {  if (props.mobile) {
+
+function handleDragEnd(event) {
+  if (props.mobile) {
     return
   }
 
@@ -456,7 +502,8 @@ function handleDragEnd(event) {  if (props.mobile) {
   }
 
   emit('reorder-task', localTasks.value.map((task) => String(task?.slug || '').trim()).filter(Boolean))
-}</script>
+}
+</script>
 
 <template>
   <aside class="panel flex h-full min-h-0 flex-col overflow-hidden">
@@ -498,6 +545,18 @@ function handleDragEnd(event) {  if (props.mobile) {
         <Plus class="h-4 w-4 shrink-0" />
         <span class="truncate">{{ creatingTask ? t('workbench.creatingTask') : t('workbench.createTask') }}</span>
       </button>
+      <div class="mt-3 grid grid-cols-3 gap-1.5">
+        <button
+          v-for="option in taskViewOptions"
+          :key="option.value"
+          type="button"
+          class="tool-button px-2 py-1.5 text-xs"
+          :class="currentTaskListView === option.value ? 'tool-button-accent-subtle' : ''"
+          @click="emit('set-task-list-view', option.value)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
       <div v-if="usedSessionOptions.length > 0" class="mt-3">
         <div class="session-filter-shell rounded-sm border p-1.5">
           <div class="session-filter-select-wrap">
@@ -570,6 +629,24 @@ function handleDragEnd(event) {  if (props.mobile) {
             class="task-swipe-action"
             :class="getSwipeOffset(task) > 0 ? 'task-swipe-action--visible' : ''"
           >
+            <button
+              type="button"
+              class="task-swipe-edit"
+              :disabled="creatingTask || loadingTask"
+              @click.stop="closeSwipeTask(); emit('edit-task', task.slug)"
+            >
+              <PencilLine class="h-4 w-4" />
+              <span>{{ t('workbench.editTask') }}</span>
+            </button>
+            <button
+              type="button"
+              class="task-swipe-archive"
+              :disabled="!canArchiveTask(task)"
+              @click.stop="closeSwipeTask(); emitTaskArchiveAction(task.slug)"
+            >
+              <component :is="isTaskArchived(task) ? Undo2 : Archive" class="h-4 w-4" />
+              <span>{{ getTaskArchiveActionLabel(task) }}</span>
+            </button>
             <button
               type="button"
               class="task-swipe-delete"
@@ -664,6 +741,13 @@ function handleDragEnd(event) {  if (props.mobile) {
               </div>
               <div class="flex shrink-0 items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] opacity-80">
                 <span
+                  v-if="isTaskArchived(task)"
+                  class="inline-flex items-center gap-1.5 rounded-sm border border-dashed px-1.5 py-0.5"
+                  :class="mobile ? 'text-[9px] tracking-[0.14em]' : ''"
+                >
+                  <span>{{ t('workbench.archivedTasks') }}</span>
+                </span>
+                <span
                   v-if="task.sending"
                   class="inline-flex items-center gap-1.5 rounded-sm border border-dashed px-1.5 py-0.5"
                   :class="[getTaskRunningBadgeClass(), mobile ? 'text-[9px] tracking-[0.14em]' : '']"
@@ -712,7 +796,7 @@ function handleDragEnd(event) {  if (props.mobile) {
           <span>退出</span>
         </button>
       </div>
-      <div class="grid grid-cols-2 gap-2">
+      <div class="grid grid-cols-3 gap-2">
         <button
           type="button"
           class="tool-button inline-flex w-full items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-sm"
@@ -722,6 +806,16 @@ function handleDragEnd(event) {  if (props.mobile) {
         >
           <PencilLine class="h-4 w-4" />
           <span class="whitespace-nowrap">{{ t('workbench.editTask') }}</span>
+        </button>
+        <button
+          type="button"
+          class="tool-button inline-flex w-full items-center justify-center gap-2 whitespace-nowrap px-3 py-2 text-sm"
+          :disabled="!currentTaskSlug || removingTask || creatingTask || isCurrentTaskSending"
+          :title="currentTaskArchiveActionLabel"
+          @click="emitTaskArchiveAction(currentTaskSlug)"
+        >
+          <component :is="isTaskArchived(currentTaskRecord) ? Undo2 : Archive" class="h-4 w-4" />
+          <span class="whitespace-nowrap">{{ currentTaskArchiveActionLabel }}</span>
         </button>
         <button
           type="button"
@@ -863,7 +957,7 @@ function handleDragEnd(event) {  if (props.mobile) {
 .task-swipe-action {
   position: absolute;
   inset: 0 0 0 auto;
-  width: 88px;
+  width: 264px;
   display: flex;
   align-items: stretch;
   justify-content: flex-end;
@@ -875,6 +969,8 @@ function handleDragEnd(event) {  if (props.mobile) {
   opacity: 1;
 }
 
+.task-swipe-edit,
+.task-swipe-archive,
 .task-swipe-delete {
   width: 88px;
   height: 100%;
@@ -888,6 +984,16 @@ function handleDragEnd(event) {  if (props.mobile) {
   color: white;
   font-size: 0.7rem;
   line-height: 1.2;
+}
+
+.task-swipe-edit {
+  background: color-mix(in srgb, var(--theme-borderStrong) 72%, var(--theme-appPanelStrong));
+  color: white;
+}
+
+.task-swipe-archive {
+  background: color-mix(in srgb, var(--theme-accent) 78%, var(--theme-appPanelStrong));
+  color: white;
 }
 
 .workbench-task-card {

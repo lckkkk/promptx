@@ -114,6 +114,7 @@ function toTask(row, blocks = [], options = {}) {
     autoTitle: row.auto_title || '',
     lastPromptPreview: row.last_prompt_preview || '',
     codexSessionId: row.codex_session_id || '',
+    archivedAt: String(row.archived_at || ''),
     displayTitle,
     visibility: row.visibility,
     expiresAt: row.expires_at,
@@ -396,6 +397,7 @@ function mapTaskSummary(row, firstText = '', blockCount = 0, codexRunCount = 0, 
     autoTitle: row.auto_title || deriveTitleFromBlocks(textBlock) || '',
     lastPromptPreview: row.last_prompt_preview || '',
     codexSessionId: row.codex_session_id || '',
+    archivedAt: String(row.archived_at || ''),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     visibility: row.visibility,
@@ -762,15 +764,27 @@ export function deleteNotificationProfile(profileId, userId = 'default') {
   return { ok: true }
 }
 
-export function listTasks(limit = 30, userId = 'default') {
+function normalizeTaskListView(view = 'active') {
+  const normalizedView = String(view || 'active').trim().toLowerCase()
+  return ['active', 'archived', 'all'].includes(normalizedView) ? normalizedView : 'active'
+}
+
+function listTasksByView(limit = 30, userId = 'default', options = {}) {
   const normalizedUserId = String(userId || 'default').trim() || 'default'
+  const view = normalizeTaskListView(options.view)
+  const archiveFilter = view === 'archived'
+    ? `AND COALESCE(archived_at, '') != ''`
+    : view === 'all'
+      ? ''
+      : `AND COALESCE(archived_at, '') = ''`
   const rows = decorateTaskRowsWithUnreadState(all(
     `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-            visibility, expires_at, created_at, updated_at
+            archived_at, visibility, expires_at, created_at, updated_at
      FROM tasks
      WHERE user_id = ?
+     ${archiveFilter}
      ORDER BY sort_order ASC, created_at DESC, id DESC
      LIMIT ?`,
     [normalizedUserId, Math.max(1, Number(limit) || 30)]
@@ -795,6 +809,10 @@ export function listTasks(limit = 30, userId = 'default') {
   )
 }
 
+export function listTasks(limit = 30, userId = 'default', options = {}) {
+  return listTasksByView(limit, userId, options)
+}
+
 export function getTaskBySlug(slug, userId = null) {
   const normalizedUserId = userId ? String(userId).trim() : null
   const rawRow = normalizedUserId
@@ -802,7 +820,7 @@ export function getTaskBySlug(slug, userId = null) {
         `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
                 automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
                 notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-                visibility, expires_at, created_at, updated_at
+                archived_at, visibility, expires_at, created_at, updated_at
          FROM tasks
          WHERE slug = ? AND user_id = ?`,
         [slug, normalizedUserId]
@@ -811,7 +829,7 @@ export function getTaskBySlug(slug, userId = null) {
         `SELECT id, slug, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
                 automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
                 notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-                visibility, expires_at, created_at, updated_at
+                archived_at, visibility, expires_at, created_at, updated_at
          FROM tasks
          WHERE slug = ?`,
         [slug]
@@ -899,6 +917,7 @@ export function createTask(input = {}, userId = 'default') {
     throw new Error('所选通知配置不存在。')
   }
   const visibility = normalizeVisibility(input.visibility)
+  const archivedAt = clampText(input.archivedAt || '', 40).trim()
   const expiresAt = resolveExpiresAt(normalizeExpiry(input.expiry || 'none'))
   const slug = ensureSlug(title)
   const editToken = tokenId()
@@ -911,9 +930,9 @@ export function createTask(input = {}, userId = 'default') {
         slug, edit_token, sort_order, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
         automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
         notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-        visibility, expires_at, created_at, updated_at, user_id
+        archived_at, visibility, expires_at, created_at, updated_at, user_id
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         slug,
         editToken,
@@ -940,6 +959,7 @@ export function createTask(input = {}, userId = 'default') {
         notification.lastStatus,
         notification.lastError,
         notification.lastSentAt,
+        archivedAt,
         visibility,
         expiresAt,
         now,
@@ -963,7 +983,7 @@ export function updateTask(slug, input = {}, userId = null) {
     `SELECT id, edit_token, title, auto_title, last_prompt_preview, todo_items_json, codex_session_id,
             automation_enabled, automation_cron, automation_timezone, automation_concurrency_policy, automation_last_triggered_at, automation_next_trigger_at,
             notification_enabled, notification_profile_id, notification_channel_type, notification_webhook_url, notification_secret, notification_trigger_on, notification_locale, notification_message_mode, notification_last_status, notification_last_error, notification_last_sent_at,
-            visibility, expires_at
+            archived_at, visibility, expires_at
      FROM tasks
      ${whereClause}`,
     whereParams
@@ -987,6 +1007,9 @@ export function updateTask(slug, input = {}, userId = null) {
   const codexSessionId = Object.prototype.hasOwnProperty.call(input, 'codexSessionId')
     ? clampText(input.codexSessionId || '', 120)
     : String(existing.codex_session_id || '')
+  const archivedAt = Object.prototype.hasOwnProperty.call(input, 'archivedAt')
+    ? clampText(input.archivedAt || '', 40).trim()
+    : String(existing.archived_at || '')
   const visibility = Object.prototype.hasOwnProperty.call(input, 'visibility')
     ? normalizeVisibility(input.visibility)
     : normalizeVisibility(existing.visibility)
@@ -1054,6 +1077,7 @@ export function updateTask(slug, input = {}, userId = null) {
     || lastPromptPreview !== String(existing.last_prompt_preview || '')
     || todoItemsJson !== String(existing.todo_items_json || '[]')
     || codexSessionId !== String(existing.codex_session_id || '')
+    || archivedAt !== String(existing.archived_at || '')
     || visibility !== normalizeVisibility(existing.visibility)
     || expiresAt !== existing.expires_at
     || Number(automation.enabled ? 1 : 0) !== Number(existing.automation_enabled || 0)
@@ -1088,7 +1112,7 @@ export function updateTask(slug, input = {}, userId = null) {
        SET title = ?, auto_title = ?, last_prompt_preview = ?, todo_items_json = ?, codex_session_id = ?,
            automation_enabled = ?, automation_cron = ?, automation_timezone = ?, automation_concurrency_policy = ?, automation_last_triggered_at = ?, automation_next_trigger_at = ?,
            notification_enabled = ?, notification_profile_id = ?, notification_channel_type = ?, notification_webhook_url = ?, notification_secret = ?, notification_trigger_on = ?, notification_locale = ?, notification_message_mode = ?, notification_last_status = ?, notification_last_error = ?, notification_last_sent_at = ?,
-           visibility = ?, expires_at = ?, updated_at = ?
+           archived_at = ?, visibility = ?, expires_at = ?, updated_at = ?
        WHERE slug = ?`,
       [
         title,
@@ -1113,6 +1137,7 @@ export function updateTask(slug, input = {}, userId = null) {
         notification.lastStatus,
         notification.lastError,
         notification.lastSentAt,
+        archivedAt,
         visibility,
         expiresAt,
         updatedAt,

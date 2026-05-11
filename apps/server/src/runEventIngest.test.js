@@ -76,15 +76,16 @@ test('runEventIngest 会写入事件、同步 session 更新并推进 run 状态
     assert.equal(listCodexRunEvents('run-1')?.length, 2)
     assert.equal(getPromptxCodexSessionById('session-1')?.engineThreadId, 'thread-1')
 
-    const runningRun = ingest.ingestStatus({
+    const runningResult = ingest.ingestStatus({
       runId: 'run-1',
       status: 'running',
       startedAt: now,
       heartbeatAt: now,
     })
-    assert.equal(runningRun?.status, 'running')
+    assert.equal(runningResult?.run?.status, 'running')
+    assert.equal(runningResult?.transitionedToTerminal, false)
 
-    const completedRun = ingest.ingestStatus({
+    const completedResult = ingest.ingestStatus({
       runId: 'run-1',
       status: 'completed',
       responseMessage: 'done',
@@ -99,7 +100,8 @@ test('runEventIngest 会写入事件、同步 session 更新并推进 run 状态
     })
 
     const storedRun = getCodexRunById('run-1')
-    assert.equal(completedRun?.status, 'completed')
+    assert.equal(completedResult?.run?.status, 'completed')
+    assert.equal(completedResult?.transitionedToTerminal, true)
     assert.equal(storedRun?.status, 'completed')
     assert.equal(storedRun?.responseMessage, 'done')
     assert.ok(broadcasts.some((item) => item.type === 'run.event' && item.runId === 'run-1'))
@@ -107,7 +109,7 @@ test('runEventIngest 会写入事件、同步 session 更新并推进 run 状态
     assert.ok(broadcasts.some((item) => item.type === 'sessions.changed' && item.sessionId === 'session-1'))
 
     const lateHeartbeatAt = new Date(Date.now() + 1000).toISOString()
-    const staleRun = ingest.ingestStatus({
+    const staleResult = ingest.ingestStatus({
       runId: 'run-1',
       status: 'running',
       responseMessage: 'should-be-ignored',
@@ -121,7 +123,8 @@ test('runEventIngest 会写入事件、同步 session 更新并推进 run 状态
     })
 
     const storedRunAfterLateHeartbeat = getCodexRunById('run-1')
-    assert.equal(staleRun?.status, 'completed')
+    assert.equal(staleResult?.run?.status, 'completed')
+    assert.equal(staleResult?.transitionedToTerminal, false)
     assert.equal(storedRunAfterLateHeartbeat?.status, 'completed')
     assert.equal(storedRunAfterLateHeartbeat?.responseMessage, 'done')
   } finally {

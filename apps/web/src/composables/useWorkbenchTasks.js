@@ -472,6 +472,7 @@ function toTaskSummary(taskRecord) {
     codexRunCount: Math.max(0, Number(taskRecord.codexRunCount) || 0),
     todoCount: Math.max(0, Number(taskRecord.todoCount) || 0),
     running: Boolean(taskRecord.running),
+    archivedAt: String(taskRecord.archivedAt || ''),
     preview: String(taskRecord.lastPromptPreview || ''),
     updatedAt: taskRecord.updatedAt || taskRecord.createdAt || new Date().toISOString(),
     createdAt: taskRecord.createdAt || taskRecord.updatedAt || new Date().toISOString(),
@@ -513,6 +514,7 @@ export function useWorkbenchTasks(options = {}) {
   const realtime = useWorkbenchRealtime()
   const editorRef = ref(null)
   const tasks = ref([])
+  const currentTaskListView = ref('active')
   const taskDraftMap = ref({})
   const selectedSessionMap = ref({})
   const sendingTaskMap = ref({})
@@ -681,6 +683,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
       todoCount,
       preview,
       codexSessionId,
+      archivedAt: String(task.archivedAt || ''),
       sessionSelectionLocked: Boolean(codexSessionId && Number(task.codexRunCount || 0) > 0),
       sessionSelectionLockReason: codexSessionId && Number(task.codexRunCount || 0) > 0
         ? translate('taskActions.sessionLocked')
@@ -1060,7 +1063,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
 
     try {
       const previousTasks = tasks.value
-      const payload = await listTasks()
+      const payload = await listTasks(currentTaskListView.value)
       const nextTasks = mergeTaskSummariesWithWorkspaceDiff(
         previousTasks,
         (payload.items || []).map(toTaskSummary)
@@ -1079,6 +1082,90 @@ function normalizeTodoItemsForSnapshot(items = []) {
         loadingTasks.value = false
       }
     }
+  }
+
+  async function setTaskListView(view = 'active') {
+    const normalizedView = ['active', 'all', 'archived'].includes(String(view || '').trim())
+      ? String(view || '').trim()
+      : 'active'
+
+    if (normalizedView === currentTaskListView.value) {
+      return true
+    }
+
+    currentTaskListView.value = normalizedView
+    await refreshTaskList()
+    return true
+  }
+
+  function removeTaskFromCurrentList(taskSlug = '') {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    if (!normalizedTaskSlug) {
+      return
+    }
+
+    tasks.value = tasks.value.filter((task) => String(task?.slug || '').trim() !== normalizedTaskSlug)
+  }
+
+  async function moveSelectionAfterListRemoval(removedTaskSlug = '') {
+    const normalizedTaskSlug = String(removedTaskSlug || '').trim()
+    if (!normalizedTaskSlug || normalizedTaskSlug !== String(currentTaskSlug.value || '').trim()) {
+      return
+    }
+
+    if (tasks.value.length) {
+      await loadTask(tasks.value[0].slug, { focusEditor: true, force: true, skipIfDirtyOnApply: true })
+      return
+    }
+
+    currentTaskSlug.value = ''
+    persistActiveTaskSlug('')
+    draft.value = { title: '', autoTitle: '', lastPromptPreview: '', codexSessionId: '', blocks: [], todoItems: [] }
+    lastSavedSnapshot.value = createSnapshot('', '', '', [], '', [])
+    hasUnsavedChanges.value = false
+  }
+
+  async function archiveTaskBySlug(taskSlug = '') {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    if (!normalizedTaskSlug) {
+      return null
+    }
+
+    const archivedAt = new Date().toISOString()
+    const task = await updateTask(normalizedTaskSlug, {
+      archivedAt,
+    })
+    const summary = toTaskSummary(task)
+    upsertTaskSummary(summary)
+    markTaskHydrated(normalizedTaskSlug, summary.updatedAt || task.updatedAt || '')
+
+    if (currentTaskListView.value === 'active') {
+      removeTaskFromCurrentList(normalizedTaskSlug)
+      await moveSelectionAfterListRemoval(normalizedTaskSlug)
+    }
+
+    return summary
+  }
+
+  async function restoreTaskBySlug(taskSlug = '') {
+    const normalizedTaskSlug = String(taskSlug || '').trim()
+    if (!normalizedTaskSlug) {
+      return null
+    }
+
+    const task = await updateTask(normalizedTaskSlug, {
+      archivedAt: '',
+    })
+    const summary = toTaskSummary(task)
+    upsertTaskSummary(summary)
+    markTaskHydrated(normalizedTaskSlug, summary.updatedAt || task.updatedAt || '')
+
+    if (currentTaskListView.value === 'archived') {
+      removeTaskFromCurrentList(normalizedTaskSlug)
+      await moveSelectionAfterListRemoval(normalizedTaskSlug)
+    }
+
+    return summary
   }
 
   async function reorderTaskList(orderedSlugs = []) {
@@ -1876,6 +1963,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
     clearCurrentTaskContent,
     createTaskAndSelect,
     currentSelectedSessionId,
+    currentTaskListView,
     currentTaskSendState,
     currentTaskAutoTitle,
     currentTaskDisplayTitle,
@@ -1899,6 +1987,7 @@ function normalizeTodoItemsForSnapshot(items = []) {
     prepareCodexPromptForTask,
     currentTodoItems,
     removeTaskBySlug,
+    restoreTaskBySlug,
     removeTodoItem,
     removeCurrentTask,
     reorderTaskList,
@@ -1908,10 +1997,12 @@ function normalizeTodoItemsForSnapshot(items = []) {
     saveTask,
     saving,
     selectTask,
+    setTaskListView,
     selectedSessionMap,
     sendingTaskMap,
     taskDraftMap,
     tasks,
+    archiveTaskBySlug,
     useTodoItems,
     updateLastPromptPreview,
     uploading,

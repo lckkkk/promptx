@@ -1,7 +1,10 @@
 import { createInterface } from 'node:readline'
 import process from 'node:process'
 
-import { getTaskGitDiffReview } from './gitDiff.js'
+import {
+  getTaskGitDiffReview,
+  getWorkspaceGitDiffStatusSummaryByCwd,
+} from './gitDiff.js'
 
 function writeMessage(payload = {}) {
   process.stdout.write(`${JSON.stringify(payload)}\n`)
@@ -21,6 +24,46 @@ function handleRequest(payload = {}) {
     return
   }
 
+  if (action === 'getTaskGitDiffReview') {
+    try {
+      const result = getTaskGitDiffReview(payload.taskSlug, payload.options || {})
+      writeMessage({
+        requestId,
+        ok: true,
+        result,
+      })
+    } catch (error) {
+      writeMessage({
+        requestId,
+        ok: false,
+        error: {
+          message: String(error?.message || error || 'git diff worker failed'),
+        },
+      })
+    }
+    return
+  }
+
+  if (action === 'getWorkspaceGitDiffStatusSummaryByCwd') {
+    try {
+      const result = getWorkspaceGitDiffStatusSummaryByCwd(payload.cwd)
+      writeMessage({
+        requestId,
+        ok: true,
+        result,
+      })
+    } catch (error) {
+      writeMessage({
+        requestId,
+        ok: false,
+        error: {
+          message: String(error?.message || error || 'git diff worker failed'),
+        },
+      })
+    }
+    return
+  }
+
   if (action !== 'getTaskGitDiffReview') {
     writeMessage({
       requestId,
@@ -32,22 +75,6 @@ function handleRequest(payload = {}) {
     return
   }
 
-  try {
-    const result = getTaskGitDiffReview(payload.taskSlug, payload.options || {})
-    writeMessage({
-      requestId,
-      ok: true,
-      result,
-    })
-  } catch (error) {
-    writeMessage({
-      requestId,
-      ok: false,
-      error: {
-        message: String(error?.message || error || 'git diff worker failed'),
-      },
-    })
-  }
 }
 
 const rl = createInterface({

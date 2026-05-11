@@ -12,7 +12,6 @@ import { TASK_NOTIFICATION_CHANNELS, TASK_NOTIFICATION_LOCALES, normalizeTaskNot
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const serviceScriptPath = path.join(rootDir, 'scripts', 'service.mjs')
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const ACTIVE_RUN_STATUSES = ['queued', 'starting', 'running', 'stopping']
 const RESTART_WAIT_INTERVAL_MS = Math.max(2000, Number(process.env.PROMPTX_LOCAL_UPDATE_WAIT_INTERVAL_MS) || 5000)
 const RESTART_WAIT_TIMEOUT_MS = Math.max(RESTART_WAIT_INTERVAL_MS, Number(process.env.PROMPTX_LOCAL_UPDATE_WAIT_TIMEOUT_MS) || 6 * 60 * 60 * 1000)
@@ -81,13 +80,47 @@ function text(locale, zh, en) {
   return normalizeTaskNotificationLocale(locale) === TASK_NOTIFICATION_LOCALES.EN_US ? en : zh
 }
 
+export function createSpawnInvocation(command, args = [], platform = process.platform, comSpec = process.env.ComSpec || 'cmd.exe') {
+  const isWindowsPathCommand = /[\\/]/.test(command)
+  const isWindowsShellScript = platform === 'win32' && /\.(cmd|bat)$/i.test(path.basename(command))
+  const shouldUseCmdShell = platform === 'win32' && (!isWindowsPathCommand || isWindowsShellScript)
+
+  if (!shouldUseCmdShell) {
+    return {
+      command,
+      args,
+    }
+  }
+
+  const commandLine = [isWindowsShellScript ? path.basename(command) : command, ...args.map((item) => quoteWindowsCmdArg(item))].join(' ')
+  return {
+    command: comSpec,
+    args: ['/d', '/s', '/c', commandLine],
+  }
+}
+
+function quoteWindowsCmdArg(value) {
+  const textValue = String(value ?? '')
+  if (!textValue.length) {
+    return '""'
+  }
+
+  if (!/[\s"&<>|^]/.test(textValue)) {
+    return textValue
+  }
+
+  return `"${textValue.replace(/"/g, '""')}"`
+}
+
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const invocation = createSpawnInvocation(command, args)
+    const child = spawn(invocation.command, invocation.args, {
       cwd: rootDir,
       stdio: 'inherit',
       env: process.env,
       windowsHide: true,
+      shell: false,
     })
 
     child.on('error', reject)
@@ -138,11 +171,13 @@ function triggerDeferredRestartWatcher() {
 function runLoggedCommand(command, args, logFile) {
   return new Promise((resolve, reject) => {
     const logFd = fs.openSync(logFile, 'a')
-    const child = spawn(command, args, {
+    const invocation = createSpawnInvocation(command, args)
+    const child = spawn(invocation.command, invocation.args, {
       cwd: rootDir,
       stdio: ['ignore', logFd, logFd],
       env: process.env,
       windowsHide: true,
+      shell: false,
     })
     fs.closeSync(logFd)
 
@@ -369,7 +404,7 @@ async function waitForRestartResult(expectedState = 'restarted', timeoutMs = RES
   return readStatus()
 }
 
-async function main() {
+export async function main() {
   if (process.argv.includes('--restart-when-idle')) {
     try {
       await waitForIdleAndRestart()
@@ -391,10 +426,10 @@ async function main() {
   })
   console.log('[promptx] 开始执行本地更新：build -> install -> restart when idle')
 
-  await runCommand(npmCommand, ['run', 'build'])
+  await runCommand('corepack', ['pnpm', '-r', 'build'])
   appendLog('build 完成。')
 
-  await runCommand(npmCommand, ['install', '-g', '.', '--force'])
+  await runCommand('npm', ['install', '-g', '.', '--force'])
   appendLog('全局安装完成。')
 
   const activeRuns = getActiveRuns()
@@ -439,12 +474,16 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  appendLog(`local update 失败：${error.message || error}`)
-  writeStatus('failed', {
-    phase: 'main_failed',
-    message: error.message || String(error || 'local update 失败。'),
+const isEntrypoint = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isEntrypoint) {
+  main().catch((error) => {
+    appendLog(`local update 失败：${error.message || error}`)
+    writeStatus('failed', {
+      phase: 'main_failed',
+      message: error.message || String(error || 'local update 失败。'),
+    })
+    console.error(`[promptx] ${error.message || error}`)
+    process.exitCode = 1
   })
-  console.error(`[promptx] ${error.message || error}`)
-  process.exitCode = 1
-})
+}

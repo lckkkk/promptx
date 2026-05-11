@@ -14,6 +14,8 @@ const DIFF_REVIEW_CACHE_TTL_MS = 4000
 const DIFF_REVIEW_CACHE_MAX_ENTRIES = 80
 const FILE_DIFF_CACHE_TTL_MS = 8000
 const FILE_DIFF_CACHE_MAX_ENTRIES = 400
+const WORKSPACE_REPO_DISCOVERY_CACHE_TTL_MS = 15_000
+const WORKSPACE_REPO_DISCOVERY_CACHE_MAX_ENTRIES = 120
 const GIT_REPO_SCAN_SKIP_DIR_NAMES = new Set([
   '.git',
   'node_modules',
@@ -29,6 +31,7 @@ const GIT_REPO_SCAN_SKIP_DIR_NAMES = new Set([
 
 const diffReviewCache = new Map()
 const fileDiffCache = new Map()
+const workspaceRepoDiscoveryCache = new Map()
 const gitDiffCacheMetrics = {
   reviewHits: 0,
   reviewMisses: 0,
@@ -213,6 +216,37 @@ function parseTrackedDiffEntries(output = '') {
   return entries
 }
 
+function parseStatusEntries(output = '') {
+  const parts = splitNullText(output)
+  const entries = new Map()
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const rawEntry = String(parts[index] || '')
+    if (!rawEntry) {
+      continue
+    }
+
+    const rawStatus = rawEntry.slice(0, 2)
+    const statusKey = rawStatus.trim()
+    let filePath = rawEntry.slice(3).trim()
+    if (!filePath) {
+      continue
+    }
+
+    if (statusKey.startsWith('R') || statusKey.startsWith('C')) {
+      filePath = String(parts[index + 1] || '').trim() || filePath
+      index += 1
+    }
+
+    entries.set(filePath, {
+      path: filePath,
+      status: normalizeDiffStatus(statusKey),
+    })
+  }
+
+  return entries
+}
+
 function resolveGitRepoRoot(cwd = '') {
   const targetCwd = String(cwd || '').trim()
   if (!targetCwd) {
@@ -276,6 +310,24 @@ function discoverWorkspaceGitRepoRoots(cwd = '') {
     return []
   }
 
+  const cacheKey = JSON.stringify(['workspace-repo-roots', normalizedCwd])
+  const cachedRepoRoots = getCachedValue(
+    workspaceRepoDiscoveryCache,
+    cacheKey,
+    WORKSPACE_REPO_DISCOVERY_CACHE_TTL_MS,
+    '',
+    {
+      channel: 'all',
+      cacheName: 'workspace-repo-discovery',
+      debugMeta: {
+        cwd: normalizedCwd,
+      },
+    }
+  )
+  if (cachedRepoRoots) {
+    return cachedRepoRoots
+  }
+
   const repoRoots = new Set()
   const workspaceRootRepo = resolveGitRepoRoot(normalizedCwd)
   if (workspaceRootRepo) {
@@ -312,7 +364,22 @@ function discoverWorkspaceGitRepoRoots(cwd = '') {
 
   walkDirectory(normalizedCwd)
 
-  return [...repoRoots].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  const discoveredRepoRoots = [...repoRoots].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  setCachedValue(
+    workspaceRepoDiscoveryCache,
+    cacheKey,
+    discoveredRepoRoots,
+    WORKSPACE_REPO_DISCOVERY_CACHE_MAX_ENTRIES,
+    {
+      channel: 'all',
+      cacheName: 'workspace-repo-discovery',
+      debugMeta: {
+        cwd: normalizedCwd,
+        repoCount: discoveredRepoRoots.length,
+      },
+    }
+  )
+  return discoveredRepoRoots
 }
 
 function resolveGitHeadOid(repoRoot = '') {
@@ -1567,12 +1634,10 @@ function getSingleRepoWorkspaceGitDiffReview(repoRoot = '', workspaceCwd = '', o
 
 function getSingleRepoWorkspaceGitDiffStatusSummary(repoRoot = '', workspaceCwd = '') {
   const branch = resolveGitBranchLabel(repoRoot)
-  const workspaceStatusSignature = resolveWorkspaceStatusSignature(repoRoot)
   const cacheKey = JSON.stringify([
     'workspace-status-summary',
     repoRoot,
     branch,
-    workspaceStatusSignature,
   ])
   const cachedReview = getCachedValue(diffReviewCache, cacheKey, DIFF_REVIEW_CACHE_TTL_MS, 'reviewMisses', {
     channel: 'review',
@@ -1587,7 +1652,10 @@ function getSingleRepoWorkspaceGitDiffStatusSummary(repoRoot = '', workspaceCwd 
     return cachedReview
   }
 
-  const { entries } = listGitChangeEntries(repoRoot)
+  const statusResult = runGitBuffer(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  const entries = statusResult.status === 0
+    ? parseStatusEntries(statusResult.stdout.toString('utf8'))
+    : new Map()
   const payload = {
     supported: true,
     scope: 'workspace',

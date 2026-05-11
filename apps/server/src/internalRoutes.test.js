@@ -8,7 +8,7 @@ import {
   registerRealtimeRoutes,
 } from './internalRoutes.js'
 
-test('internal runner routes require auth and notify completed runs', async () => {
+test('internal runner routes require auth and notify runs that first enter terminal state', async () => {
   const events = []
   const notified = []
   const app = Fastify()
@@ -21,9 +21,12 @@ test('internal runner routes require auth and notify completed runs', async () =
       },
       ingestStatus(payload) {
         return {
-          ...payload,
-          id: payload.runId,
-          completed: true,
+          run: {
+            ...payload,
+            id: payload.runId,
+            completed: true,
+          },
+          transitionedToTerminal: true,
         }
       },
     },
@@ -67,6 +70,117 @@ test('internal runner routes require auth and notify completed runs', async () =
     })
     assert.equal(statusResponse.statusCode, 200)
     assert.deepEqual(notified, [{ taskSlug: 'task-1', runId: 'run-1' }])
+  } finally {
+    await app.close()
+  }
+})
+
+test('internal runner routes do not notify the same completed run twice', async () => {
+  const notified = []
+  const app = Fastify()
+
+  registerInternalRunnerRoutes(app, {
+    runEventIngestService: {
+      ingestEvents() {
+        return { ok: true, count: 0 }
+      },
+      ingestStatus(payload) {
+        const alreadyNotified = notified.some((item) => item.runId === payload.runId)
+        return {
+          run: {
+            ...payload,
+            id: payload.runId,
+            completed: true,
+          },
+          transitionedToTerminal: !alreadyNotified,
+        }
+      },
+    },
+    taskAutomationService: {
+      notifyRun(taskSlug, runId) {
+        notified.push({ taskSlug, runId })
+        return Promise.resolve()
+      },
+    },
+  })
+  await app.ready()
+
+  try {
+    const headers = buildInternalAuthHeaders()
+
+    const firstResponse = await app.inject({
+      method: 'POST',
+      url: '/internal/runner-status',
+      headers,
+      payload: {
+        runId: 'run-dup-1',
+        taskSlug: 'task-dup-1',
+        status: 'completed',
+      },
+    })
+    assert.equal(firstResponse.statusCode, 200)
+
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/internal/runner-status',
+      headers,
+      payload: {
+        runId: 'run-dup-1',
+        taskSlug: 'task-dup-1',
+        status: 'completed',
+      },
+    })
+    assert.equal(secondResponse.statusCode, 200)
+    assert.deepEqual(notified, [{ taskSlug: 'task-dup-1', runId: 'run-dup-1' }])
+  } finally {
+    await app.close()
+  }
+})
+
+test('internal runner routes accept large runner event payloads', async () => {
+  const app = Fastify()
+  const largeText = 'x'.repeat(1024 * 1024 + 256)
+
+  registerInternalRunnerRoutes(app, {
+    runEventIngestService: {
+      ingestEvents(items) {
+        return { ok: true, count: items.length }
+      },
+      ingestStatus() {
+        return null
+      },
+    },
+    taskAutomationService: {
+      notifyRun() {
+        return Promise.resolve()
+      },
+    },
+  })
+  await app.ready()
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/internal/runner-events',
+      headers: buildInternalAuthHeaders(),
+      payload: {
+        runnerId: 'runner-large-1',
+        items: [
+          {
+            runId: 'run-large-1',
+            seq: 1,
+            type: 'stdout',
+            ts: new Date().toISOString(),
+            payload: {
+              type: 'stdout',
+              text: largeText,
+            },
+          },
+        ],
+      },
+    })
+
+    assert.equal(response.statusCode, 200)
   } finally {
     await app.close()
   }

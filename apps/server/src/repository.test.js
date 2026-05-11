@@ -89,6 +89,109 @@ test('reorderTasks persists manual task ordering', async () => {
   }
 })
 
+test('listTasks hides archived tasks by default and can list archived tasks explicitly', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-repository-'))
+  const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+
+  fs.mkdirSync(dataDir, { recursive: true })
+  process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
+
+  try {
+    const repository = await import(`./repository.js?test=${Date.now()}`)
+    const { createTask, listTasks, updateTask } = repository
+
+    const activeTask = createTask({
+      title: 'active',
+      visibility: 'private',
+      expiry: 'none',
+    })
+
+    const archivedTask = createTask({
+      title: 'archived',
+      visibility: 'private',
+      expiry: 'none',
+    })
+
+    updateTask(archivedTask.slug, {
+      title: archivedTask.title,
+      visibility: archivedTask.visibility,
+      expiry: archivedTask.expiry,
+      archivedAt: '2026-04-15T08:00:00.000Z',
+    })
+
+    const activeItems = listTasks(30)
+    const archivedItems = listTasks(30, 'default', { view: 'archived' })
+    const allItems = listTasks(30, 'default', { view: 'all' })
+
+    assert.equal(activeItems.some((item) => item.slug === activeTask.slug), true)
+    assert.equal(activeItems.some((item) => item.slug === archivedTask.slug), false)
+    assert.deepEqual(
+      archivedItems.filter((item) => item.slug === archivedTask.slug).map((item) => item.slug),
+      [archivedTask.slug]
+    )
+    assert.equal(allItems.some((item) => item.slug === archivedTask.slug), true)
+    assert.equal(allItems.some((item) => item.slug === activeTask.slug), true)
+  } finally {
+    process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
+  }
+})
+
+test('updateTask clears archivedAt when unarchiving a task', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-repository-'))
+  const originalCwd = process.cwd()
+  const originalDataDir = process.env.PROMPTX_DATA_DIR
+  const dataDir = path.join(tempDir, 'data')
+
+  fs.mkdirSync(dataDir, { recursive: true })
+  process.chdir(tempDir)
+  process.env.PROMPTX_DATA_DIR = dataDir
+
+  try {
+    const repository = await import(`./repository.js?test=${Date.now()}`)
+    const { createTask, getTaskBySlug, updateTask } = repository
+
+    const task = createTask({
+      title: 'archivable',
+      visibility: 'private',
+      expiry: 'none',
+    })
+
+    const archived = updateTask(task.slug, {
+      title: task.title,
+      visibility: task.visibility,
+      expiry: task.expiry,
+      archivedAt: '2026-04-15T08:00:00.000Z',
+    })
+
+    assert.equal(String(archived.archivedAt || ''), '2026-04-15T08:00:00.000Z')
+
+    const restored = updateTask(task.slug, {
+      title: task.title,
+      visibility: task.visibility,
+      expiry: task.expiry,
+      archivedAt: '',
+    })
+
+    assert.equal(String(restored.archivedAt || ''), '')
+    assert.equal(String(getTaskBySlug(task.slug)?.archivedAt || ''), '')
+  } finally {
+    process.chdir(originalCwd)
+    if (typeof originalDataDir === 'string') {
+      process.env.PROMPTX_DATA_DIR = originalDataDir
+    } else {
+      delete process.env.PROMPTX_DATA_DIR
+    }
+  }
+})
+
 test('updateTask skips touching updatedAt when payload is unchanged', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promptx-repository-'))
   const originalCwd = process.cwd()

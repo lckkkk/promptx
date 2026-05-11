@@ -314,6 +314,200 @@ test('runManager 可以动态更新 maxConcurrentRuns 并立刻继续拉起排�
   assert.equal(runManager.getDiagnostics().metrics.totalCompleted, 2)
 })
 
+test('runManager 在 local:update 成功后会提前完成当前 run', async () => {
+  const serverClient = createFakeServerClient()
+  const completion = createDeferred()
+  let cancelCalls = 0
+
+  const runManager = createRunManager({
+    serverClient,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(_session, _prompt, callbacks = {}) {
+          callbacks.onEvent?.({
+            type: 'agent_event',
+            event: {
+              type: 'item.completed',
+              item: {
+                type: 'command_execution',
+                command: 'Bash: corepack pnpm local:update',
+                status: 'completed',
+                exit_code: 0,
+                aggregated_output: 'local update queued',
+              },
+            },
+          })
+
+          return {
+            child: {
+              pid: 7301,
+              exitCode: null,
+              signalCode: null,
+            },
+            result: completion.promise,
+            cancel() {
+              cancelCalls += 1
+            },
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-local-update-1',
+    taskSlug: 'task-local-update',
+    sessionId: 'session-local-update-1',
+    title: 'Local Update 1',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'run local update',
+  })
+
+  await delay(40)
+
+  assert.equal(cancelCalls, 1)
+  assert.equal(runManager.getRun('run-local-update-1'), null)
+
+  const completedStatus = serverClient.statuses.find(
+    (item) => item.runId === 'run-local-update-1' && item.status === 'completed'
+  )
+  assert.equal(Boolean(completedStatus), true)
+  assert.equal(completedStatus?.responseMessage, '已提交本地更新，后续重启由后台守护继续执行。')
+})
+
+test('runManager 在 PowerShell 包装的 local:update 成功后也会提前完成当前 run', async () => {
+  const serverClient = createFakeServerClient()
+  const completion = createDeferred()
+  let cancelCalls = 0
+
+  const runManager = createRunManager({
+    serverClient,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(_session, _prompt, callbacks = {}) {
+          callbacks.onEvent?.({
+            type: 'agent_event',
+            event: {
+              type: 'item.completed',
+              item: {
+                type: 'command_execution',
+                command: `"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command 'corepack pnpm local:update'`,
+                status: 'completed',
+                exit_code: 0,
+                aggregated_output: 'local update queued',
+              },
+            },
+          })
+
+          return {
+            child: {
+              pid: 7303,
+              exitCode: null,
+              signalCode: null,
+            },
+            result: completion.promise,
+            cancel() {
+              cancelCalls += 1
+            },
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-local-update-2',
+    taskSlug: 'task-local-update',
+    sessionId: 'session-local-update-2',
+    title: 'Local Update 2',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'run local update with powershell wrapper',
+  })
+
+  await delay(40)
+
+  assert.equal(cancelCalls, 1)
+  assert.equal(runManager.getRun('run-local-update-2'), null)
+
+  const completedStatus = serverClient.statuses.find(
+    (item) => item.runId === 'run-local-update-2' && item.status === 'completed'
+  )
+  assert.equal(Boolean(completedStatus), true)
+  assert.equal(completedStatus?.responseMessage, '已提交本地更新，后续重启由后台守护继续执行。')
+})
+
+test('runManager 不会因为普通命令完成而提前结束 run', async () => {
+  const serverClient = createFakeServerClient()
+  const completion = createDeferred()
+  let cancelCalls = 0
+
+  const runManager = createRunManager({
+    serverClient,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(_session, _prompt, callbacks = {}) {
+          callbacks.onEvent?.({
+            type: 'agent_event',
+            event: {
+              type: 'item.completed',
+              item: {
+                type: 'command_execution',
+                command: 'Bash: pnpm build',
+                status: 'completed',
+                exit_code: 0,
+                aggregated_output: 'build ok',
+              },
+            },
+          })
+
+          return {
+            child: {
+              pid: 7302,
+              exitCode: 0,
+              signalCode: null,
+            },
+            result: completion.promise,
+            cancel() {
+              cancelCalls += 1
+            },
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-normal-command-1',
+    taskSlug: 'task-normal-command',
+    sessionId: 'session-normal-command-1',
+    title: 'Normal Command 1',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'run build',
+  })
+
+  await delay(40)
+
+  const runningSnapshot = runManager.getRun('run-normal-command-1')
+  assert.ok(runningSnapshot)
+  assert.equal(runningSnapshot?.status, 'running')
+  assert.equal(cancelCalls, 0)
+
+  completion.resolve({
+    sessionId: 'session-normal-command-1',
+    threadId: 'thread-normal-command-1',
+    message: 'done',
+  })
+  await delay(40)
+
+  const completedStatus = serverClient.statuses.find(
+    (item) => item.runId === 'run-normal-command-1' && item.status === 'completed'
+  )
+  assert.equal(completedStatus?.responseMessage, 'done')
+})
+
 test('runManager 会为 queued run 持续发送心跳，避免被误判为失联', async () => {
   const serverClient = createFakeServerClient()
   const firstCompletion = createDeferred()
@@ -610,6 +804,76 @@ test('runManager 会统计 event flush 失败次数', async () => {
   const diagnosticsAfterComplete = runManager.getDiagnostics()
   assert.equal(diagnosticsAfterComplete.metrics.totalCompleted, 1)
   assert.equal(serverClient.postEventAttempts >= 2, true)
+})
+
+test('runManager 会按批次大小切分事件上报，避免单次 flush 过大', async () => {
+  const completion = createDeferred()
+  const postBatchSizes = []
+  const maxBatchBytes = 16 * 1024
+  const eventText = 'y'.repeat(1500)
+  const eventCount = 14
+
+  const serverClient = {
+    events: [],
+    statuses: [],
+    async postEvents(items = [], metadata = {}) {
+      const body = JSON.stringify({
+        ...metadata,
+        items,
+      })
+      const bodyBytes = Buffer.byteLength(body, 'utf8')
+      postBatchSizes.push(bodyBytes)
+      this.events.push(...items)
+      return { ok: true }
+    },
+    async postStatus(payload = {}) {
+      this.statuses.push(payload)
+      return { ok: true }
+    },
+  }
+
+  const runManager = createRunManager({
+    serverClient,
+    maxEventBatchBytes: maxBatchBytes,
+    resolveRunner() {
+      return {
+        streamSessionPrompt(_session, _prompt, callbacks = {}) {
+          for (let index = 0; index < eventCount; index += 1) {
+            callbacks.onEvent?.({ type: 'stdout', text: `${index}:${eventText}` })
+          }
+          return {
+            child: {
+              pid: 8011,
+              exitCode: 0,
+              signalCode: null,
+            },
+            result: completion.promise,
+            cancel() {},
+          }
+        },
+      }
+    },
+  })
+
+  await runManager.startRun({
+    runId: 'run-batch-1',
+    taskSlug: 'task-batch-1',
+    sessionId: 'session-batch-1',
+    title: 'Batch 1',
+    engine: 'codex',
+    cwd: process.cwd(),
+    prompt: 'split events',
+  })
+
+  completion.resolve({
+    sessionId: 'session-batch-1',
+    threadId: 'thread-batch-1',
+    message: 'done',
+  })
+  await delay(60)
+
+  assert.equal(postBatchSizes.length >= 2, true)
+  assert.equal(serverClient.events.filter((item) => item.type === 'stdout').length, eventCount)
 })
 
 test('classifyStopTimeoutPhase 会区分 stop_timeout 的尾部阶段', () => {

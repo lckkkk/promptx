@@ -6,8 +6,10 @@ export function getMeta() {
   })
 }
 
-export function listTasks() {
-  return request('/api/tasks')
+export function listTasks(view = 'active') {
+  const params = new URLSearchParams()
+  params.set('view', String(view || 'active').trim() || 'active')
+  return request(`/api/tasks?${params.toString()}`)
 }
 
 export function listTaskWorkspaceDiffSummaries(limit = 30) {

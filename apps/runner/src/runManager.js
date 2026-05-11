@@ -19,6 +19,10 @@ const QUEUED_HEARTBEAT_INTERVAL_MS = Math.max(
 const DEFAULT_STOP_TIMEOUT_MS = Math.max(1000, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_MS) || 10000)
 const STOP_TIMEOUT_BUFFER_MS = Math.max(500, Number(process.env.PROMPTX_RUNNER_STOP_TIMEOUT_BUFFER_MS) || 2000)
 const DEFAULT_MAX_CONCURRENT_RUNS = Math.max(1, Number(process.env.PROMPTX_RUNNER_MAX_CONCURRENT_RUNS) || 3)
+const DEFAULT_MAX_EVENT_BATCH_BYTES = Math.max(
+  16 * 1024,
+  Number(process.env.PROMPTX_RUNNER_EVENT_BATCH_MAX_BYTES) || 256 * 1024
+)
 const RUNNER_ID = String(process.env.PROMPTX_RUNNER_ID || 'local-runner').trim() || 'local-runner'
 
 function nowIso() {
@@ -28,6 +32,42 @@ function nowIso() {
 function normalizeMaxConcurrentRuns(value, fallback = DEFAULT_MAX_CONCURRENT_RUNS) {
   const normalizedFallback = Math.max(1, Number(fallback) || DEFAULT_MAX_CONCURRENT_RUNS)
   return Math.max(1, Number(value) || normalizedFallback)
+}
+
+function normalizeMaxEventBatchBytes(value, fallback = DEFAULT_MAX_EVENT_BATCH_BYTES) {
+  const normalizedFallback = Math.max(16 * 1024, Number(fallback) || DEFAULT_MAX_EVENT_BATCH_BYTES)
+  return Math.max(16 * 1024, Number(value) || normalizedFallback)
+}
+
+function estimateEventBatchBytes(items = [], metadata = {}) {
+  return Buffer.byteLength(JSON.stringify({
+    ...metadata,
+    items,
+  }), 'utf8')
+}
+
+function splitEventItemsIntoBatches(items = [], metadata = {}, maxBatchBytes = DEFAULT_MAX_EVENT_BATCH_BYTES) {
+  const batches = []
+  let currentBatch = []
+
+  ;(Array.isArray(items) ? items : []).forEach((item) => {
+    const nextBatch = [...currentBatch, item]
+    const nextBatchBytes = estimateEventBatchBytes(nextBatch, metadata)
+
+    if (currentBatch.length && nextBatchBytes > maxBatchBytes) {
+      batches.push(currentBatch)
+      currentBatch = [item]
+      return
+    }
+
+    currentBatch = nextBatch
+  })
+
+  if (currentBatch.length) {
+    batches.push(currentBatch)
+  }
+
+  return batches
 }
 
 function normalizeSession(payload = {}) {
@@ -111,6 +151,83 @@ function classifyStoppedErrorReason(context = {}) {
   return 'user_requested_after_error'
 }
 
+function stripMatchingQuotes(value = '') {
+  const text = String(value || '').trim()
+  if (text.length < 2) {
+    return text
+  }
+
+  const first = text[0]
+  const last = text[text.length - 1]
+  if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
+    return text.slice(1, -1).trim()
+  }
+
+  return text
+}
+
+function extractShellWrappedCommand(command = '') {
+  const normalized = String(command || '').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const variants = [normalized]
+  const patterns = [
+    /\s+-command\s+(.+)$/i,
+    /\s+\/c\s+(.+)$/i,
+  ]
+
+  for (const pattern of patterns) {
+    const matched = normalized.match(pattern)
+    if (!matched?.[1]) {
+      continue
+    }
+
+    const nested = stripMatchingQuotes(matched[1])
+    if (nested) {
+      variants.push(nested)
+    }
+  }
+
+  return [...new Set(variants)]
+}
+
+function isLocalUpdateCommand(command = '') {
+  return extractShellWrappedCommand(command).some((candidate) => {
+    const normalized = String(candidate || '').trim().toLowerCase()
+    if (!normalized) {
+      return false
+    }
+
+    return /(^|:\s*)(corepack\s+)?pnpm\s+local:update\b/.test(normalized)
+      || /(^|:\s*)npm\s+run\s+local:update\b/.test(normalized)
+  })
+}
+
+function isSuccessfulLocalUpdateEvent(event = {}) {
+  if (String(event?.type || '').trim() !== 'agent_event') {
+    return false
+  }
+
+  const agentEvent = event?.event && typeof event.event === 'object' ? event.event : {}
+  const item = agentEvent?.item && typeof agentEvent.item === 'object' ? agentEvent.item : {}
+  if (String(agentEvent?.type || '').trim() !== 'item.completed') {
+    return false
+  }
+  if (String(item?.type || '').trim() !== 'command_execution') {
+    return false
+  }
+
+  const status = String(item?.status || '').trim().toLowerCase()
+  const exitCode = Number(item?.exit_code)
+  if (status !== 'completed' || exitCode !== 0) {
+    return false
+  }
+
+  return isLocalUpdateCommand(item?.command)
+}
+
 export function createRunManager(options = {}) {
   const serverClient = options.serverClient
   const logger = options.logger || console
@@ -118,6 +235,7 @@ export function createRunManager(options = {}) {
   const runtimeConfig = {
     maxConcurrentRuns: normalizeMaxConcurrentRuns(options.maxConcurrentRuns, DEFAULT_MAX_CONCURRENT_RUNS),
   }
+  const maxEventBatchBytes = normalizeMaxEventBatchBytes(options.maxEventBatchBytes, DEFAULT_MAX_EVENT_BATCH_BYTES)
   const activeRuns = new Map()
   const queuedRunIds = []
   const startedAt = nowIso()
@@ -252,11 +370,19 @@ export function createRunManager(options = {}) {
     const pendingItems = context.eventBuffer.splice(0, context.eventBuffer.length)
     context.flushing = true
 
+    const postMetadata = { runnerId: RUNNER_ID }
+    const pendingBatches = splitEventItemsIntoBatches(pendingItems, postMetadata, maxEventBatchBytes)
+
+    let deliveredCount = 0
     try {
-      await serverClient.postEvents(pendingItems, { runnerId: RUNNER_ID })
-      return pendingItems.length
+      for (let index = 0; index < pendingBatches.length; index += 1) {
+        const batch = pendingBatches[index]
+        await serverClient.postEvents(batch, postMetadata)
+        deliveredCount += batch.length
+      }
+      return deliveredCount
     } catch (error) {
-      context.eventBuffer.unshift(...pendingItems)
+      context.eventBuffer.unshift(...pendingItems.slice(deliveredCount))
       context.eventFlushFailureCount = Math.max(0, Number(context.eventFlushFailureCount) || 0) + 1
       context.lastEventFlushFailureAt = nowIso()
       context.lastEventFlushFailureMessage = String(error?.message || error || '').trim()
@@ -409,6 +535,26 @@ export function createRunManager(options = {}) {
     return createRunSnapshot(context)
   }
 
+  async function finalizeRunForLocalUpdate(context) {
+    if (!context || context.finalized || context.localUpdateCompletionRequested) {
+      return createRunSnapshot(context)
+    }
+
+    context.localUpdateCompletionRequested = true
+
+    try {
+      context.stream?.cancel?.({
+        graceMs: 200,
+      })
+    } catch (error) {
+      logger.warn?.(error, 'runner local:update cancel failed before finalize')
+    }
+
+    return finalizeRun(context, 'completed', {
+      responseMessage: '已提交本地更新，后续重启由后台守护继续执行。',
+    })
+  }
+
   async function handleStreamCompletion(context, result = {}) {
     if (context.stopRequestedAt) {
       await finalizeRun(context, 'stopped', {
@@ -461,6 +607,15 @@ export function createRunManager(options = {}) {
       const stream = runner.streamSessionPrompt(context.session, context.prompt, {
         onEvent(event) {
           queueEvent(context, event)
+          if (isSuccessfulLocalUpdateEvent(event)) {
+            if (!context.stream) {
+              context.localUpdateCompletionPending = true
+              return
+            }
+            finalizeRunForLocalUpdate(context).catch((error) => {
+              logger.error?.(error, 'runner local:update finalize failed')
+            })
+          }
         },
         onThreadStarted(threadId) {
           const value = String(threadId || '').trim()
@@ -492,6 +647,13 @@ export function createRunManager(options = {}) {
         startedAt: context.startedAt,
         session: context.session,
       })
+
+      if (context.localUpdateCompletionPending) {
+        context.localUpdateCompletionPending = false
+        stream.result.catch(() => {})
+        await finalizeRunForLocalUpdate(context)
+        return
+      }
 
       if (context.stopRequestedAt) {
         try {
@@ -610,6 +772,7 @@ export function createRunManager(options = {}) {
         config: {
           maxConcurrentRuns: runtimeConfig.maxConcurrentRuns,
           eventFlushIntervalMs: EVENT_FLUSH_INTERVAL_MS,
+          maxEventBatchBytes,
           heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
           queuedHeartbeatIntervalMs: QUEUED_HEARTBEAT_INTERVAL_MS,
           stoppingHeartbeatIntervalMs: STOPPING_HEARTBEAT_INTERVAL_MS,
@@ -668,6 +831,8 @@ export function createRunManager(options = {}) {
         stopStage: '',
         stopTimeoutPhase: '',
         stopCancelErrorMessage: '',
+        localUpdateCompletionRequested: false,
+        localUpdateCompletionPending: false,
         finalized: false,
         launching: false,
         child: null,

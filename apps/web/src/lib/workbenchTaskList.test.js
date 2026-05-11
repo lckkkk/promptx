@@ -22,8 +22,8 @@ test('filterTasksBySessionIds returns all tasks when no filter is selected', () 
   assert.deepEqual(items.map((item) => item.slug), ['a', 'b'])
 })
 
-test('resolveSwipeEndOffset snaps open only after threshold', () => {
-  assert.equal(resolveSwipeEndOffset(20), 0)
-  assert.equal(resolveSwipeEndOffset(44), 88)
-  assert.equal(resolveSwipeEndOffset(120), 88)
+test('resolveSwipeEndOffset snaps to full three-action width only after threshold', () => {
+  assert.equal(resolveSwipeEndOffset(40), 0)
+  assert.equal(resolveSwipeEndOffset(132), 264)
+  assert.equal(resolveSwipeEndOffset(320), 264)
 })
